@@ -1,0 +1,571 @@
+#include "VfsExportImport.h"
+#include <PalmOS.h>
+#include <VfsMgr.h>
+#include "ops.h"
+
+
+static const char mStrLaunchDbName[] = "psysLaunchDB";
+static const char mStrBkpPath[] = "/PALM/PROGRAMS/BKP1";	//trailing slash NOT allowed
+static const char mStrReset[] = "Restore completed. Device must now reset";
+static const char mStrSpace[] = " ";
+static const char mStrSlash[] = "/";
+
+
+struct BackupProgressState {
+	
+	BackupProgressF progressF;
+	void *progressD;
+	UInt16 fileIdx, numFiles;
+	UInt32 startSizeDone, thisFileSize, totalSize;
+	const char *name;
+};
+
+
+//we generate only short names to save card space wasted on dir entries otherwise
+//we only back up RAM card 0 becase, well, because....
+
+static Err backupPrvCreateDirs(UInt16 vrn)
+{
+	char *path = MemPtrNew(sizeof(mStrBkpPath) + 1);
+	Err e = errNone;
+	UInt16 i;
+	
+	if (!path)
+		return memErrNotEnoughSpace;
+	
+	for (i = 0; i < sizeof(mStrBkpPath); i++) {
+		
+		if (i && (mStrBkpPath[i] == '/' || mStrBkpPath[i] == 0)) {
+			path[i] = 0;
+			
+			(void)VFSDirCreate(vrn, path);
+		}
+		path[i] = mStrBkpPath[i];
+	}
+	
+	MemPtrFree(path);
+	
+	return e;
+}
+
+//assumes some pre-setup
+static void backupPrvFormPath(char *filePathPart, UInt16 idx, Boolean isResDB)
+{
+	StrIToH(filePathPart, idx);
+	*(filePathPart += 8) = '.';
+	filePathPart += 2;
+	if (isResDB) {
+		*filePathPart++ = 'R';
+		*filePathPart++ = 'C';
+	}
+	else {
+		*filePathPart++ = 'D';
+		*filePathPart++ = 'B';
+	}
+}
+
+static char* backupPrvAllocPath(char **filePathPartP, const char *dir)
+{
+	char *filePathPart, *filePath = MemPtrNew(sizeof(mStrBkpPath) + 1 +  StrLen(dir) + 1 + 8 + 1 + 3 + 1);	//slash, name, dot, ext, nul
+	UInt16 len;
+	
+	if (!filePath)
+		return NULL;
+	
+	StrCopy(filePath, mStrBkpPath);
+	StrCat(filePath, mStrSlash);
+	StrCat(filePath, dir);
+	if (!(len = StrLen(filePath)) || filePath[len - 1] != '/')
+		filePath[len++] = '/';
+	filePathPart = filePath + len;
+	filePathPart[9] = 'P';
+	filePathPart[12] = 0;
+	
+	*filePathPartP = filePathPart;
+	return filePath;
+}
+
+static Err backupPrvExportImportProc(UInt32 totalBytes, UInt32 offset, void *userDataP)
+{
+	struct BackupProgressState *state = (struct BackupProgressState*)userDataP;
+	
+	if (offset == 0 || offset == totalBytes)		//we sometimes get called with zero or full size - ignore that, do not waste time on updating the UI yet again
+		return errNone;
+	
+	else {
+		
+		UInt32 doneSoFar = (unsigned long long)offset * state->thisFileSize / totalBytes;	//scale
+
+		state->progressF(state->progressD, BackupCopying, state->fileIdx, state->numFiles, state->startSizeDone + doneSoFar, state->totalSize, state->name);
+	}
+	
+	return 0;
+}
+
+Err backupDo(UInt16 vrn, const char *bkpName, BackupProgressF progressF, BackupFailHandlerF errF, void *progressD)		//path is dir we'll create
+{
+	UInt16 i, numFiles, numRamFiles = 0, idxRamFile = 0, selfCard;
+	UInt32 sizeTotal = 0, sizeDone = 0, now;
+	struct BackupProgressState exportState;
+	char *filePath, *filePathPart;
+	char name[dmDBNameLength];
+	LocalID LID, selfLID;
+	Err e;
+	
+	SysCurAppDatabase(&selfCard, &selfLID);
+	
+	e = backupPrvCreateDirs(vrn);
+	if (e != errNone)
+		goto out;
+	
+	filePath = backupPrvAllocPath(&filePathPart, bkpName);
+	if (!filePath) {
+		e = memErrNotEnoughSpace;
+		goto out;
+	}
+	
+	numFiles = DmNumDatabases(0) - 1 /* skip self */;
+	
+	//tell caller
+	e = progressF(progressD, BackupStarting, 0, 0, 0, 0, NULL);
+	if (e != errNone)
+		goto out_free;
+	
+
+	//enumerate them first so we can give proper reports
+	for (i = 0; i < numFiles; i++) {
+		
+		LID = DmGetDatabase(0, i);
+		
+		if (MemLocalIDKind(LID) != memIDHandle)
+			continue;
+		
+		if (selfCard == 0 && selfLID == LID)	//skip self
+			continue;
+		
+		//PalmOs below 4.1 does not like LaunchDB touched
+		if (errNone == DmDatabaseInfo(0, LID, name, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL) && !StrCompare(name, mStrLaunchDbName))
+			continue;
+		
+		numRamFiles++;
+		e = DmDatabaseSize(0, LID, NULL, &now, NULL);
+		if (e != errNone)
+			goto out_free;
+		
+		sizeTotal += now;
+	}
+	
+	//create dir in preparation for backup
+	filePathPart[-1] = 0;	//remove slash and terminate for now
+	e = VFSDirCreate(vrn, filePath);
+	if (e != errNone)
+		goto out_free;
+	filePathPart[-1] = '/';	//restore slash
+
+	
+	exportState.progressF = progressF;
+	exportState.progressD = progressD;
+	exportState.numFiles = numRamFiles;
+	exportState.totalSize = sizeTotal;
+		
+	//now copy
+	for (i = 0; i < numFiles; i++) {
+		
+		UInt16 attr;
+		
+		LID = DmGetDatabase(0, i);
+		
+		if (MemLocalIDKind(LID) != memIDHandle)
+			continue;
+		
+		if (selfCard == 0 && selfLID == LID)	//skip self
+			continue;
+		
+		e = DmDatabaseInfo(0, LID, name, &attr, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+		if (e != errNone)
+			break;
+		
+		//PalmOs below 4.1 does not like LaunchDB touched
+		if (!StrCompare(name, mStrLaunchDbName))
+			continue;
+		
+		//form name
+		backupPrvFormPath(filePathPart, idxRamFile, !!(attr & dmHdrAttrResDB));
+		
+		e = progressF(progressD, BackupCopying, idxRamFile, numRamFiles, sizeDone, sizeTotal, name);
+		if (e != errNone)
+			break;
+		
+		e = DmDatabaseSize(0, LID, NULL, &now, NULL);
+		if (e != errNone)
+			goto out_free;
+		
+		exportState.fileIdx = idxRamFile;
+		exportState.startSizeDone = sizeDone;
+		exportState.thisFileSize = now;
+		exportState.name = name;
+		e = MyVFSExportDatabaseToFileCustom(vrn, filePath, 0, LID, backupPrvExportImportProc, &exportState);
+		idxRamFile++;
+		if (e != errNone)
+			e = errF(progressD, name, e);
+		if (e != errNone)
+			break;
+		
+		//report
+		e = progressF(progressD, BackupCopying, idxRamFile, numRamFiles, sizeDone += now, sizeTotal, name);
+		if (e != errNone)
+			break;
+		
+	}
+	
+	if (i != numFiles) {	//we had an error delete up & ivcluding to index i
+		
+		UInt16 j;
+		
+		for (j = 0; j <= i; j++) {
+			
+			//brute force the sucker
+			backupPrvFormPath(filePathPart, j, true);
+			(void)VFSFileDelete(vrn, filePath);
+			
+			backupPrvFormPath(filePathPart, j, false);
+			(void)VFSFileDelete(vrn, filePath);
+		}
+		
+		filePathPart[-1] = 0;	//remove slash
+		(void)VFSFileDelete(vrn, filePath);
+	}
+	
+
+	(void)progressF(progressD, BackupDone, 0, 0, 0, 0, NULL);
+
+out_free:
+	MemPtrFree(filePath);
+
+out:
+	return e;
+}
+
+
+static Err backupPrvOpenSpecificFile(UInt16 vrn, char *filePath, char *filePathPart, UInt16 idx, Boolean res, FileRef *fP)
+{
+	backupPrvFormPath(filePathPart, idx, res);
+	return VFSFileOpen(vrn, filePath, vfsModeRead, fP);
+}
+
+static Err backupPrvOpenIndexedFile(UInt16 vrn, char *filePath, char *filePathPart, UInt16 idx, FileRef *fP)
+{
+	Err e;
+	
+	e = backupPrvOpenSpecificFile(vrn, filePath, filePathPart, idx, true, fP);
+	if (e == vfsErrFileNotFound)
+		e = backupPrvOpenSpecificFile(vrn, filePath, filePathPart, idx, false, fP);
+	
+	return e;
+}
+
+Err backupRestore(UInt16 vrn, const char *bkpName, BackupProgressF progressF, BackupFailHandlerF errF, void *progressD)
+{
+	UInt32 totalSize = 0, doneSize = 0, now;
+	struct BackupProgressState importState;
+	char *filePath, *filePathPart;
+	UInt16 numFiles = 0, i;
+	FileRef f;
+	Err e;
+	
+	
+	filePath = backupPrvAllocPath(&filePathPart, bkpName);
+	if (!filePath) {
+		e = memErrNotEnoughSpace;
+		goto out;
+	}
+	
+	e = progressF(progressD, BackupStarting, 0, 0, 0, 0, NULL);
+	if (e != errNone)
+		goto out_free;
+	
+	//count files
+	while (1) {
+		
+		e = backupPrvOpenIndexedFile(vrn, filePath, filePathPart, numFiles, &f);
+		if (e == vfsErrFileNotFound) {
+			e = errNone;
+			break;
+		}
+		else if (e != errNone)
+			goto out_free;
+		
+		e = VFSFileSize(f, &now);
+		if (e != errNone)
+			goto close_file_and_free;
+		
+		totalSize += now;
+		numFiles++;
+		
+		e = VFSFileClose(f);
+		if (e != errNone)
+			goto out_free;
+	}
+	
+	importState.progressF = progressF;
+	importState.progressD = progressD;
+	importState.numFiles = numFiles;
+	importState.totalSize = totalSize;
+		
+	//restore
+	for (i = 0; i < numFiles; i++) {
+	
+		char name[dmDBNameLength];
+		UInt16 cardNo;
+		LocalID LID;
+
+		e = backupPrvOpenIndexedFile(vrn, filePath, filePathPart, i, &f);
+		if (e != errNone)
+			goto out_free;
+				
+		e = VFSFileSize(f, &now);
+		if (e != errNone)
+			goto close_file_and_free;
+		
+		e = VFSFileDBInfo(f, name, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+		if (e != errNone)
+			goto close_file_and_free;
+		
+		e = progressF(progressD, BackupCopying, i, numFiles, doneSize, totalSize, name);
+		if (e != errNone)
+			goto close_file_and_free;
+		
+		e = VFSFileClose(f);
+		if (e != errNone)
+			goto out_free;
+		
+		importState.fileIdx = i;
+		importState.startSizeDone = doneSize;
+		importState.thisFileSize = now;
+		importState.name = name;
+		e = MyVFSImportDatabaseFromFileCustom(vrn, filePath, &cardNo, &LID, backupPrvExportImportProc, &importState);
+		if (e == dmErrAlreadyExists) {
+		
+			e = DmDeleteDatabase(cardNo, LID);
+
+			if (e != errNone) {
+				
+				UInt32 typeAndCrid = '~~~~';
+				UInt16 attrs, x = 0;
+				char tmpName[16];
+				
+				//get a name
+				do {
+					tmpName[0] = '~';
+					tmpName[1] = 'D';
+					tmpName[2] = '-';
+					StrIToA(tmpName + 3, x++);
+					
+				} while (DmFindDatabase(cardNo, tmpName));
+				
+				if (errNone == DmDatabaseInfo(cardNo, LID, NULL, &attrs, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)) {
+					attrs |= dmHdrAttrRecyclable;
+					DmSetDatabaseInfo(cardNo, LID, tmpName, &attrs, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &typeAndCrid, &typeAndCrid);
+				}
+			}
+			e = MyVFSImportDatabaseFromFileCustom(vrn, filePath, &cardNo, &LID, backupPrvExportImportProc, &importState);
+		}
+		
+		if (e != errNone)
+			e = errF(progressD, name, e);
+		if (e != errNone)
+			goto out_free;
+		
+		doneSize += now;
+		
+		e = progressF(progressD, BackupCopying, i, numFiles, doneSize, totalSize, name);
+		if (e != errNone)
+			goto close_file_and_free;
+	}
+	
+	(void)progressF(progressD, BackupDone, 0, 0, 0, 0, NULL);
+	
+	FrmCustomAlert(1001, mStrReset, mStrSpace, mStrSpace);
+	SysReset();
+
+out_free:
+	MemPtrFree(filePath);
+	
+out:
+	return e;
+
+close_file_and_free:
+	VFSFileClose(f);
+	goto out_free;
+}
+
+Err backupDelete(UInt16 vrn, const char *bkpName, BackupProgressF progressF, void *progressD)
+{
+	char *fullPath = MemPtrNew(sizeof(mStrBkpPath) + 1 + StrLen(bkpName) + 255 + 1 + 1);
+	FileInfoType fit;
+	FileRef f;
+	UInt16 i;
+	Err e;
+	
+	if (!fullPath) {
+	
+		e = memErrNotEnoughSpace;
+		goto out;
+	}
+	
+	e = progressF(progressD, BackupStarting, 0, 0, 0, 0, NULL);
+	if (e != errNone)
+		goto out_free;
+
+	StrCopy(fullPath, mStrBkpPath);
+	StrCat(fullPath, mStrSlash);
+	StrCat(fullPath, bkpName);
+	if (!(i = StrLen(fullPath)) || fullPath[i - 1] != '/') {
+		fullPath[i] = '/';
+		i++;
+	}
+	fit.nameP = fullPath + i;
+	fit.nameBufLen = 255;
+	
+	fit.nameP[-1] = 0;	//remove slash for now
+	e = VFSFileOpen(vrn, fullPath, vfsModeRead, &f);
+	if (e != errNone)
+		goto out_free;
+	fit.nameP[-1] = '/';	//restore slash
+	
+	while (1) {
+		UInt32 iter = vfsIteratorStart;	//as we delete, iterator becomes invalid, so we restart each time
+		
+		e = VFSDirEntryEnumerate(f, &iter, &fit);
+		if (e == expErrEnumerationEmpty) {
+			e = errNone;
+			break;
+		}
+		if (e != errNone)
+			goto close_file_and_free;
+		
+		e = VFSFileDelete(vrn, fullPath);
+		if (e != errNone)
+			goto close_file_and_free;
+	}
+	
+	(void)VFSFileClose(f);
+	fit.nameP[-1] = 0;	//remove slash
+	e = VFSFileDelete(vrn, fullPath);
+	
+	(void)progressF(progressD, BackupDone, 0, 0, 0, 0, NULL);
+	
+out_free:
+	MemPtrFree(fullPath);
+
+out:
+	return e;
+
+close_file_and_free:
+	VFSFileClose(f);
+	goto out_free;
+}
+
+Err backupRename(UInt16 vrn, const char *bkpName, const char *newName)
+{
+	char *fullPath = MemPtrNew(sizeof(mStrBkpPath) + 1 + StrLen(bkpName) + 255 + 1 + 1);
+	UInt16 L;
+	Err e;
+	
+	if (!fullPath)
+		return memErrNotEnoughSpace;
+	
+	StrCopy(fullPath, mStrBkpPath);
+	StrCat(fullPath, mStrSlash);
+	StrCat(fullPath, bkpName);
+	L = StrLen(fullPath);
+	
+	while (L && fullPath[L - 1] == '/')
+		fullPath[--L] = 0;
+	
+	e = VFSFileRename(vrn, fullPath, newName);
+	
+	MemPtrFree(fullPath);
+	
+	return e;
+}
+
+Err backupEnumerate(UInt16 vrn, BackupEnumF enumF, void *enumD)
+{
+	UInt32 iter = vfsIteratorStart;
+	FileInfoType fit;
+	FileRef f, setF;
+	Err e;
+	
+	//ignore the error here, but create the dir so the user knows about it...
+	(void)backupPrvCreateDirs(vrn);
+	
+	fit.nameP = MemPtrNew((fit.nameBufLen = 255) + 1);
+	if (!fit.nameP) {
+	
+		e = memErrNotEnoughSpace;
+		goto out;
+	}
+	
+	e = VFSFileOpen(vrn, mStrBkpPath, vfsModeRead, &f);
+	if (e != errNone) {
+		if (e == vfsErrFileNotFound)	//no backup dir == no backups (but not an error)
+			e = errNone;
+		goto out_free;
+	}
+	
+	do {
+		
+		e = VFSDirEntryEnumerate(f, &iter, &fit);
+		if (e == expErrEnumerationEmpty) {
+		
+			e = errNone;
+			break;
+		}
+	
+		e = enumF(enumD, fit.nameP);
+		if (e != errNone)
+			break;
+	
+	} while (iter != vfsIteratorStop);
+	
+	(void)VFSFileClose(f);
+
+out_free:
+	MemPtrFree(fit.nameP);
+	
+out:
+	return e;
+}
+
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

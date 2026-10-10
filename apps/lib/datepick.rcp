@@ -1,0 +1,32 @@
+// datepick.rcp - full-range date picker, laid out to match the ROM SelectDay
+// "Go to Date" dialog exactly. Include from an app's .rcp with:
+//   #include "datepick.rcp"   (pilrc -I ../lib). Drawn/handled by datepick.c.
+// Full-screen (origin 0,0) so the day-calendar gadget's window coords match
+// absolute pen coords. Year arrows use symbolFont (font 4) chars 2/3 = left/right.
+FORM ID 8000 AT (2 2 156 156) MODAL FRAME
+USABLE
+BEGIN
+    TITLE "Go to Date"
+
+    LABEL "      " ID 8010 AT (65 16) FONT 1
+    REPEATBUTTON "\x02" ID 8200 AT (46 14 15 15) NOFRAME FONT 4
+    REPEATBUTTON "\x03" ID 8201 AT (92 14 15 15) NOFRAME FONT 4
+
+    PUSHBUTTON "Jan" ID 8101 AT (9 31 22 13) GROUP 1
+    PUSHBUTTON "Feb" ID 8102 AT (32 31 22 13) GROUP 1
+    PUSHBUTTON "Mar" ID 8103 AT (55 31 22 13) GROUP 1
+    PUSHBUTTON "Apr" ID 8104 AT (78 31 22 13) GROUP 1
+    PUSHBUTTON "May" ID 8105 AT (101 31 22 13) GROUP 1
+    PUSHBUTTON "Jun" ID 8106 AT (124 31 22 13) GROUP 1
+    PUSHBUTTON "Jul" ID 8107 AT (9 45 22 13) GROUP 1
+    PUSHBUTTON "Aug" ID 8108 AT (32 45 22 13) GROUP 1
+    PUSHBUTTON "Sep" ID 8109 AT (55 45 22 13) GROUP 1
+    PUSHBUTTON "Oct" ID 8110 AT (78 45 22 13) GROUP 1
+    PUSHBUTTON "Nov" ID 8111 AT (101 45 22 13) GROUP 1
+    PUSHBUTTON "Dec" ID 8112 AT (124 45 22 13) GROUP 1
+
+    GADGET ID 8300 AT (7 63 140 70)
+
+    BUTTON "Cancel" ID 8003 AT (5 138 40 13)
+    BUTTON "Today"  ID 8001 AT (51 138 40 13)
+END

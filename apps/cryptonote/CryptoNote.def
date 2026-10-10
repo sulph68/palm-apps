@@ -1,0 +1,2 @@
+application { "CryptoNote" CrNt backup ok-to-install-newer }
+multiple code { "sec001" }

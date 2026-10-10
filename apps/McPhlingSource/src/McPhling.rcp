@@ -1,0 +1,1024 @@
+///////////////////////////////////////////////////////////////////////////////
+//                                                                           //
+//        Program Name:  McPhling.rcp                                        //
+//              Author:  Mike McCollister (� 2000-2009)                      //
+//     Original Author:  Mitch Blevins <mblevin@debian.org> (� 1997-2000)    //
+//            Language:  PRC-Tools 2.3                                       //
+//                       Palm OS 5 SDK R3                                    //
+//                       PilRC 3.2                                           //
+//                       HandEra Header Files from SDK 1.04                  //
+//                       palmOne Header Files from SDK version 5.1           //
+//                       Sony Header Files from SDK 5.0 version 1.2          //
+//               Notes:  Distributed under the GNU GPL.                      //
+//                       Based on LinkHistoryHack by Ben Darnell             //
+//                       <bgdarnel@unity.ncsu.edu> which was based on        //
+//                       SampleHack by Roger Chaplin                         //
+//                       <foursquaredev@att.net>.                            //
+//         Description:  McPhling Resource File                              //
+//                                                                           //
+///////////////////////////////////////////////////////////////////////////////
+
+///////////////////
+// Include Files //
+///////////////////
+
+#include "McPhling.rch"
+
+////////////////
+// About Form //
+////////////////
+
+#ifndef STANDALONE
+FORM AboutForm AT (MIN_X_MOD MIN_Y_MOD MAX_WIDTH_MOD MAX_HEIGHT_MOD)
+MODAL
+USABLE
+DEFAULTBTNID OKButton
+HELPID Help
+BEGIN
+   TITLE "About McPhling"
+
+   FORMBITMAP AT (6 18) BITMAP AboutFormBitmap USABLE
+   LABEL "McPhling 4.82" AUTOID AT (PrevRight+38 PrevTop) FONT 1
+   LABEL "GPL Free Software" AUTOID
+      AT (PrevLeft PrevTop+ABOUT_LINE_SPACING) FONT 0
+   LABEL "� 2000-2009" AUTOID
+      AT (CENTER PrevTop+ABOUT_LINE_SPACING2) FONT 0
+   LABEL "Michael J. McCollister" AUTOID
+      AT (CENTER PrevTop+ABOUT_LINE_SPACING) FONT 0
+   LABEL "E-Mail:" AUTOID AT (CENTER PrevTop+ABOUT_LINE_SPACING2) FONT 1
+   LABEL "support@MikeMcCollister.com" AUTOID
+      AT (CENTER PrevTop+ABOUT_LINE_SPACING) FONT 0
+   LABEL "Web Page:" AUTOID AT (CENTER PrevTop+ABOUT_LINE_SPACING2) FONT 1
+   LABEL "MikeMcCollister.com/palm/" AUTOID
+      AT (CENTER PrevTop+ABOUT_LINE_SPACING) FONT 0
+
+   BUTTON "OK" ID OKButton
+      AT (CENTER MAX_HEIGHT_MOD-17 38 AUTO)
+END
+
+#else
+
+FORM AboutForm AT (MIN_X_MOD MIN_Y_MOD MAX_WIDTH_MOD MAX_HEIGHT_MOD)
+MODAL
+USABLE
+DEFAULTBTNID OKButton
+HELPID Help
+BEGIN
+   TITLE "About McPhling"
+
+   FORMBITMAP AT (6 18) BITMAP AboutFormBitmap USABLE
+   LABEL "McPhling 5.82" AUTOID AT (PrevRight+38 PrevTop) FONT 1
+   LABEL "GPL Free Software" AUTOID
+      AT (PrevLeft PrevTop+ABOUT_LINE_SPACING) FONT 0
+   LABEL "� 2000-2009" AUTOID
+      AT (CENTER PrevTop+ABOUT_LINE_SPACING2) FONT 0
+   LABEL "Michael J. McCollister" AUTOID
+      AT (CENTER PrevTop+ABOUT_LINE_SPACING) FONT 0
+   LABEL "E-Mail:" AUTOID AT (CENTER PrevTop+ABOUT_LINE_SPACING2) FONT 1
+   LABEL "support@MikeMcCollister.com" AUTOID
+      AT (CENTER PrevTop+ABOUT_LINE_SPACING) FONT 0
+   LABEL "Web Page:" AUTOID AT (CENTER PrevTop+ABOUT_LINE_SPACING2) FONT 1
+   LABEL "MikeMcCollister.com/palm/" AUTOID
+      AT (CENTER PrevTop+ABOUT_LINE_SPACING) FONT 0
+
+   BUTTON "OK" ID OKButton
+      AT (CENTER MAX_HEIGHT_MOD-17 38 AUTO)
+END
+#endif
+
+////////////////
+// Prefs Form //
+////////////////
+
+#ifndef STANDALONE
+FORM PrefsForm AT (MIN_X_MOD MIN_Y_MOD MAX_WIDTH_MOD MAX_HEIGHT_MOD)
+NOFRAME
+MODAL
+USABLE
+HELPID Help
+DEFAULTBTNID OKButton
+BEGIN
+   TITLE "McPhling Prefs"
+
+   LIST "" ID AppList AT (5 17 75 APPLIST_HEIGHT_NOMINAL) VISIBLEITEMS 8
+
+   LABEL "List #" ID ListNumLabel AT (85 PrevTop - 1) FONT 1
+   FORMBITMAP AT (PrevRight + 2 PrevTop - 1) BITMAP NumberBox
+   FIELD ID PrefsFieldNumItems AT (PrevRight + 3 PrevTop + 1 11 AUTO)
+      USABLE LEFTALIGN FONT 0 NONEDITABLE SINGLELINE
+   REPEATBUTTON "\001" ID PrefsNumItemsUp
+      AT (PrevLeft + 15 PrevTop - 2 13 8) USABLE NOFRAME FONT 5
+   REPEATBUTTON "\002" ID PrefsNumItemsDown
+      AT (PrevLeft      PrevBottom  13 8) USABLE NOFRAME FONT 5
+
+   CHECKBOX "Icons" ID PrefsShowIcons
+      AT (85            PrevTop + 8    AUTO AUTO)
+   CHECKBOX "Click" ID PrefsClick
+      AT (PrevLeft      PrevBottom - 1 AUTO AUTO)
+   CHECKBOX "Current App."  ID PrefsShowCurrentApp
+      AT (PrevLeft      PrevBottom - 1 AUTO AUTO)
+   CHECKBOX "Select Last"   ID PrefsSelectLast
+      AT (PrevLeft      PrevBottom - 1 AUTO AUTO)
+   CHECKBOX "Mem. Card(s)"  ID PrefsVFSSupport
+      AT (PrevLeft      PrevBottom - 1 AUTO AUTO) NONUSABLE
+
+   LABEL "Sort:" ID PrefsLabelSort AT (5 109) FONT 1
+   POPUPTRIGGER " " ID PrefsPopupTriggerSort
+      AT (PrevRight PrevTop AUTO AUTO)
+      LEFTANCHOR LIST "Most Recently Used"
+                      "MRU w/Favs. at Top"
+                      "MRU w/Favs. at Bottom"
+                      "Alphabetical"
+                      "Alpha. w/Favs. at Top"
+                      "Alpha. w/Favs. at Bottom"
+      ID PrefsListSort AT (PrevLeft Bottom@MAX_HEIGHT AUTO AUTO)
+      NONUSABLE VISIBLEITEMS 6
+   POPUPLIST ID PrefsPopupTriggerSort PrefsListSort
+
+   LABEL "List Position:" ID PrefsLabelAppListPos AT (5 123) FONT 1
+   POPUPTRIGGER " " ID PrefsPopupTriggerAppListPos
+      AT (PrevRight PrevTop AUTO AUTO)
+      LEFTANCHOR LIST "Top Left"
+                      "Top Center"
+                      "Top Right"
+                      "Screen Center"
+                      "Bottom Left"
+                      "Bottom Center"
+                      "Bottom Right"
+      ID PrefsListAppListPos AT (PrevLeft Bottom@MAX_HEIGHT AUTO AUTO)
+      NONUSABLE VISIBLEITEMS 7
+   POPUPLIST ID PrefsPopupTriggerAppListPos PrefsListAppListPos
+
+   BUTTON "OK"          ID OKButton
+      AT (5             139     20   AUTO)
+   BUTTON "Cancel"      ID CancelButton
+      AT (PrevRight + 6 PrevTop 32   AUTO)
+   BUTTON "Activation"  ID PrefsActivationButton
+      AT (PrevRight + 6 PrevTop 49   AUTO)
+   BUTTON "Clear" ID PrefsCacheButton
+      AT (PrevRight + 6 PrevTop 28   AUTO)
+END
+
+#else
+
+FORM PrefsForm AT (0 0 MAX_WIDTH MAX_WIDTH)
+NOFRAME
+USABLE
+MENUID PrefsMenu
+BEGIN
+   TITLE "McPhling"
+
+   CHECKBOX "Enabled" ID PrefsEnabled AT (Right@MAX_WIDTH 1 AUTO AUTO)
+
+   LIST "" ID AppList AT (5 20 75 94) VISIBLEITEMS 8
+
+   LABEL "List #" ID ListNumLabel AT (85 PrevTop - 1) FONT 1
+   FORMBITMAP AT (PrevRight + 2 PrevTop - 1) BITMAP NumberBox
+   FIELD ID PrefsFieldNumItems AT (PrevRight + 3 PrevTop + 1 11 AUTO)
+      USABLE LEFTALIGN FONT 0 NONEDITABLE SINGLELINE
+   REPEATBUTTON "\001" ID PrefsNumItemsUp
+      AT (PrevLeft + 15 PrevTop - 2 13 8) USABLE NOFRAME FONT 5
+   REPEATBUTTON "\002" ID PrefsNumItemsDown
+      AT (PrevLeft      PrevBottom  13 8) USABLE NOFRAME FONT 5
+
+   CHECKBOX "Icons" ID PrefsShowIcons
+      AT (85            PrevTop + 8    AUTO AUTO)
+   CHECKBOX "Click" ID PrefsClick
+      AT (PrevLeft      PrevBottom - 1 AUTO AUTO)
+   CHECKBOX "Current App."  ID PrefsShowCurrentApp
+      AT (PrevLeft      PrevBottom - 1 AUTO AUTO)
+   CHECKBOX "Select Last"   ID PrefsSelectLast
+      AT (PrevLeft      PrevBottom - 1 AUTO AUTO)
+   CHECKBOX "Mem. Card(s)"  ID PrefsVFSSupport
+      AT (PrevLeft      PrevBottom - 1 AUTO AUTO) NONUSABLE
+
+   LABEL "Sort:" ID PrefsLabelSort AT (5 114) FONT 1
+   POPUPTRIGGER " " ID PrefsPopupTriggerSort
+      AT (PrevRight PrevTop AUTO AUTO)
+      LEFTANCHOR LIST "Most Recently Used"
+                      "MRU w/Favs. at Top"
+                      "MRU w/Favs. at Bottom"
+                      "Alphabetical"
+                      "Alpha. w/Favs. at Top"
+                      "Alpha. w/Favs. at Bottom"
+      ID PrefsListSort AT (PrevLeft Bottom@MAX_HEIGHT AUTO AUTO)
+      NONUSABLE VISIBLEITEMS 6
+   POPUPLIST ID PrefsPopupTriggerSort PrefsListSort
+
+   LABEL "List Position:" ID PrefsLabelAppListPos AT (5 128) FONT 1
+   POPUPTRIGGER " " ID PrefsPopupTriggerAppListPos
+      AT (PrevRight PrevTop AUTO AUTO)
+      LEFTANCHOR LIST "Top Left"
+                      "Top Center"
+                      "Top Right"
+                      "Screen Center"
+                      "Bottom Left"
+                      "Bottom Center"
+                      "Bottom Right"
+      ID PrefsListAppListPos AT (PrevLeft Bottom@MAX_HEIGHT AUTO AUTO)
+      NONUSABLE VISIBLEITEMS 7
+   POPUPLIST ID PrefsPopupTriggerAppListPos PrefsListAppListPos
+
+   BUTTON "Activation"  ID PrefsActivationButton
+      AT (1             147     AUTO AUTO)
+   BUTTON "Clear Cache" ID PrefsCacheButton
+      AT (PrevRight + 6 PrevTop AUTO AUTO)
+END
+
+#endif
+
+/////////////////////
+// Activation Form //
+/////////////////////
+
+FORM ActForm AT (MIN_X_MOD MIN_Y_MOD MAX_WIDTH_MOD MAX_HEIGHT_MOD)
+MODAL
+USABLE
+HELPID ActHelp
+DEFAULTBTNID OKButton
+BEGIN
+   TITLE "McPhling Activation"
+
+   CHECKBOX "Swipe"
+      ID ActCheckboxSwipeActivation AT (FORM_LEFT 15 AUTO AUTO)
+
+   CHECKBOX "Command Bar"
+      ID ActCheckboxCmdBarActivation AT (76 PrevTop AUTO AUTO) NONUSABLE
+
+   LABEL "Apps:" ID ActLabelSwipeApps
+       AT (7 PrevTop+LINE_SPACING) FONT 1
+
+   LABEL "F:" ID ActLabelAppsSwipeFrom
+      AT (Right@46 PrevTop) FONT 1
+   POPUPTRIGGER " " ID ActPopupTriggerAppsSwipeFrom
+      AT (PrevRight PrevTop AUTO AUTO) LEFTANCHOR
+      LIST "Left Top (Apps)"
+           "Left Bottom (Menu)"
+           "Right Top (Favorite)"
+           "Right Bottom (Find)"
+      ID ActListAppsSwipeFrom AT (PrevLeft PrevTop AUTO AUTO)
+      NONUSABLE VISIBLEITEMS 4
+   POPUPLIST ID ActPopupTriggerAppsSwipeFrom ActListAppsSwipeFrom
+
+   LABEL "T:" ID ActLabelAppsSwipeTo
+      AT (Right@46 PrevTop+LINE_SPACING) FONT 1
+   POPUPTRIGGER " " ID ActPopupTriggerAppsSwipeTo
+      AT (PrevRight PrevTop AUTO AUTO) LEFTANCHOR
+      LIST "Left Top (Apps)"
+           "Left Bottom (Menu)"
+           "Right Top (Favorite)"
+           "Right Bottom (Find)"
+           "Graffiti Area"
+           "Screen"
+      ID ActListAppsSwipeTo AT (PrevLeft PrevTop AUTO AUTO)
+      NONUSABLE VISIBLEITEMS 6
+   POPUPLIST ID ActPopupTriggerAppsSwipeTo ActListAppsSwipeTo
+
+   LABEL "Back:" ID ActLabelSwipeBack
+       AT (7 PrevTop+LINE_SPACING) FONT 1
+
+   LABEL "F:" ID ActLabelBackSwipeFrom
+      AT (Right@46 PrevTop) FONT 1
+   POPUPTRIGGER " " ID ActPopupTriggerBackSwipeFrom
+      AT (PrevRight PrevTop AUTO AUTO) LEFTANCHOR
+      LIST "Left Top (Apps)"
+           "Left Bottom (Menu)"
+           "Right Top (Favorite)"
+           "Right Bottom (Find)"
+      ID ActListBackSwipeFrom AT (PrevLeft PrevTop AUTO AUTO)
+      NONUSABLE VISIBLEITEMS 4
+   POPUPLIST ID ActPopupTriggerBackSwipeFrom ActListBackSwipeFrom
+
+   LABEL "T:" ID ActLabelBackSwipeTo
+      AT (Right@46 PrevTop+LINE_SPACING) FONT 1
+   POPUPTRIGGER " " ID ActPopupTriggerBackSwipeTo
+      AT (PrevRight PrevTop AUTO AUTO) LEFTANCHOR
+      LIST "Left Top (Apps)"
+           "Left Bottom (Menu)"
+           "Right Top (Favorite)"
+           "Right Bottom (Find)"
+           "Graffiti Area"
+           "Screen"
+      ID ActListBackSwipeTo AT (PrevLeft PrevTop AUTO AUTO)
+      NONUSABLE VISIBLEITEMS 6
+   POPUPLIST ID ActPopupTriggerBackSwipeTo ActListBackSwipeTo
+
+   CHECKBOX "Buttons/Keyboard" ID ActCheckboxKeyboardActivation
+      AT (FORM_LEFT PrevTop+LINE_SPACING-2 AUTO AUTO)
+
+   LABEL "Hold" ID ActLabelKeyboardHold
+      AT (Right@MAX_WIDTH_MOD-4 PrevTop)
+
+   LABEL "Apps:" ID ActLabelKeyboardApps
+      AT (7 PrevTop+LINE_SPACING) FONT 1
+   POPUPTRIGGER " " ID ActPopupTriggerKeyboardApps
+      AT (PrevRight PrevTop AUTO AUTO) LEFTANCHOR
+      LIST "Disabled"
+           "Custom..."
+           "Silk: Left Top"
+           "Silk: Left Bottom"
+           "Silk: Right Top"
+           "Silk: Right Bottom"
+           "Silk: \223abc\224 Keyboard"
+           "Silk: \223123\224 Keyboard"
+           "Page Up"
+           "Page Down"
+           "Hard Key #1"
+           "Hard Key #2"
+           "Hard Key #3"
+           "Hard Key #4"
+           "Legacy: Hard Key #1"
+           "Legacy: Hard Key #2"
+           "Legacy: Hard Key #3"
+           "Legacy: Hard Key #4"
+           "Fossil: Rocker Up"
+           "Fossil: Rocker Down"
+           "Fossil: Rocker Push"
+           "HandEra: Jog Up"
+           "HandEra: Jog Down"
+           "HandEra: Jog Push"
+           "HandEra: Auxiliary"
+           "Keyboard: Fn+Up"
+           "Keyboard: Fn+Down"
+           "Keyboard: Fn+Space"
+           "Kyocera: Jog Up"
+           "Kyocera: Jog Down"
+           "Kyocera: Jog Push"
+           "Kyocera: Vol. Up"
+           "Kyocera: Vol. Down"
+           "Kyocera: OK"
+           "Legacy: 5-way Up"
+           "Legacy: 5-way Down"
+           "Legacy: 5-way Left"
+           "Legacy: 5-way Right"
+           "Palm: Voice Memo"
+           "Palm: Silk Clock"
+           "Palm: Silk Brightness"
+           "Palm: 5-way Up"
+           "Palm: 5-way Down"
+           "Palm: 5-way Left"
+           "Palm: 5-way Right"
+           "Sony: ALT Key"
+           "Sony: CTRL Key"
+           "Sony: Jog Up"
+           "Sony: Jog Down"
+           "Sony: Jog Push"
+           "Sony: Jog Back"
+           "Tapwave: Left Trig."
+           "Tapwave: Right Trig."
+           "Tapwave: Function"
+           "Tapwave: Home Key"
+           "Tapwave: Blue"
+           "Tapwave: Yellow"
+           "Tapwave: Green"
+           "Tapwave: Red"
+           "Tapwave: Bluetooth"
+           "Tapwave: Joy Up"
+           "Tapwave: Joy Down"
+           "Tapwave: Joy Left"
+           "Tapwave: Joy Right"
+           "Treo: Opt+Up"
+           "Treo: Opt+Down"
+           "Treo: Rocker Up"
+           "Treo: Rocker Down"
+           "Treo: Rocker Push"
+           "Treo: Side Button"
+           "Treo: Volume Up"
+           "Treo: Volume Down"
+      ID ActListKeyboardApps AT (PrevLeft PrevTop AUTO AUTO)
+      NONUSABLE VISIBLEITEMS 14
+   POPUPLIST ID ActPopupTriggerKeyboardApps ActListKeyboardApps
+   CHECKBOX "" ID ActCheckboxKeyboardHoldApps
+      AT (Right@MAX_WIDTH_MOD+2 PrevTop AUTO AUTO)
+
+   LABEL "Back:" ID ActLabelKeyboardBack
+      AT (7 PrevTop+LINE_SPACING) FONT 1
+   POPUPTRIGGER " " ID ActPopupTriggerKeyboardBack
+      AT (PrevRight PrevTop AUTO AUTO) LEFTANCHOR
+      LIST ""
+      ID ActListKeyboardBack AT (PrevLeft PrevTop AUTO AUTO)
+      NONUSABLE VISIBLEITEMS 14
+   POPUPLIST ID ActPopupTriggerKeyboardBack ActListKeyboardBack
+   CHECKBOX "" ID ActCheckboxKeyboardHoldBack
+      AT (Right@MAX_WIDTH_MOD+2 PrevTop AUTO AUTO)
+
+   LABEL "Sel.:" ID ActLabelKeyboardSel
+      AT (7 PrevTop+LINE_SPACING) FONT 1
+   POPUPTRIGGER " " ID ActPopupTriggerKeyboardSel
+      AT (PrevRight+6 PrevTop AUTO AUTO) LEFTANCHOR
+      LIST "Disabled"
+           "Hard Key #1"
+           "Hard Key #2"
+           "Hard Key #3"
+           "Hard Key #4"
+      ID ActListKeyboardSel AT (PrevLeft PrevTop AUTO AUTO)
+      NONUSABLE VISIBLEITEMS 5
+   POPUPLIST ID ActPopupTriggerKeyboardSel ActListKeyboardSel
+
+   BUTTON "OK"      ID OKButton
+      AT (5             139     35   AUTO)
+   BUTTON "Cancel"  ID CancelButton
+      AT (PrevRight + 6 PrevTop 35   AUTO)
+   BUTTON "Default" ID ActDefaultButton
+      AT (PrevRight + 6 PrevTop AUTO AUTO)
+END
+
+////////////////////////
+// Custom Button Form //
+////////////////////////
+
+FORM CustomButtonForm AT (MIN_X_MOD 90 MAX_WIDTH_MOD 68)
+MODAL
+USABLE
+HELPID CustomButtonHelp
+DEFAULTBTNID CancelButton
+BEGIN
+   TITLE "Custom Button or Key"
+
+   LABEL "Press Button or Key Now" AUTOID AT (CENTER 15) FONT 1
+
+   CHECKBOX "Details" ID CustomButtonDetailsCheckbox
+      AT (CENTER PrevBottom+4 AUTO AUTO)
+
+   BUTTON "Cancel"  ID CancelButton
+      AT (CENTER        PrevBottom+8 35   AUTO)
+   BUTTON "OK"      ID OKButton
+      AT (PrevRight + 6 PrevTop 35   AUTO) NONUSABLE
+
+   GRAFFITISTATEINDICATOR AT (MAX_WIDTH_MOD-11 68-12)
+END
+
+//////////////////////
+// Please Wait Form //
+//////////////////////
+
+FORM PleaseWaitForm AT (45 70 70 20)
+MODAL
+USABLE
+SAVEBEHIND
+BEGIN
+   LABEL "Please wait" AUTOID AT (CENTER 5) FONT 1
+END
+
+///////////
+// Menus //
+///////////
+
+#ifdef STANDALONE
+MENU ID PrefsMenu
+BEGIN
+   PULLDOWN "Options"
+   BEGIN
+      MENUITEM "Beam McPhling"		menuitemID_beam		"B"
+      MENUITEM "Send McPhling..."	menuitemID_send
+      MENUITEM SEPARATOR
+      MENUITEM "Info..."		menuitemID_info		"I"
+      MENUITEM "About McPhling"		menuitemID_about
+   END
+END
+#endif
+
+/////////////////
+// Alert Forms //
+/////////////////
+
+ALERT ID CacheAlert
+CONFIRMATION
+DEFAULTBUTTON 0
+BEGIN
+   TITLE "Clear Cache"
+   MESSAGE "Are you sure you want to clear the cache of Most Recent Apps?"
+   BUTTONS "OK" "Cancel"
+END
+
+ALERT ID TooManyFavorites
+ERROR
+DEFAULTBUTTON 0
+BEGIN
+   TITLE "Too Many Favorites"
+   MESSAGE "You have already selected the maximum number of favorites.  " \
+           "The maximum that you can select is ^1."
+   BUTTONS "OK"
+END
+
+ALERT ID VFSAlert
+INFORMATION
+DEFAULTBUTTON 0
+HELPID VFSAlertHelp
+BEGIN
+   TITLE "Memory Card(s)"
+   MESSAGE "Enabling Memory Card(s) (VFS Support) may cause this form to " \
+           "take a very long time to redraw.\n" \
+           "\n" \
+           "Do not enable if you are using a utility " \
+           "that allows the built-in launcher to access files on an " \
+           "external memory card (VFS volume)."
+   BUTTONS "OK"
+END
+
+ALERT ID OutOfMemory
+ERROR
+DEFAULTBUTTON 0
+BEGIN
+   TITLE "McPhling"
+   MESSAGE "Not enough memory (RAM) to do this operation.\n" \
+           "\n" \
+           "Error Location #^1.\n" \
+           "^2 Kbytes free."
+   BUTTONS "OK"
+END
+
+ALERT ID OutOfMemoryForVFSList
+ERROR
+DEFAULTBUTTON 0
+BEGIN
+   TITLE "McPhling"
+   MESSAGE "Not enough memory (RAM) to list VFS applications.\n" \
+           "\n" \
+           "Error Location #^1.\n" \
+           "^2 Kbytes free."
+   BUTTONS "OK"
+END
+
+ALERT ID DefaultAlert
+CONFIRMATION
+DEFAULTBUTTON 0
+BEGIN
+   TITLE "Set to Default Values"
+   MESSAGE "Are you sure you want to set all values to their default?"
+   BUTTONS "OK" "Cancel"
+END
+
+ALERT ID CustomButtonDetailsAlert
+INFORMATION
+DEFAULTBUTTON 0
+BEGIN
+   TITLE "Custom Button Details"
+   MESSAGE "Chr: ^1\n" \
+           "Key Code: ^2\n" \
+           "Modifiers: ^3"
+   BUTTONS "OK"
+END
+
+#ifdef STANDALONE
+ALERT ID VersionAlert
+ERROR
+DEFAULTBUTTON 0
+BEGIN
+   TITLE "McPhling"
+   MESSAGE "This program requires Palm OS version 5.x.\n" \
+           "\n" \
+           "Install \223McPhling\224 version 4.x for devices with Palm OS " \
+           "3.x or 4.x.\n" \
+           "\n" \
+           "\223McPhling\224\ will not run on Palm OS Cobalt " \
+           "(version 6.x)."
+   BUTTONS "OK"
+END
+
+ALERT ID MemoryCardAlert
+ERROR
+DEFAULTBUTTON 0
+BEGIN
+   TITLE "McPhling"
+   MESSAGE "\223McPhling\224 will not run from an external memory card.  " \
+           "Copy \223McPhling\224 to main memory in order to proceed."
+   BUTTONS "OK"
+END
+#endif
+
+/////////////
+// Strings //
+/////////////
+
+STRING ID Help
+   "\225 Popup a list of recently used applications or favorite DAs (Desk " \
+   "Accessories) by swiping from the \223Menu\224 button to the \223Apps\224 " \
+   "(\223Home\224) button.  Note that a DA must be set as a favorite in " \
+   "order for it to show up in the application list.  You can change the " \
+   "default swipe or button activation options by pressing the " \
+   "\223Activation\224 button.  Applications that reside on an external " \
+   "memory card will be underlined (see \223Mem. Card(s)\224 below).\n" \
+   "\n" \
+   "\225 Switch from your current application to the previous one by " \
+   "swiping your pen from the silkscreen \223Apps\224 (\223Home\224) button " \
+   "to the right (usually the graffiti area).  You can change the default " \
+   "swipe or button activation options by pressing the \223Activation\224 " \
+   "button.\n" \
+   "\n" \
+   "\225 \223Enabled\224 specifies whether \223McPhling\224 is enabled or " \
+   "disabled.  This option is not available in \223McPhling4\224, the Palm " \
+   "OS extension version, as you will use your extension manager to do " \
+   "this.\n" \
+   "\n" \
+   "\225 \223List #\224 specifies the maximum number of applications in the " \
+   "application list.\n" \
+   "\n" \
+   "\225 \223Icons\224 will specify whether icons will show up in the " \
+   "application list.\n" \
+   "\n" \
+   "\225 \223Click\224 will specify whether a click sound is made when the " \
+   "application list is brought up.\n" \
+   "\n" \
+   "\225 \223Current App.\224 will specify whether the current " \
+   "application is visible in the application list.  However, " \
+   "\223Ignored\224 applications will never be shown.\n" \
+   "\n" \
+   "\225 \223Select Last\224 will enable the selection of the last run " \
+   "non-ignored application in the application list.\n" \
+   "\n" \
+   "\225 \223Mem. Card(s)\224 (VFS Support) will enable built-in support for " \
+   "applications that reside on an external memory card, as designated by " \
+   "the application name being underlined.  (VFS stands for Virtual File " \
+   "System.)  If you are using a utility that mounts applications on this " \
+   "device, then disable this feature.  This feature does not show up if " \
+   "your device does not support external memory cards.\n" \
+   "\n" \
+   "\225 \223Sort\224 specifies the sort order of the application list.  " \
+   "When set to \223Most Recently Used\224 the applications will be sorted " \
+   "by their order of use, so that the most-recently used application is at " \
+   "the bottom of the list (closest to the pen).\n" \
+   "\n" \
+   "\225 \223List Position\224 specifies the position that the application " \
+   "list will appear on the screen.\n" \
+   "\n" \
+   "\225 \223Activation\224 will bring up the \223McPhling\224 activation " \
+   "form.  This form will allow you to specify what swipes, buttons or " \
+   "keyboard key combinations will activate \223McPhling\224.\n" \
+   "\n" \
+   "\225 \223Clear\224 will clear the most recent application cache.\n" \
+   "\n" \
+   "\225 You can mark any application on your Palm OS device to be either a " \
+   "\223Favorite\224 or to be \223Ignored\224.  An application can be made " \
+   "a \223Favorite\224 by tapping on its name until a heart appears next " \
+   "to it in the application list.  Likewise, an application can be marked " \
+   "as \223Ignored\224 by tapping on its name until an \223X\224 appears " \
+   "next to it in the application list.  Applications that are ignored " \
+   "will never show up in the application list, and you can\222t jump " \
+   "back to them with the backstroke (Apps button to graffiti area).  " \
+   "Applications that you mark as \223Favorites\224 will always show up " \
+   "on your application list, and will be shown in bold.  DAs can be " \
+   "either \223Favorite\224 or \223Ignored\224.\n" \
+   "-----------------------------\n" \
+   "\223McPhling\224 is licensed under the GNU GPL and is based on Mitch " \
+   "Blevins\222 program \223PhlegmHack\224.  For more information on the GNU " \
+   "GPL, view the README.htm file or visit gnu.org/copyleft/gpl.html."
+
+#ifndef STANDALONE
+STRING ID ActHelp
+   "\225 \223Swipe\224 enables swipe activation for \223McPhling\224.  " \
+   "\223Apps\224 is the most recently used list and \223Back\224 is for the " \
+   "previous application.  \223F\224 specifies the button FROM which you " \
+   "swipe and \223T\224 specifies the button TO which to swipe.\n" \
+   "\n" \
+   "\225 \223Buttons/Keyboard\224 enables button or keyboard activation for " \
+   "\223McPhling\224.  \223Apps\224 is the most recently used list and " \
+   "\223Back\224 is for the previous application.  The pull-down lists " \
+   "contain popular buttons for your convenience.  If a desired button or " \
+   "key combination does now show up in the list, then use the " \
+   "\223Custom...\224 menu item.  Realize that by specifying one of these " \
+   "buttons the original function of that button or key will be overridden " \
+   "by \223McPhling\224.  Try various button selections to meet your needs.\n" \
+   "\n" \
+   "\225 \223Hold\224 will specify whether a button will respond to a " \
+   "press and hold instead of just a press.  This will only work with " \
+   "hardware buttons and due to the variety of hardware, this " \
+   "feature may not work with your device.\n" \
+   "\n" \
+   "\225 \223Default\224 will put the activation configuration back to the " \
+   "factory default."
+#else
+STRING ID ActHelp
+   "\225 \223Swipe\224 enables swipe activation for \223McPhling\224.  " \
+   "\223Apps\224 is the most recently used list and \223Back\224 is for the " \
+   "previous application.  \223F\224 specifies the button FROM which you " \
+   "swipe and \223T\224 specifies the button TO which to swipe.\n" \
+   "\n" \
+   "\225 \223Command Bar\224 enables activation for \223McPhling\224 via " \
+   "the command bar.  This may slow down the command bar on some devices.\n" \
+   "\n" \
+   "\225 \223Buttons/Keyboard\224 enables button or keyboard activation for " \
+   "\223McPhling\224.  \223Apps\224 is the most recently used list and " \
+   "\223Back\224 is for the previous application.  The pull-down lists " \
+   "contain popular buttons for your convenience.  If a desired button or " \
+   "key combination does now show up in the list, then use the " \
+   "\223Custom...\224 menu item.  Realize that by specifying one of these " \
+   "buttons the original function of that button or key will be overridden " \
+   "by \223McPhling\224.  Try various button selections to meet your needs.\n" \
+   "\n" \
+   "\225 \223Hold\224 will specify whether the button will respond to a " \
+   "press and hold instead of just a press.  This will only work with " \
+   "hardware buttons and due to the variety of hardware, this " \
+   "feature may not work with your device.\n" \
+   "\n" \
+   "\225 \223Default\224 will put the activation configuration back to the " \
+   "factory default."
+#endif
+
+STRING ID CustomButtonHelp
+   "This will enable you to specify a custom key to activate " \
+   "\223McPhling\224.  You can use either \224hard\224 buttons, \223soft\224 " \
+   "buttons, keyboard combinations or special characters.  Just press the " \
+   "key or button that you want to use to activate \223McPhling\224.\n" \
+   "\n" \
+   "\225 \223Details\224 will display the button or key values after they " \
+   "have been captured."
+
+STRING ID VFSAlertHelp
+   "VFS support need only be used if you are not using a utility that " \
+   "allows the built-in launcher to access files on a VFS volume.  Examples " \
+   "of these utilities include \223PiDirect\224, \223AutoCard\224, " \
+   "\223MsMount\224 and \223PowerRUN\224, just to name a few."
+
+/////////////
+// Bitmaps //
+/////////////
+
+BITMAPFAMILYEX ID LineBitmap
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/b072LineBW.bmp"      BPP 1 DENSITY 72
+END
+
+BITMAPFAMILYEX ID NumberBox
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/b072NumberBoxBW.bmp" BPP 1 DENSITY 72
+   BITMAP "bitmaps/b108NumberBoxBW.bmp" BPP 1 DENSITY 108
+END
+
+#ifndef STANDALONE
+BITMAP NumberBox+0x1000
+   "bitmaps/b108NumberBoxBW.bmp"
+   COMPRESS
+
+BITMAPFAMILYEX ID IgnoreBitmap
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/b072IgnoreBW.bmp"       BPP  1 DENSITY 72
+   BITMAP "bitmaps/b072IgnoreColor256.bmp" BPP  8 DENSITY 72
+          TRANSPARENT 192 192 0
+END
+
+BITMAPFAMILYEX ID IgnoreBitmap+0x1000
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/b108IgnoreBW.bmp"       BPP  1 DENSITY 1
+END
+
+BITMAPFAMILYEX ID FavoriteBitmap
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/b072FavoriteBW.bmp"       BPP  1 DENSITY 72
+   BITMAP "bitmaps/b072FavoriteColor256.bmp" BPP  8 DENSITY 72
+          TRANSPARENT 192 192 0
+END
+
+BITMAPFAMILYEX ID FavoriteBitmap+0x1000
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/b108FavoriteBW.bmp"       BPP  1 DENSITY 1
+END
+
+BITMAPFAMILYEX ID DaBitmap
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/b072DaBW.bmp"       BPP  1 DENSITY 72
+   BITMAP "bitmaps/b072DaColor256.bmp" BPP  8 DENSITY 72
+          TRANSPARENT 192 192 0
+END
+
+BITMAPFAMILYEX ID DaBitmap+0x1000
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/b108DaBW.bmp"       BPP  1 DENSITY 1
+END
+
+BITMAPFAMILYEX ID DaSelectBitmap
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/b072DaSelectBW.bmp"       BPP  1 DENSITY 72
+   BITMAP "bitmaps/b072DaSelectColor256.bmp" BPP  8 DENSITY 72
+          TRANSPARENT 192 192 0
+END
+
+BITMAPFAMILYEX ID DaSelectBitmap+0x1000
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/b108DaSelectBW.bmp"       BPP  1 DENSITY 1
+END
+
+BITMAPFAMILYEX ID DaIcon
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/smallIcon072DaBW.bmp"       BPP  1 DENSITY 72
+   BITMAP "bitmaps/smallIcon072DaColor256.bmp" BPP  8 DENSITY 72
+          TRANSPARENT 192 192 0
+END
+
+
+BITMAPFAMILYEX ID DaIcon+0x1000
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/smallIcon108DaBW.bmp"       BPP  1 DENSITY 1
+END
+
+BITMAPFAMILYEX ID AboutFormBitmap
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/icon072BW.bmp"       BPP  1 DENSITY 72
+   BITMAP "bitmaps/icon072Gray4.bmp"    BPP  2 DENSITY 72
+   BITMAP "bitmaps/icon072Color256.bmp" BPP  8 DENSITY 72
+          TRANSPARENT 192 192 0
+END
+
+BITMAPFAMILYEX ID AboutFormBitmap+0x1000
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/icon108BW.bmp"       BPP  1 DENSITY 1
+   BITMAP "bitmaps/icon108Gray4.bmp"    BPP  2 DENSITY 1
+END
+
+#else
+
+BITMAPFAMILYEX ID IgnoreBitmap
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/b072IgnoreBW.bmp"       BPP  1 DENSITY 72
+   BITMAP "bitmaps/b072IgnoreColor256.bmp" BPP  8 DENSITY 72
+          TRANSPARENT 192 192 0
+   BITMAP "bitmaps/b108IgnoreBW.bmp"       BPP  1 DENSITY 108
+   BITMAP "bitmaps/b108IgnoreColor256.bmp" BPP  8 DENSITY 108
+          TRANSPARENT 192 192 0
+   BITMAP "bitmaps/b144IgnoreBW.bmp"       BPP  1 DENSITY 144
+   BITMAP "bitmaps/b144IgnoreColor256.bmp" BPP  8 DENSITY 144
+          TRANSPARENT 192 192 0
+END
+
+BITMAPFAMILYEX ID FavoriteBitmap
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/b072FavoriteBW.bmp"       BPP  1 DENSITY 72
+   BITMAP "bitmaps/b072FavoriteColor256.bmp" BPP  8 DENSITY 72
+          TRANSPARENT 192 192 0
+   BITMAP "bitmaps/b108FavoriteBW.bmp"       BPP  1 DENSITY 108
+   BITMAP "bitmaps/b108FavoriteColor256.bmp" BPP  8 DENSITY 108
+          TRANSPARENT 192 192 0
+   BITMAP "bitmaps/b144FavoriteBW.bmp"       BPP  1 DENSITY 144
+   BITMAP "bitmaps/b144FavoriteColor256.bmp" BPP  8 DENSITY 144
+          TRANSPARENT 192 192 0
+END
+
+BITMAPFAMILYEX ID DaBitmap
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/b072DaBW.bmp"       BPP  1 DENSITY 72
+   BITMAP "bitmaps/b072DaColor256.bmp" BPP  8 DENSITY 72
+          TRANSPARENT 192 192 0
+   BITMAP "bitmaps/b108DaBW.bmp"       BPP  1 DENSITY 108
+   BITMAP "bitmaps/b108DaColor256.bmp" BPP  8 DENSITY 108
+          TRANSPARENT 192 192 0
+   BITMAP "bitmaps/b144DaBW.bmp"       BPP  1 DENSITY 144
+   BITMAP "bitmaps/b144DaColor256.bmp" BPP  8 DENSITY 144
+          TRANSPARENT 192 192 0
+END
+
+BITMAPFAMILYEX ID DaSelectBitmap
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/b072DaSelectBW.bmp"       BPP  1 DENSITY 72
+   BITMAP "bitmaps/b072DaSelectColor256.bmp" BPP  8 DENSITY 72
+          TRANSPARENT 192 192 0
+   BITMAP "bitmaps/b108DaSelectBW.bmp"       BPP  1 DENSITY 108
+   BITMAP "bitmaps/b108DaSelectColor256.bmp" BPP  8 DENSITY 108
+          TRANSPARENT 192 192 0
+   BITMAP "bitmaps/b144DaSelectBW.bmp"       BPP  1 DENSITY 144
+   BITMAP "bitmaps/b144DaSelectColor256.bmp" BPP  8 DENSITY 144
+          TRANSPARENT 192 192 0
+END
+
+BITMAPFAMILYEX ID DaIcon
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/smallIcon072DaBW.bmp"       BPP  1 DENSITY 72
+   BITMAP "bitmaps/smallIcon072DaColor256.bmp" BPP  8 DENSITY 72
+          TRANSPARENT 192 192 0
+   BITMAP "bitmaps/smallIcon108DaBW.bmp"       BPP  1 DENSITY 108
+   BITMAP "bitmaps/smallIcon108DaColor256.bmp" BPP  8 DENSITY 108
+          TRANSPARENT 192 192 0
+   BITMAP "bitmaps/smallIcon144DaBW.bmp"       BPP  1 DENSITY 144
+   BITMAP "bitmaps/smallIcon144DaColor256.bmp" BPP  8 DENSITY 144
+          TRANSPARENT 192 192 0
+END
+
+BITMAPFAMILYEX ID AboutFormBitmap
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/icon072BW.bmp"       BPP  1 DENSITY 72
+   BITMAP "bitmaps/icon072Gray4.bmp"    BPP  2 DENSITY 72
+   BITMAP "bitmaps/icon072Color256.bmp" BPP  8 DENSITY 72
+          TRANSPARENT 192 192 0
+   BITMAP "bitmaps/icon108BW.bmp"       BPP  1 DENSITY 108
+   BITMAP "bitmaps/icon108Gray4.bmp"    BPP  2 DENSITY 108
+   BITMAP "bitmaps/icon108Color256.bmp" BPP  8 DENSITY 108
+          TRANSPARENT 192 192 0
+   BITMAP "bitmaps/icon144BW.bmp"       BPP  1 DENSITY 144
+   BITMAP "bitmaps/icon144Gray4.bmp"    BPP  2 DENSITY 144
+   BITMAP "bitmaps/icon144Color256.bmp" BPP  8 DENSITY 144
+          TRANSPARENT 192 192 0
+END
+
+BITMAPFAMILYEX ID CmdBarAppsBitmap
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/b072CmdBarAppsBW.bmp"       BPP  1 DENSITY 72
+   BITMAP "bitmaps/b072CmdBarAppsColor256.bmp" BPP  8 DENSITY 72
+          TRANSPARENT 192 192 0
+   BITMAP "bitmaps/b108CmdBarAppsBW.bmp"       BPP  1 DENSITY 108
+   BITMAP "bitmaps/b108CmdBarAppsColor256.bmp" BPP  8 DENSITY 108
+          TRANSPARENT 192 192 0
+   BITMAP "bitmaps/b144CmdBarAppsBW.bmp"       BPP  1 DENSITY 144
+   BITMAP "bitmaps/b144CmdBarAppsColor256.bmp" BPP  8 DENSITY 144
+          TRANSPARENT 192 192 0
+END
+
+#ifdef NOT_IMPLEMENTD
+BITMAPFAMILYEX ID CmdBarBackBitmap
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/b072CmdBarBackBW.bmp"       BPP  1 DENSITY 72
+   BITMAP "bitmaps/b072CmdBarBackColor256.bmp" BPP  8 DENSITY 72
+          TRANSPARENT 192 192 0
+   BITMAP "bitmaps/b108CmdBarBackBW.bmp"       BPP  1 DENSITY 108
+   BITMAP "bitmaps/b108CmdBarBackColor256.bmp" BPP  8 DENSITY 108
+          TRANSPARENT 192 192 0
+   BITMAP "bitmaps/b144CmdBarBackBW.bmp"       BPP  1 DENSITY 144
+   BITMAP "bitmaps/b144CmdBarBackColor256.bmp" BPP  8 DENSITY 144
+          TRANSPARENT 192 192 0
+END
+#endif
+#endif
+
+///////////
+// Icons //
+///////////
+
+#ifdef STANDALONE
+SMALLICONFAMILYEX
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/smallIcon072BW.bmp"       BPP  1 DENSITY 72
+   BITMAP "bitmaps/smallIcon072Color256.bmp" BPP  8 DENSITY 72
+          TRANSPARENT 192 192 0
+   BITMAP "bitmaps/smallIcon108BW.bmp"       BPP  1 DENSITY 108
+   BITMAP "bitmaps/smallIcon108Color256.bmp" BPP  8 DENSITY 108
+          TRANSPARENT 192 192 0
+   BITMAP "bitmaps/smallIcon144BW.bmp"       BPP  1 DENSITY 144
+   BITMAP "bitmaps/smallIcon144Color256.bmp" BPP  8 DENSITY 144
+          TRANSPARENT 192 192 0
+END
+
+ICONFAMILYEX
+COMPRESS
+BEGIN
+   BITMAP "bitmaps/icon072BW.bmp"       BPP  1 DENSITY 72
+   BITMAP "bitmaps/icon072Gray4.bmp"    BPP  2 DENSITY 72
+   BITMAP "bitmaps/icon072Color256.bmp" BPP  8 DENSITY 72
+          TRANSPARENT 192 192 0
+   BITMAP "bitmaps/icon108BW.bmp"       BPP  1 DENSITY 108
+   BITMAP "bitmaps/icon108Gray4.bmp"    BPP  2 DENSITY 108
+   BITMAP "bitmaps/icon108Color256.bmp" BPP  8 DENSITY 108
+          TRANSPARENT 192 192 0
+   BITMAP "bitmaps/icon144BW.bmp"       BPP  1 DENSITY 144
+   BITMAP "bitmaps/icon144Gray4.bmp"    BPP  2 DENSITY 144
+   BITMAP "bitmaps/icon144Color256.bmp" BPP  8 DENSITY 144
+          TRANSPARENT 192 192 0
+END
+#endif
+
+///////////////////////////////
+// McPhlingVFS Embedded Code //
+///////////////////////////////
+
+#ifdef STANDALONE
+DATA "iPRC" ID MCPHLING_VFS_ID "../obj5/McPhlingVFS.prc"
+#else
+DATA "iPRC" ID MCPHLING_VFS_ID "../obj/McPhlingVFS.prc"
+#endif
+
+///////////////////
+// Miscellaneous //
+///////////////////
+
+#ifndef STANDALONE
+APPLICATIONICONNAME ID 3000 "McPhling"
+VERSION "4.82"
+#else
+LAUNCHERCATEGORY "Utilities"
+VERSION "5.82"
+#endif
+
+#ifndef STANDALONE
+// HandEra 330 Support
+HEX "sKst" ID 1000 0x00 0x00 0x00 0x00
+#endif

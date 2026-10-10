@@ -1,0 +1,444 @@
+/* lazyFTP - simple FTP client, UI look-and-feel inspired by axxpac_ftp_src
+ * (original code). Resource IDs are #define'd at the top of LazyFTP.c and
+ * the per-file headers (no separate resource header, matching this suite's
+ * convention for smaller apps). Edit this file directly to tweak layout. */
+
+/* Launcher icon (tAIB 1000/1001) - see icons/mkicon_lazyftp.py. Same
+ * ICON/SMALLICON -> tAIB pipeline as Address35/CryptoNote/Datebook35/ToDo35
+ * (see project memory launcher-icon-tAIB-gotcha - Constructor taif/taic are
+ * ignored by the real launcher, only tAIB renders). */
+ICON "icons/lazyftp_large.bmp"
+SMALLICON "icons/lazyftp_small.bmp"
+
+FORM ID 1000 AT (0 0 160 160)
+USABLE
+MENUID 1600
+BEGIN
+	TITLE "LazyFTP"
+
+	/* Page navigation ("< N of M >") for directory listings too large for
+	 * one page (lzListPageSize entries/page, see Listing.h) - same title-
+	 * bar placement + REPEATBUTTON/glyph idiom as Datebook35's Month View
+	 * prev/next (forms.rcp, frmMonth: FONT 4 renders \x02/\x03 as left/
+	 * right triangle arrows). "N of M" itself is custom-drawn (see
+	 * ListingDrawPageIndicator), not a resource LABEL, since it changes
+	 * dynamically. */
+	REPEATBUTTON "\x02" ID 1009 AT (95 0 11 13) NOFRAME FONT 4
+	REPEATBUTTON "\x03" ID 1010 AT (151 0 12 13) NOFRAME FONT 4
+
+	SCROLLBAR ID 1002 AT (153 17 7 125) USABLE VALUE 0 MIN 0 MAX 0 PAGESIZE 10
+
+	/* Bottom bar: [Upload] __filter field__ [Cancel] - same layout idiom as
+	 * Address35's frmMain Find bar ([New] field [Clear]); filters live as
+	 * every keystroke fires (MainFormHandleEvent's keyDownEvent dispatches
+	 * to the field directly - fldChangedEvent does NOT fire per keystroke
+	 * for a plain SINGLELINE field, see fldchangedevent-not-per-keystroke-
+	 * gotcha in project memory). No graffiti indicator on this row, same as
+	 * Address35's frmMain - no room once the field is present. */
+	BUTTON "Upload"			ID 1004 AT (1 145 40 12)
+	FIELD				ID 1007 AT (45 146 75 12)
+							EDITABLE UNDERLINED SINGLELINE MAXCHARS 60
+	BUTTON "Cancel"			ID 1008 AT (125 145 34 12)
+END
+
+/* Same folder/up-navigation icons already used for SD-card browsing in
+ * Address35/CryptoNote (same design language, per instruction) - copied
+ * from cryptonote/{folder,cardup}.bmp verbatim (byte-identical to
+ * address35's own copies too, an already-shared asset across this suite). */
+BITMAP ID 1005 "folder.bmp"
+BITMAP ID 1006 "cardup.bmp"
+/* Title-bar Cut-buffer indicator (see Listing.c's ListingDrawCutIndicator) -
+ * same small size/format as the two bitmaps above. ID 1011, not 1007 - 1007
+ * is already fldMainFilter (a form-object ID, technically a different
+ * resource namespace than a BITMAP's, but this file's own convention keeps
+ * every ID in a family visually unique regardless of type). */
+BITMAP ID 1011 "cut.bmp"
+
+MENU ID 1600
+BEGIN
+	PULLDOWN "Network"
+	BEGIN
+		MENUITEM "Connect"	ID 1601 "C"
+		MENUITEM SEPARATOR
+		MENUITEM "Disconnect Server"	ID 1602 "D"
+		MENUITEM "Disconnect Network"	ID 1608 "K"
+	END
+	/* Was "Folder" - renamed "Edit" and given Cut/Paste (a move, implemented
+	 * via FtpRename/RNFR+RNTO - see FileActions.c's DoCut/DoPaste) once the
+	 * two-tap select model (Listing.c's gListSel*) made "select a file or
+	 * folder without immediately acting on it" possible. Delete groups with
+	 * Cut/Paste above the separator (all three act on the current selection)
+	 * - "Del Folder" (only ever deleted the CURRENT directory) is gone,
+	 * replaced by this generic "Delete" that acts on whatever's currently
+	 * selected (file or folder, from wherever it's browsed) - see
+	 * FileActions.c's DoDelete. Same ID (1607) as the old Del Folder, just
+	 * renamed - nothing else depended on it. Rename Folder sits with New
+	 * Folder below the separator - now reachable because a folder can be
+	 * selected the same way a file can. */
+	PULLDOWN "Edit"
+	BEGIN
+		MENUITEM "Cut"	ID 1610 "T"
+		MENUITEM "Paste"	ID 1611 "V"
+		MENUITEM "Delete"	ID 1607 "X"
+		MENUITEM SEPARATOR
+		MENUITEM "New Folder"	ID 1603 "N"
+		MENUITEM "Rename Folder"	ID 1612 "M"
+		MENUITEM "Refresh"	ID 1605 "R"
+	END
+	PULLDOWN "Options"
+	BEGIN
+		MENUITEM "Preferences"	ID 1606 "P"
+		MENUITEM "Logs"	ID 1609 "L"
+		MENUITEM "About"	ID 1604 "A"
+	END
+END
+
+/* 3/4-screen connect settings form: a popup switches among 3 saved
+ * server/port/username/password slots. Password field is drawn masked by
+ * our own code (LzTPMask*, always-masked - no reveal-then-hide animation
+ * like Sec35's own password entry, simpler for this app). Bottom-aligned to
+ * (near) the screen edge - was AT (... 120) leaving a bare 20px gap at the
+ * bottom; content also starts at y=19+ now (was y=7+, which clipped into the
+ * dialog's own title bar - every other MODAL dialog in this suite starts
+ * content at y>=16). Width widened to near-full-screen (2px margins, same
+ * as Address35's frmPick precedent) - was 152 with 4px margins, leaving the
+ * dialog visibly narrower than the screen; value fields widened to match
+ * (88->96) so they actually reach the new right edge instead of just the
+ * form outline growing. */
+FORM ID 1200 AT (2 22 156 134)
+FRAME MODAL
+BEGIN
+	TITLE "Connect"
+
+	LABEL "Profile:"				ID 1210 AT (6 20) FONT 1
+	POPUPTRIGGER "1"				ID 1201 AT (59 20 30 12)
+	LIST "1" "2" "3"				ID 1202 AT (59 20 30 33) VISIBLEITEMS 3 NONUSABLE
+	POPUPLIST ID 1201 1202
+
+	LABEL "Retry:"					ID 1218 AT (95 20) FONT 1
+	/* Width narrowed from 20 to 15 (real-hardware report: the popup left a
+	 * leftover screen artifact after the Connect dialog closed) - at width
+	 * 20 the list's right edge sat only 3px from the form's own right edge
+	 * (133+20=153 vs form width 156), likely tight enough that the list's
+	 * own drawn border bled past what the form's WinSaveBits/FrmEraseForm
+	 * restore region captured, so that sliver never got cleared away. 15
+	 * still comfortably fits a single digit + dropdown arrow (already
+	 * confirmed rendering fine at 20 - this is strictly about restore-
+	 * region margin, not content clipping) and leaves 8px of clearance. */
+	POPUPTRIGGER "1"				ID 1219 AT (133 20 15 12)
+	LIST "1" "2" "3"				ID 1220 AT (133 20 15 33) VISIBLEITEMS 3 NONUSABLE
+	POPUPLIST ID 1219 1220
+
+	LABEL "Server:"					ID 1211 AT (6 38) FONT 1
+	FIELD						ID 1203 AT (62 37 88 12)
+									EDITABLE UNDERLINED SINGLELINE MAXCHARS 63
+
+	LABEL "Port:"					ID 1212 AT (6 53) FONT 1
+	FIELD						ID 1204 AT (62 52 88 12)
+									EDITABLE UNDERLINED SINGLELINE NUMERIC MAXCHARS 5
+
+	LABEL "Username:"				ID 1213 AT (6 68) FONT 1
+	FIELD						ID 1205 AT (62 67 88 12)
+									EDITABLE UNDERLINED SINGLELINE MAXCHARS 63
+
+	LABEL "Password:"				ID 1214 AT (6 83) FONT 1
+	FIELD						ID 1206 AT (62 82 88 12)
+									EDITABLE UNDERLINED SINGLELINE MAXCHARS 32
+
+	CHECKBOX "Anonymous login"		ID 1216 AT (6 96 100 12) FONT 0
+	CHECKBOX "Show"					ID 1217 AT (108 96 44 12) FONT 0
+
+	BUTTON "Connect"				ID 1207 AT (6 115 44 14)
+	BUTTON "Cancel"					ID 1208 AT (54 115 44 14)
+
+	/* Own row below the buttons, right-aligned - was sharing the button row
+	 * at the same y as Cancel, landing INSIDE its bounds (78-144) and
+	 * obscuring it. */
+	GRAFFITISTATEINDICATOR AT (145 118)
+END
+
+/* Options > Preferences: 3/4-height (120 of 160px), bottom-aligned to
+ * y=156 (NOT the true screen edge y=160) - matches frmConnect's own fixed
+ * convention above (its comment explains 160 clips/hides the frame's
+ * bottom border; 156 leaves the needed 4px margin for it to render).
+ * Checkboxes sit to the RIGHT of their own label, not inline with their
+ * own caption (unlike Address35's "Show Hidden" checkbox precedent) - per
+ * spec. Checkbox x (112) matches POPUPTRIGGER 1301's own x, since PalmOS
+ * draws a popup trigger's triangle glyph flush against its OWN left edge
+ * (before the label text, not trailing at the right) - lines up the whole
+ * "control" column (triangle + both checkboxes) vertically down the form.
+ * Checkboxes sized 14x14 (was 10x10, which clipped/truncated the native
+ * control's own rendered box - PalmOS checkboxes need a bit more than
+ * just the visible square). */
+FORM ID 1300 AT (2 36 156 120)
+FRAME MODAL
+BEGIN
+	TITLE "Preferences"
+
+	LABEL "Large Dir Cache TTL:"	ID 1310 AT (6 22) FONT 1
+	POPUPTRIGGER "30s"		ID 1301 AT (110 23 38 12)
+	LIST "30s" "1 min" "2 min" "3 min" ID 1302 AT (110 23 38 51) VISIBLEITEMS 4 NONUSABLE
+	POPUPLIST ID 1301 1302
+
+	LABEL "Disconnect on exit:"	ID 1312 AT (6 40) FONT 1
+	CHECKBOX ""			ID 1304 AT (112 40 14 14)
+
+	BUTTON "OK"			ID 1305 AT (6 100 44 14)
+	BUTTON "Cancel"			ID 1306 AT (54 100 44 14)
+END
+
+ALERT ID 1700
+ERROR
+BEGIN
+	TITLE "Error"
+	MESSAGE "^1"
+	BUTTONS "OK"
+END
+
+ALERT ID 1701
+ERROR
+BEGIN
+	TITLE "FTP Error"
+	MESSAGE "^1:\n^2"
+	BUTTONS "OK"
+END
+
+ALERT ID 1702
+INFORMATION
+BEGIN
+	TITLE "lazyFTP"
+	MESSAGE "lazyFTP - a simple FTP client.\n\nUpload, download, and manage files on an FTP server; install downloaded PRC/PDB files directly."
+	BUTTONS "OK"
+END
+
+/* File-tap action dialog. Originally a 4-button ALERT (BUTTONS "Preview"
+ * "Delete" "Rename" "Cancel") - an ALERT lays its buttons out in a single
+ * row, and 4 real captions ("Download" is the widest at 8 chars) ran past
+ * the screen's right edge. Rebuilt as a real FORM with the 4 actions
+ * arranged 2x2 (see FileActions.c's FileActionAlertRun) - button 0's
+ * caption is set at runtime via CtlSetLabel("Preview"/"Download") since a
+ * FORM's own captions, like an ALERT's, are otherwise fixed at compile
+ * time; the filename+prompt line is drawn into fldFileActionMsg
+ * (NONEDITABLE MULTIPLELINES, same "give the field a fresh handle before
+ * FldInsert works" idiom as PromptForm.c) instead of an ALERT's ^1
+ * substitution, which only applies within MESSAGE, not TITLE anyway (real
+ * bug hit with the old ALERT - a first version put the filename in TITLE
+ * and it rendered as the literal unsubstituted text "^1" on screen).
+ *
+ * STANDING RULE (design-stage, restated live - EVERY modal dialog in this
+ * app must be bottom-aligned AND span the full screen width): AT (2 y 156
+ * H), bottom = y+H = 156 (4px margin from the true screen edge, same as
+ * frmConnect/frmPrefs - the ORIGINAL two forms already got this right).
+ * This form and frmPrompt below both drifted from it when first added -
+ * fixed here, and this must not regress on any future dialog. */
+/* Shortened another 10px (102->92) by tightening the internal gaps (label-
+ * to-field, field-to-buttons, between button rows all down to ~2px) rather
+ * than shrinking the field (still 24px tall - room for 2 full lines,
+ * unchanged). Bottom-aligned per the standing rule: AT (2 y 156 H) with
+ * y+H=156 - a previous edit's y/H pair here had drifted off that (some
+ * prior height change wasn't matched with a corresponding y adjustment). */
+FORM ID 1710 AT (2 64 156 92)
+FRAME MODAL
+BEGIN
+	TITLE "File Action"
+
+	LABEL "Filename:"			ID 1716 AT (6 20) FONT 1
+	FIELD						ID 1711 AT (6 32 144 24)
+								NONEDITABLE MULTIPLELINES
+
+	/* 2x2 grid, both columns/rows symmetric (70w x14h each). */
+	BUTTON "Preview"			ID 1712 AT (6 56 70 14)
+	BUTTON "Delete"				ID 1713 AT (82 56 70 14)
+	BUTTON "Rename"				ID 1714 AT (6 74 70 14)
+	BUTTON "Cancel"				ID 1715 AT (82 74 70 14)
+END
+
+/* Shared by the file-action sheet's own Delete button AND Edit > Delete
+ * when the selection is a file (FileActions.c's DoDeleteFile) - one dialog,
+ * reachable both ways, per explicit instruction. No longer names the file
+ * (^1) - matches altConfirmDelFolder's own generic "cannot be undone"
+ * wording/style below rather than the file-specific phrasing this used to
+ * have. */
+ALERT ID 1705
+CONFIRMATION
+BEGIN
+	TITLE "Delete File"
+	MESSAGE "Delete this file?\nThis cannot be undone."
+	BUTTONS "Delete" "Cancel"
+END
+
+ALERT ID 1706
+INFORMATION
+BEGIN
+	TITLE "Imported"
+	MESSAGE "Saved as a new Memo (Unfiled)."
+	BUTTONS "OK"
+END
+
+/* Non-text Download/install path (FileActions.c's DoInstall, FtpRetrieveDatabase
+ * in FtpProtocol.c) - the piece explicitly deferred earlier this session as
+ * "a genuinely separate, larger piece of work" because of exactly these 3
+ * dialogs' worth of real conflict/outcome handling. */
+ALERT ID 1707
+CONFIRMATION
+BEGIN
+	TITLE "Replace"
+	MESSAGE "A database named \"^1\" already exists on this device. Replace it?"
+	BUTTONS "Replace" "Cancel"
+END
+
+ALERT ID 1708
+INFORMATION
+BEGIN
+	TITLE "Installed"
+	MESSAGE "\"^1\" installed."
+	BUTTONS "OK"
+END
+
+ALERT ID 1709
+INFORMATION
+BEGIN
+	TITLE "Installed"
+	MESSAGE "\"^1\" installed. A soft reset is needed for it to take effect."
+	BUTTONS "OK"
+END
+
+/* Folder > Del Folder confirm - deliberately no ^1 filename substitution
+ * (unlike altConfirmDelete/altConfirmOverwrite) since this always acts on
+ * whatever directory is CURRENTLY open, not a named list entry; the strong
+ * "cannot be undone" wording is the whole point per spec. */
+ALERT ID 1720
+CONFIRMATION
+BEGIN
+	TITLE "Delete Folder"
+	/* ALERTs auto-lay-out MESSAGE text (centered, OS-controlled spacing) -
+	 * no per-line pixel Y coordinate to set, unlike the FORM-based dialogs
+	 * elsewhere in this app. Single \n instead of a blank-line \n\n pulls
+	 * this line up (tighter OS-default line spacing) - the closest
+	 * available approximation to an exact pixel offset for this resource
+	 * type. */
+	MESSAGE "Delete this folder and ALL of its contents?\nThis cannot be undone."
+	BUTTONS "Delete" "Cancel"
+END
+
+/* Reusable single-field text prompt (New Folder's name, Rename's new
+ * name) - title/label set at runtime, see PromptForm.c.
+ *
+ * STANDING RULE (design-stage, restated live - EVERY modal dialog in this
+ * app must be bottom-aligned AND span the full screen width): AT (2 y 156
+ * H), bottom = y+H = 156 (4px margin from the true screen edge, same as
+ * frmConnect/frmPrefs - the ORIGINAL two forms already got this right).
+ * This form drifted from it when first added (was AT (10 50 140 70),
+ * neither full-width nor bottom-aligned) - fixed here, must not regress on
+ * any future dialog.
+ *
+ * REAL CRASH FOUND LIVE (separately from the above, same round): TITLE
+ * "Prompt" (6 chars) and LABEL "" (0 chars) were both too short -
+ * FrmCopyTitle/FrmCopyLabel write into the SAME fixed-size buffer the
+ * resource compiled at build time (they do not reallocate), and
+ * PromptFormRun's actual runtime strings ("New Folder" - 10 chars, "Folder
+ * name:" - 12 chars) overflowed them, corrupting the heap and wedging the
+ * CPU inside ROM Form Manager code on the very next form-manager call
+ * (reproduced deterministically in POSE64: tapping Folder > New Folder
+ * froze the emulator, `regs` showed an unmoving PC deep in ROM). Same bug
+ * class as EraNTP's own documented FrmCopyLabel buffer-overflow crash - see
+ * erantp-app project memory. Fixed the same way: pad the initial resource
+ * text with spaces to the longest string any caller will ever write
+ * (PromptFormRun is currently called with "New Folder"/"Folder name:" and
+ * "Rename"/"New name:" - 30 spaces leaves comfortable headroom for both,
+ * plus any future caller). */
+/* Shared by BOTH New Folder and Rename (PromptFormRun is reused for each -
+ * see comment above). Full width, and now extended all the way to the TRUE
+ * screen edge (y+H=160, not the usual 156/"4px margin" convention) per
+ * explicit live feedback that 156 still read as not-bottom-aligned for
+ * this particular dialog - label/field stay put, only the button row (and
+ * the graffiti indicator riding along on the same row) shifted down into
+ * the newly added 4px, keeping their own 4px clearance from the form's
+ * OWN bottom edge. */
+FORM ID 1400 AT (2 86 156 72)
+FRAME MODAL
+BEGIN
+	TITLE "                    "
+	LABEL "                              "	ID 1410 AT (6 16) FONT 1
+	FIELD					ID 1401 AT (6 30 148 12)
+							EDITABLE UNDERLINED SINGLELINE MAXCHARS 63
+	BUTTON "OK"				ID 1402 AT (6 54 44 14)
+	BUTTON "Cancel"				ID 1403 AT (54 54 44 14)
+	GRAFFITISTATEINDICATOR AT (135 54)
+END
+
+/* Full-screen text file preview + "Import to Memo". Same hand-rolled
+ * modal loop pattern as PromptForm/ConnectForm/PrefsForm (see their own
+ * comments for why FrmDoDialog isn't used).
+ *
+ * TITLE padded to 63 spaces (ftpNameLen-1, FtpProtocol.h) - same
+ * FrmCopyTitle buffer-size gotcha as frmPrompt above; PreviewFormRun calls
+ * FrmCopyTitle(frm, filename) with a real filename (e.g.
+ * "kitty-0.42.2-arm64.txz", already 22 chars) which is always longer than
+ * the old literal "Preview" (7 chars) - never actually triggered live this
+ * session only because this path wasn't exercised yet, but it's the exact
+ * same crash waiting to happen. */
+FORM ID 1500 AT (0 0 160 160)
+USABLE
+BEGIN
+	TITLE "                                                               "
+	FIELD							ID 1501 AT (2 16 149 125)
+									NONEDITABLE UNDERLINED MULTIPLELINES
+	SCROLLBAR ID 1502 AT (153 16 7 125) USABLE VALUE 0 MIN 0 MAX 0 PAGESIZE 10
+	BUTTON "Import to Memo"		ID 1503 AT (1 145 90 14)
+	BUTTON "Close"					ID 1504 AT (99 145 60 14)
+END
+
+/* Full-screen "Logs" viewer (Options > Logs) - same layout as frmPreview
+ * above (own file, own form, not a repurposed frmPreview - that one has an
+ * "Import to Memo" button that makes no sense for a log, and this way
+ * neither form has to grow conditional/hidden-button logic), just one
+ * Close button since there's nothing else to do with a run-scoped log. */
+FORM ID 1520 AT (0 0 160 160)
+USABLE
+BEGIN
+	TITLE "Logs"
+	FIELD							ID 1521 AT (2 16 149 125)
+									NONEDITABLE UNDERLINED MULTIPLELINES
+	SCROLLBAR ID 1522 AT (153 16 7 125) USABLE VALUE 0 MIN 0 MAX 0 PAGESIZE 10
+	BUTTON "Close"					ID 1523 AT (1 145 60 14)
+END
+
+/* Full-screen installed-database picker for Upload (Folder... no, main
+ * BUTTON "Upload" on frmMain) - full-screen since a real device can easily
+ * have 30-100+ installed databases, more than any popup could comfortably
+ * show. Choices are set at runtime via LstSetListChoices (UploadForm.c) -
+ * the single blank item here is just a compile-time placeholder pilrc
+ * needs, replaced before the list is ever drawn. */
+FORM ID 1800 AT (0 0 160 160)
+USABLE
+BEGIN
+	TITLE "Upload"
+	LIST " " ID 1801 AT (1 18 158 125) VISIBLEITEMS 11
+	BUTTON "Cancel" ID 1802 AT (1 145 45 14)
+	/* Same bottom-bar Find idiom as frmMain's own fldMainFilter (live
+	 * per-keystroke filter, no separate Find button/Clear needed - typing
+	 * filters, clearing the field shows everything again). */
+	FIELD			ID 1803 AT (49 146 109 12)
+					EDITABLE UNDERLINED SINGLELINE MAXCHARS 60
+END
+
+/* Transfer progress: centered modal shown during upload/download, same
+ * geometry/idiom as Sec35's own frmProgress (sec35.rcp) - drawn as a real
+ * form so the window manager saves/restores what's behind it on init/erase
+ * (no artifacts), title set at runtime ("Uploading"/"Downloading"), bar +
+ * body line (remote filename) drawn into the form by BusyDialog.c. Same
+ * 2px-margin/156-wide convention as this app's other dialogs, but
+ * vertically CENTERED rather than bottom-aligned - deliberate exception,
+ * matching Sec35's own reasoning: a small transient progress toast, not a
+ * data-entry form. Height grew 52->64 (and re-centered, y 54->48) to fit a
+ * horizontally-centered Cancel button below the bar; the bar/body Y offsets
+ * BusyDialog.c draws at are unchanged. */
+FORM ID 1900 AT (2 48 156 64)
+MODAL
+BEGIN
+	TITLE "Working"
+	BUTTON "Cancel"		ID 1901 AT (56 46 44 14)
+END
+
+VERSION ID 1 "1.0"

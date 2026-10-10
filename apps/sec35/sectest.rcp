@@ -1,0 +1,9 @@
+FORM ID 1000 AT (0 0 160 160)
+USABLE
+BEGIN
+  TITLE "SecTest"
+  BUTTON "Self Test" ID 1001 AT (4 16 48 13)
+  BUTTON "Encrypt" ID 1003 AT (55 16 46 13)
+  BUTTON "Decrypt" ID 1004 AT (104 16 46 13)
+  BUTTON "Inspect Address35 DB (at-rest)" ID 1005 AT (4 31 150 13)
+END

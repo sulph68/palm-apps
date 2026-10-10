@@ -1,0 +1,775 @@
+#include "ExgDB.h"
+
+#pragma mark -- structs --
+
+struct PrcHeader {
+	char name[dmDBNameLength];
+	UInt16 attributes;
+	UInt16 version;
+	UInt32 creationDate;
+	UInt32 modificationDate;
+	UInt32 lastBackupDate;
+	UInt32 modificationNumber;
+	UInt32 appInfoOfst;
+	UInt32 sortInfoOfst;
+	UInt32 type;
+	UInt32 crid;
+	UInt32 uniqueIDSeed;
+};
+
+struct ChildListHdr {
+	UInt32 nextListOffset;		//in the PRC serialization this is basically a boolean flag. The next list follows this one necessarily!
+	UInt16 numChildren;
+	//children[]
+};
+
+struct RecordEntry {
+	UInt32 offset;
+	UInt8 attrs;
+	UInt8 uniq[3];
+};
+
+struct ResourceEntry {
+	UInt32 type;
+	UInt16 id;
+	UInt32 offset;
+};
+
+
+static UInt32 _ofst;
+
+#pragma mark -- import --
+
+union RecOrRes {
+	struct RecordEntry rec;
+	struct ResourceEntry res;
+};
+
+//PalmOS1 and PalmOS2 split the storage memory into a number of 64K-sized heaps and MemHandleResize will not move a chunk across heaps
+//this means that we can fail to resize a chunk even while there is plenty of space. This function works around the issue
+static Err exgPrvResizeDmHandle(DmOpenRef db, MemHandle *mhP, UInt32 newLen)
+{
+	MemHandle newH;
+	Err e;
+	
+	if (errNone == MemHandleResize(*mhP, newLen))
+		return errNone;
+	
+	newH = DmNewHandle(db, newLen);
+	if (!newH)
+		return memErrNotEnoughSpace;
+	
+	e = DmWrite(MemHandleLock(newH), 0, MemHandleLock(*mhP), MemHandleSize(*mhP));
+	MemHandleUnlock(newH);
+	MemHandleUnlock(*mhP);
+	
+	if (e != errNone) {
+		MemHandleFree(newH);
+		return e;
+	}
+	
+	MemHandleFree(*mhP);
+	*mhP = newH;
+	
+	return errNone;
+}
+
+
+static Err exgPrvSetRecordInfo(DmOpenRef db, UInt16 recIdx, const struct RecordEntry *rec)
+{
+	UInt32 id = 0x00ffffff & *(const UInt32*)&rec->attrs;
+	UInt16 attr = rec->attrs;
+	
+	return DmSetRecordInfo(db, recIdx, &attr , &id);
+}
+
+static Err exgPrvRead(void *dstP, UInt32 len, ExgDBReadProcPtr readProcP, void *userDataP, UInt32 *numReadP)
+{
+	UInt32 done = 0, now;
+	UInt8* dst = dstP;
+	Err e = errNone;
+	
+	while (done < len) {
+		
+		now = len - done;
+		e = readProcP(dst, &now, userDataP);
+		
+		done += now;
+		dst += now;
+		
+		if (e != errNone || !now)
+			break;
+	}
+	
+	*numReadP = done;
+	
+	_ofst += done;
+	
+	return e;
+}
+
+//readProc reading 0 bytes is EOF
+Err MyExgDBRead(ExgDBReadProcPtr readProcP, ExgDBDeleteProcPtr deleteProcP, void *userDataP, LocalID *dbIDP, UInt16 cardNo, Boolean *needResetP, Boolean keepDates)
+{
+	struct {
+		struct PrcHeader hdr;
+		struct ChildListHdr list;
+	} minFileHdr;
+	UInt32 osVer, len, curOfst, prevEndOfst, dataStart, rxBufSz, ofst, now, totalLen;
+	UInt16 i, recIdx, nSpecialChunks, nDataChunks = 0;
+	Boolean sawFirstResWithData = false;
+	union RecOrRes prev, cur;	//"prev" only tracks rec/res that have data (not NULL records)
+	LocalID LID, tmpLID;
+	MemHandle mh;
+	DmOpenRef db;
+	UInt8 *rxBuf;
+	void *ptr;
+	Err e;
+	
+	*dbIDP = 0;
+	*needResetP = false;
+	
+	_ofst = 0;
+	
+	e = FtrGet(sysFtrCreator, sysFtrNumROMVersion, &osVer);
+	if (e != errNone)
+		return e;
+	
+	rxBufSz = (osVer < sysMakeROMVersion(3,0,0,0,0)) ? 256 : 1024;
+	rxBuf = MemPtrNew(rxBufSz);
+	if (!rxBuf)
+		return memErrNotEnoughSpace;
+		
+	curOfst = sizeof(minFileHdr);
+	e = exgPrvRead(&minFileHdr, sizeof(minFileHdr), readProcP, userDataP, &len);	
+	if (e != errNone)
+		goto out_freebuf;
+	if (len != sizeof(minFileHdr)) {
+		e = dmErrCorruptDatabase;
+		goto out_freebuf;
+	}
+	
+	//no sane tool supports multiple record lists, so let's stop the insanity right here
+	if (minFileHdr.list.nextListOffset) {
+	
+		e = dmErrCorruptDatabase;
+		goto out_freebuf;
+	}
+	
+	//we know there is a zero in the header (as seen above) so StrLen() is safe
+	if (!minFileHdr.hdr.name || StrLen(minFileHdr.hdr.name) >= dmDBNameLength) {
+	
+		e = dmErrCorruptDatabase;
+		goto out_freebuf;
+	}
+	
+	//some more checks
+	if (minFileHdr.hdr.appInfoOfst && minFileHdr.hdr.sortInfoOfst && minFileHdr.hdr.appInfoOfst > minFileHdr.hdr.sortInfoOfst) {
+	
+		e = dmErrCorruptDatabase;
+		goto out_freebuf;
+	}
+	
+	if (!keepDates) {
+	
+		minFileHdr.hdr.creationDate = 0;
+		minFileHdr.hdr.modificationDate = 0;
+		minFileHdr.hdr.lastBackupDate = 0;
+	}
+	
+	//see if the DB exists, handle it
+	LID = DmFindDatabase(cardNo, minFileHdr.hdr.name);
+	if (LID) {
+		
+		*dbIDP = LID;
+		if (!deleteProcP) {
+			e = DmDeleteDatabase(cardNo, LID);
+			if (e != errNone)
+				goto out_freebuf;
+		}
+		else if (!deleteProcP(minFileHdr.hdr.name, minFileHdr.hdr.version, cardNo, LID, userDataP)) {
+			
+			e = errNone;
+			goto out_freebuf;
+		}
+		LID = 0;
+	}
+	
+	//create the DB and get a hold of it
+	e = DmCreateDatabase(cardNo, minFileHdr.hdr.name, minFileHdr.hdr.crid, minFileHdr.hdr.type, !!(minFileHdr.hdr.attributes & dmHdrAttrResDB));
+	if (e != errNone)
+		goto out_freebuf;
+	LID = DmFindDatabase(cardNo, minFileHdr.hdr.name);
+	if (!LID) {
+		
+		e = DmGetLastErr();
+		goto out_freebuf;
+	}
+		
+	//open it, don't let overlays get in the way, but also be mindful that older OSs do not support overlays at all
+	if (osVer < sysMakeROMVersion(3,5,0,0,0))
+		db = DmOpenDatabase(cardNo, LID, dmModeReadWrite);
+	else
+		db = DmOpenDBNoOverlay(cardNo, LID, dmModeReadWrite);
+
+	if (minFileHdr.hdr.appInfoOfst && minFileHdr.hdr.sortInfoOfst) {
+		
+		mh = DmNewHandle(db, minFileHdr.hdr.sortInfoOfst - minFileHdr.hdr.appInfoOfst);
+		if (!mh) {
+		
+			e = memErrNotEnoughSpace;
+			goto out_close;
+		}
+			
+		tmpLID = MemHandleToLocalID(mh);
+		e = DmSetDatabaseInfo(cardNo, LID, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &tmpLID, NULL, NULL, NULL);
+		if (e != errNone) {
+		
+			MemHandleFree(mh);
+			goto out_close;
+		}
+		nDataChunks = 2;
+		dataStart = minFileHdr.hdr.appInfoOfst;
+	}
+	else if (minFileHdr.hdr.appInfoOfst) {
+	
+		nDataChunks = 1;
+		dataStart = minFileHdr.hdr.appInfoOfst;
+	}
+	else if (minFileHdr.hdr.sortInfoOfst) {
+	
+		nDataChunks = 1;
+		dataStart = minFileHdr.hdr.sortInfoOfst;
+	}
+	else
+		nDataChunks = 0;
+	
+	nSpecialChunks = nDataChunks;
+		
+	//get record/resource list, create things as we go
+	for (i = 0; i < minFileHdr.list.numChildren; i++) {
+		
+		UInt32 ofst;
+		
+		if (minFileHdr.hdr.attributes & dmHdrAttrResDB) {
+			
+			e = exgPrvRead(&cur.res, sizeof(struct ResourceEntry), readProcP, userDataP, &len);
+			if (e != errNone)
+				goto out_close;
+			if (len != sizeof(struct ResourceEntry)) {
+				e = dmErrCorruptDatabase;
+				goto out_close;
+			}
+			
+			curOfst += sizeof(struct ResourceEntry);
+			ofst = cur.res.offset;
+			
+			if (!ofst) {	//NULL resources are not allowed
+				
+				e = dmErrCorruptDatabase;
+				goto out_close;
+			}
+		}
+		else {
+			
+			e = exgPrvRead(&cur.rec, sizeof(struct RecordEntry), readProcP, userDataP, &len);
+			if (e != errNone)
+				goto  out_close;
+			if (len != sizeof(struct RecordEntry)) {
+				e = dmErrCorruptDatabase;
+				goto out_close;
+			}
+			
+			curOfst += sizeof(struct RecordEntry);
+			ofst = cur.rec.offset;
+			
+			//NULL records ARE allowed and are handled here directly
+			if (!ofst) {
+						
+				recIdx = dmMaxRecordIndex;
+				e = DmAttachRecord(db, &recIdx, NULL, NULL);
+				if (e != errNone)
+					goto out_close;
+				
+				e = exgPrvSetRecordInfo(db, recIdx, &cur.rec);
+				if (e != errNone)
+					goto out_close;
+				
+				continue;
+			}
+		}
+				
+		//we get here only if we got a rec/res that HAS data
+		nDataChunks++;
+		
+		if (!sawFirstResWithData) {
+			
+			if (!minFileHdr.hdr.sortInfoOfst && !minFileHdr.hdr.appInfoOfst)
+				dataStart = ofst;
+			else {
+								
+				mh = DmNewHandle(db, ofst - (minFileHdr.hdr.sortInfoOfst ? minFileHdr.hdr.sortInfoOfst : minFileHdr.hdr.appInfoOfst));
+				if (!mh) {
+				
+					e = memErrNotEnoughSpace;
+					goto out_close;
+				}
+					
+				tmpLID = MemHandleToLocalID(mh);
+				e = DmSetDatabaseInfo(cardNo, LID, NULL, NULL, NULL, NULL, NULL, NULL, NULL, minFileHdr.hdr.sortInfoOfst ? NULL : &tmpLID, minFileHdr.hdr.sortInfoOfst ? &tmpLID: NULL, NULL, NULL);
+				if (e != errNone) {
+					MemHandleFree(mh);
+					goto out_close;
+				}
+			}
+			sawFirstResWithData = true;
+			prev = cur;
+			continue;
+		}
+		
+		//we get here only for NON-first res/rec with data		
+		if (minFileHdr.hdr.attributes & dmHdrAttrResDB) {
+			
+			mh = DmNewResource(db, prev.res.type, prev.res.id, ofst - prev.res.offset);
+			if (!mh) {
+			
+				e = DmGetLastErr();
+				goto out_close;
+			}
+			DmReleaseResource(mh);
+		}
+		else {
+			
+			recIdx = dmMaxRecordIndex;
+			mh = DmNewRecord(db, &recIdx, ofst - prev.rec.offset);
+			if (!mh) {
+			
+				e = DmGetLastErr();
+				goto out_close;
+			}
+			DmReleaseRecord(db, recIdx, false);
+			
+			e = exgPrvSetRecordInfo(db, recIdx, &prev.rec);
+			if (e != errNone)
+				goto out_close;
+		}
+		prev = cur;
+	}	
+	
+	//empty db? we're done!
+	if (!nDataChunks)
+		goto out_close;
+	
+	//first comes some wasted space, then the data starts - eat up the empty space
+	while (dataStart != curOfst) {
+		
+		UInt8 dummy;
+		
+		e = exgPrvRead(&dummy, 1, readProcP, userDataP, &len);
+		if (e != errNone)
+			goto  out_close;
+		if (len != 1) {
+			e = dmErrCorruptDatabase;
+			goto out_close;
+		}
+		curOfst++;
+	}
+	
+	//now comes the data (if any)
+	for (i = 0; i < nDataChunks - 1; i++) {
+		
+		
+		if (i < nSpecialChunks) {	//app info or sort info
+			
+			e = DmDatabaseInfo(cardNo, LID, NULL, NULL, NULL, NULL, NULL, NULL, NULL, (i || !minFileHdr.hdr.appInfoOfst) ? NULL : &tmpLID, (i || !minFileHdr.hdr.appInfoOfst) ? &tmpLID: NULL, NULL, NULL);
+			if (e != errNone)
+				goto out_close;
+			
+			ptr = MemLocalIDToLockedPtr(tmpLID, cardNo);
+			mh = NULL;
+		}
+		else if (minFileHdr.hdr.attributes & dmHdrAttrResDB) {
+			
+			ptr = MemHandleLock(mh = DmGetResourceIndex(db, i - nSpecialChunks));
+		}
+		else {
+			
+			ptr = MemHandleLock(DmGetRecord(db, i - nSpecialChunks));
+			mh = NULL;
+		}
+		
+		//now we recieve
+		for (ofst = 0, totalLen = MemPtrSize(ptr); ofst < totalLen; ofst += now) {
+			
+			now = totalLen - ofst;
+			if (now > rxBufSz)
+				now = rxBufSz;
+			
+			e = exgPrvRead(rxBuf, now, readProcP, userDataP, &len);
+			if (e != errNone)
+				break;
+
+			if (len != now) {
+			
+				e = dmErrCorruptDatabase;
+				goto out_close;
+			}
+			
+			e = DmWrite(ptr, ofst, rxBuf, now);
+			if (e != errNone)
+				break;
+		}
+		
+		if (mh)
+			DmReleaseResource(mh);
+		else if (i >= nSpecialChunks)
+			DmReleaseRecord(db, i - nSpecialChunks, false);
+		
+		if (e != errNone)
+			goto out_close;
+	}
+	
+	//last chunk ends when the files does, but we haven't even created it yet. "prev" might have details on what it is, or it might be app info or sort info
+	//but first we RX it
+	mh = DmNewHandle(db, 1);
+	if (!mh) {
+		
+		e = memErrNotEnoughSpace;
+		goto out_close;
+	}
+	
+	totalLen = 0;
+	while (1) {
+		
+		(void)exgPrvRead(rxBuf, rxBufSz, readProcP, userDataP, &len);
+		//we purposefully ignore error here to match PalmOS's behaviour
+		
+		if (len) {
+			
+			e = exgPrvResizeDmHandle(db, &mh, totalLen + len);	//OS2 and below use a lot of tiny heaps so this is needed :(
+			if (e != errNone) {
+			
+				MemHandleFree(mh);
+				goto out_close;
+			}
+			
+			DmWrite(MemHandleLock(mh), totalLen, rxBuf, len);
+			MemHandleUnlock(mh);
+			
+			totalLen += len;
+		}
+		
+		if (len != rxBufSz) {
+		
+			if (!totalLen) {
+				MemHandleFree(mh);
+				e = dmErrCorruptDatabase;
+				goto out_close;
+			}
+			break;
+		}
+	}	
+	
+	//we must have gotten at least a byte!
+	if (!totalLen) {
+		MemHandleFree(mh);
+		e = dmErrCorruptDatabase;
+		goto out_close;
+	}
+
+	//attach it to the DB now
+	if (i >= nSpecialChunks) {	//rec or res
+	
+		if (minFileHdr.hdr.attributes & dmHdrAttrResDB) {
+			
+			e = DmAttachResource(db, mh, prev.res.type, prev.res.id);
+			if (e != errNone) {
+				
+				MemHandleFree(mh);
+				goto out_close;
+			}
+		}
+		else {
+			
+			recIdx = dmMaxRecordIndex;
+			e = DmAttachRecord(db, &recIdx, mh, NULL);
+			if (e != errNone) {
+				
+				MemHandleFree(mh);
+				goto out_close;
+			}
+			
+			e = exgPrvSetRecordInfo(db, recIdx, &prev.rec);
+			if (e != errNone)
+				goto out_close;
+		}
+	}
+	else {						//app info or sort info
+		
+		tmpLID = MemHandleToLocalID(mh);
+		e = DmSetDatabaseInfo(cardNo, LID, NULL, NULL, NULL, NULL, NULL, NULL, NULL, minFileHdr.hdr.sortInfoOfst ? NULL : &tmpLID, minFileHdr.hdr.sortInfoOfst ? &tmpLID: NULL, NULL, NULL);
+		if (e != errNone) {
+			MemHandleFree(mh);
+			goto out_close;
+		}
+	}
+	
+	//phew..we're done!
+	
+out_close:
+	DmCloseDatabase(db);
+	//set attrs now since setting them before might change what we can do to the DB
+	if (e == errNone)
+		e = DmSetDatabaseInfo(cardNo, LID, NULL, &minFileHdr.hdr.attributes, &minFileHdr.hdr.version, &minFileHdr.hdr.creationDate, &minFileHdr.hdr.modificationDate, &minFileHdr.hdr.lastBackupDate, &minFileHdr.hdr.modificationNumber, NULL, NULL, NULL, NULL);
+
+out_delete:
+	if (e != errNone)
+		DmDeleteDatabase(cardNo, LID);
+	else {
+		*dbIDP = LID;
+		*needResetP = !!(minFileHdr.hdr.attributes & dmHdrAttrResetAfterInstall);
+	}
+	
+out_freebuf:
+	MemPtrFree(rxBuf);
+	
+	return e;
+}
+
+struct _RecordEntry {
+	UInt32 offset;
+	UInt8 attrs;
+	UInt8 uniq[3];
+};
+
+struct _ResourceEntry {
+	UInt32 type;
+	UInt16 id;
+	UInt32 offset;
+};
+
+
+
+
+#pragma mark -- export --
+
+static UInt32 exgPrvLocalIdSize(UInt16 cardNo, LocalID LID)
+{
+	UInt32 ret;
+	void *p;
+	
+	ret = MemPtrSize(p = MemLocalIDToLockedPtr(LID, cardNo));
+	MemPtrUnlock(p);
+	
+	return ret;
+}
+
+static Err exgPrvPutChunk(UInt16 cardNo, LocalID LID, ExgDBWriteProcPtr writeProcP, void *userDataP)
+{
+	void *p = MemLocalIDToLockedPtr(LID, cardNo);
+	UInt32 len = MemPtrSize(p);
+	Err e;
+	
+	e = writeProcP(p, &len, userDataP);
+	MemPtrUnlock(p);
+	
+	return e;
+}
+
+static Err exgPrvEnumerateChildrenRes(DmOpenRef db, UInt16 numItems, Err (*cbk)(UInt32 type, UInt16 id, LocalID LID, UInt16 cardNo, ExgDBWriteProcPtr writeProcP, void *userDataP, void *userData2), UInt16 cardNo, ExgDBWriteProcPtr writeProcP, void *userDataP, void *userData2)
+{
+	UInt16 i;
+	Err e;
+	
+	for (i = 0; i < numItems; i++) {
+		
+		LocalID LID;
+		UInt32 type;
+		UInt16 id;
+		
+		e = DmResourceInfo(db, i, &type, &id, &LID);
+		if (e != errNone)
+			break;
+		
+		e = cbk(type, id, LID, cardNo, writeProcP, userDataP, userData2);
+		if (e != errNone)
+			break;
+	}
+	
+	return e;
+}
+
+static Err exgPrvEnumerateChildrenRec(DmOpenRef db, UInt16 numItems, Err (*cbk)(UInt8 attr, UInt32 uniqID, LocalID LID, UInt16 cardNo, ExgDBWriteProcPtr writeProcP, void *userDataP, void *userData2), UInt16 cardNo, ExgDBWriteProcPtr writeProcP, void *userDataP, void *userData2)
+{
+	UInt16 i;
+	Err e;
+	
+	for (i = 0; i < numItems; i++) {
+		
+		UInt16 recordAttr;
+		UInt32 uniqID;
+		LocalID LID;
+			
+		e = DmRecordInfo(db, i, &recordAttr, &uniqID, &LID);
+		if (e != errNone)
+			break;
+		
+		e = cbk(recordAttr, uniqID, LID, cardNo,  writeProcP, userDataP, userData2);
+		if (e != errNone)
+			break;
+	}
+	
+	return e;
+}
+
+static Err exgPrvSendChildListProcRes(UInt32 type, UInt16 id, LocalID LID, UInt16 cardNo, ExgDBWriteProcPtr writeProcP, void *userDataP, void *curOffsetP)
+{
+	struct ResourceEntry entryRes;
+	UInt32 len = sizeof(entryRes);
+	
+	entryRes.type = type;
+	entryRes.id = id;
+	entryRes.offset = *(UInt32*)curOffsetP;
+	(*(UInt32*)curOffsetP) += exgPrvLocalIdSize(cardNo, LID);
+	
+	return writeProcP(&entryRes, &len, userDataP);
+}
+
+static Err exgPrvSendChildListProcRec(UInt8 attr, UInt32 uniqID, LocalID LID, UInt16 cardNo, ExgDBWriteProcPtr writeProcP, void *userDataP, void *curOffsetP)
+{
+	struct RecordEntry entryRec;
+	UInt32 len = sizeof(entryRec);
+	
+	*(UInt32*)&entryRec.attrs = uniqID;
+	entryRec.attrs = attr;
+	
+	if (!LID)
+		entryRec.offset = 0;
+	else {
+		
+		entryRec.offset = *(UInt32*)curOffsetP;
+		(*(UInt32*)curOffsetP) += exgPrvLocalIdSize(cardNo, LID);
+	}
+	
+	return writeProcP(&entryRec, &len, userDataP);
+}
+
+static Err exgPrvSendChunkProcRes(UInt32 type, UInt16 id, LocalID LID, UInt16 cardNo, ExgDBWriteProcPtr writeProcP, void *userDataP, void *curOffsetP)
+{
+	return exgPrvPutChunk(cardNo, LID, writeProcP, userDataP);
+}
+
+static Err exgPrvSendChunkProcRec(UInt8 attr, UInt32 uniqID, LocalID LID, UInt16 cardNo, ExgDBWriteProcPtr writeProcP, void *userDataP, void *curOffsetP)
+{
+	if (!LID)
+		return errNone;
+	
+	return exgPrvPutChunk(cardNo, LID, writeProcP, userDataP);
+}
+
+Err MyExgDBWrite(ExgDBWriteProcPtr writeProcP, void *userDataP, const char *nameP, LocalID LID, UInt16 cardNo)
+{
+	UInt32 curOffset = sizeof(struct PrcHeader) + sizeof(struct ChildListHdr), len;
+	LocalID appInfo, sortInfo, tmpLID;
+	struct ChildListHdr childList;
+	struct PrcHeader hdr;
+	UInt16 i, zero = 0;
+	DmOpenRef db;
+	Err e;
+		
+	//which db?
+	if (!LID) {
+		
+		if (!nameP)
+			return sysErrParamErr;
+		
+		LID = DmFindDatabase(cardNo, nameP);
+		if (!LID)
+			return DmGetLastErr();
+	}
+
+	MemSet(&hdr, sizeof(hdr), 0);	//do not leak anything
+	childList.nextListOffset = 0;
+
+	e = DmDatabaseInfo(cardNo, LID, hdr.name, &hdr.attributes, &hdr.version, &hdr.creationDate, &hdr.modificationDate, &hdr.lastBackupDate, &hdr.modificationNumber, &appInfo, &sortInfo, &hdr.type, &hdr.crid);
+	if (e != errNone)
+		return e;
+	hdr.uniqueIDSeed = 0;
+	hdr.attributes &=~ dmHdrAttrOpen;
+
+	db = DmOpenDatabase(cardNo, LID, dmModeReadOnly);
+	if (!db)
+		return DmGetLastErr();
+	
+	curOffset += sizeof(zero);	//a random uint16 seems customary in there, who are we to judge?
+	
+	if (hdr.attributes & dmHdrAttrResDB) {
+	
+		childList.numChildren = DmNumResources(db);
+		curOffset += sizeof(struct ResourceEntry) * childList.numChildren;
+	}
+	else {
+		childList.numChildren = DmNumRecords(db);
+		curOffset += sizeof(struct RecordEntry) * childList.numChildren;
+	}
+	
+	//sort out where app info and sort info will be
+	if (appInfo) {
+		hdr.appInfoOfst = curOffset;
+		curOffset += exgPrvLocalIdSize(cardNo, appInfo);
+	}
+	if (sortInfo) {
+		hdr.sortInfoOfst = curOffset;
+		curOffset += exgPrvLocalIdSize(cardNo, sortInfo);
+	}
+	
+	//write header
+	len = sizeof(hdr);
+	e = writeProcP(&hdr, &len, userDataP);
+	if (e != errNone)
+		goto out;
+	
+	//write child list header
+	len = sizeof(childList);
+	e = writeProcP(&childList, &len, userDataP);
+	if (e != errNone)
+		goto out;
+		
+	//write the child list - one entry at a time
+	e = (hdr.attributes & dmHdrAttrResDB) ?
+		exgPrvEnumerateChildrenRes(db, childList.numChildren, exgPrvSendChildListProcRes, cardNo, writeProcP, userDataP, &curOffset) : 
+		exgPrvEnumerateChildrenRec(db, childList.numChildren, exgPrvSendChildListProcRec, cardNo, writeProcP, userDataP, &curOffset);
+	if (e != errNone)
+		goto out;
+	
+	
+	//write the random uint16 (PalmOs 4.0+ and POSE both do not need it, but PalmOS 3.5 and below somehow do)
+	len = sizeof(zero);
+	e = writeProcP(&zero, &len, userDataP);
+	if (e != errNone)
+		goto out;
+	
+	//write app info/sort info
+	if (appInfo) {
+		e = exgPrvPutChunk(cardNo, appInfo, writeProcP, userDataP);
+		if (e != errNone)
+			goto out;
+	}
+	if (sortInfo) {
+		e = exgPrvPutChunk(cardNo, sortInfo, writeProcP, userDataP);
+		if (e != errNone)
+			goto out;
+	}
+
+	//write records/resources
+	e = (hdr.attributes & dmHdrAttrResDB) ?
+		exgPrvEnumerateChildrenRes(db, childList.numChildren, exgPrvSendChunkProcRes, cardNo, writeProcP, userDataP, &curOffset) : 
+		exgPrvEnumerateChildrenRec(db, childList.numChildren, exgPrvSendChunkProcRec, cardNo, writeProcP, userDataP, &curOffset);
+		
+	//we're done
+
+out:
+	DmCloseDatabase(db);
+	return e;
+}
+

@@ -1,0 +1,98 @@
+// forms.rcp - ToDo35 forms and menus converted from the original ROM
+// application's Constructor resources. STATIC and hand-maintained from here
+// on: this is the final output of the conversion script that used to run at
+// every build. Make layout adjustments directly in this file.
+
+FORM ID 1000 AT (0 0 160 160)
+USABLE
+MENUID 1000
+BEGIN
+  TITLE "To Do"
+  POPUPTRIGGER "" ID 1003 AT (100 0 59 13) RIGHTANCHOR
+  BUTTON "New" ID 1005 AT (1 147 26 12)
+  BUTTON "Details..." ID 1006 AT (33 147 43 12)
+  BUTTON "Show..." ID 1007 AT (82 147 38 12)
+  REPEATBUTTON "\x01" ID 1008 AT (147 144 13 8) NOFRAME FONT 5
+  REPEATBUTTON "\x02" ID 1009 AT (147 152 13 8) NOFRAME FONT 5
+  // NOTE: original had 5 cols; pilrc caps at 3
+  TABLE ID 1010 AT (0 18 160 121) ROWS 11 COLUMNS 3 COLUMNWIDTHS 12 10 96
+  LIST "" ID 1004 AT (86 1 72 0) VISIBLEITEMS 0 NONUSABLE
+  LIST " 1" " 2" " 3" " 4" " 5" ID 1011 AT (20 20 13 1) VISIBLEITEMS 5 NONUSABLE
+  LIST "Today" "Tomorrow" "One week later" "No Date" "Choose date..." ID 1012 AT (0 0 65 1) VISIBLEITEMS 5 NONUSABLE
+  LIST "" ID 1013 AT (86 1 72 0) VISIBLEITEMS 0 NONUSABLE
+  GRAFFITISTATEINDICATOR AT (135 150)
+END
+
+FORM ID 1400 AT (2 2 156 156)
+MODAL
+BEGIN
+  TITLE "To Do Preferences"
+  LABEL "Sort by:" ID 1402 AT (7 18) FONT 1
+  POPUPTRIGGER "                                        " ID 1404 AT (50 17 1 13)
+  LIST "Priority, Due Date" "Due Date, Priority" "Category, Priority" "Category, Due Date" ID 1405 AT (54 18 95 1) VISIBLEITEMS 4 NONUSABLE
+  CHECKBOX "Show Completed Items" ID 1406 AT (4 40 134 14) FONT 0
+  CHECKBOX "Show Only Due Items" ID 1407 AT (4 54 128 14) FONT 0
+  CHECKBOX "Record Completion Date" ID 1408 AT (4 68 146 14) FONT 0
+  CHECKBOX "Show Due Dates" ID 1409 AT (4 89 98 14) FONT 0
+  CHECKBOX "Show Priorities" ID 1411 AT (4 103 104 14) FONT 0
+  CHECKBOX "Show Categories" ID 1412 AT (4 117 104 14) FONT 0
+  BUTTON "OK" ID 1413 AT (5 139 37 12)
+  BUTTON "Cancel" ID 1414 AT (48 139 37 12)
+  POPUPLIST ID 1404 1405
+END
+
+FORM ID 1500 AT (2 61 156 97)
+MODAL
+BEGIN
+  TITLE "Purge"
+  // UNHANDLED tFBM id=1502
+  LABEL "Delete all To Do items\rmarked completed?" ID 1503 AT (32 19) FONT 1
+  CHECKBOX "Save archive copy on PC" ID 1504 AT (12 54 136 14) FONT 0
+  BUTTON "OK" ID 1506 AT (5 80 37 12)
+  BUTTON "Cancel" ID 1507 AT (48 80 37 12)
+END
+
+FORM ID 1600 AT (2 61 156 97)
+MODAL
+BEGIN
+  TITLE "Delete To Do"
+  // UNHANDLED tFBM id=1602
+  LABEL "Delete selected To Do\ritem?" ID 1603 AT (32 19) FONT 1
+  CHECKBOX "Save archive copy on PC" ID 1604 AT (12 54 136 14) FONT 0
+  BUTTON "OK" ID 1606 AT (5 80 37 12)
+  BUTTON "Cancel" ID 1607 AT (48 80 37 12)
+END
+
+MENU ID 1000
+BEGIN
+  PULLDOWN "Record"
+  BEGIN
+    MENUITEM "Duplicate Item" ID 106 "U"
+    MENUITEM "Delete Item..." ID 100 "D"
+    MENUITEM "Attach Note" ID 101 "A"
+    MENUITEM "Delete Note..." ID 102 "O"
+    MENUITEM "Purge..." ID 103 "E"
+    MENUITEM SEPARATOR
+    MENUITEM "Beam Item" ID 104 "B"
+    MENUITEM "Beam Category" ID 105
+  END
+  PULLDOWN "Edit"
+  BEGIN
+    MENUITEM "Undo" ID 10000 "U"
+    MENUITEM "Cut" ID 10001 "X"
+    MENUITEM "Copy" ID 10002 "C"
+    MENUITEM "Paste" ID 10003 "P"
+    MENUITEM "Select All" ID 10004 "S"
+    MENUITEM SEPARATOR
+    MENUITEM "Keyboard" ID 10006 "K"
+    MENUITEM "Graffiti Help" ID 10007 "G"
+  END
+  PULLDOWN "Options"
+  BEGIN
+    MENUITEM "Font..." ID 300 "F"
+    MENUITEM "Phone Lookup" ID 301 "L"
+    MENUITEM "Security..." ID 302 "H"
+    MENUITEM "About To Do List" ID 303
+  END
+END
+

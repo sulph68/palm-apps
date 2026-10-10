@@ -1,0 +1,618 @@
+#include "AddressRsc.h"
+
+BITMAP ID bmpCardFolder "folder.bmp"
+BITMAP ID bmpCardUp "cardup.bmp"
+
+ICON "icons/icon35_large.bmp"
+SMALLICON "icons/icon35_small.bmp"
+VERSION ID 1 "1.0"
+
+/* ---- Main (list) form -------------------------------------------------- */
+FORM ID frmMain AT (0 0 160 160)
+	MENUID mnuMain
+BEGIN
+	TITLE "Address35"
+	POPUPTRIGGER ""			ID popMainCategory  AT (90 0 70 13) RIGHTANCHOR
+	LIST ""					ID lstMainCategory  AT (89 1 71 1)
+							VISIBLEITEMS 1 NONUSABLE
+	POPUPLIST				ID popMainCategory lstMainCategory
+	TABLE					ID tblMainList		AT (0 16 152 128) ROWS 11 COLUMNS 1
+							COLUMNWIDTHS 152
+	SCROLLBAR				ID sclMainScroll	AT (153 16 7 128)
+							VALUE 0 MIN 0 MAX 0 PAGESIZE 11
+	BUTTON "New"			ID btnMainNew		AT (1 146 26 12)
+	/* Find bar: [New] __field__ [Cancel].  Filters live as every keystroke fires
+	 * fldChangedEvent (MainFormHandleEvent) -- no separate Find button needed, same
+	 * idiom as Datebook35's location pickers. No graffiti indicator on this field, so
+	 * Cancel sits flush right (1px margin); the field fills the freed Find space. */
+	FIELD	ID fldMainFind	AT (32 146 90 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 38
+	BUTTON "Clear"			ID btnMainCancel	AT (126 146 33 12)
+END
+
+MENU ID mnuMain
+BEGIN
+	PULLDOWN "Record"
+	BEGIN
+		MENUITEM "New Contact"			ID mniMainNew		"N"
+		MENUITEM "Delete Contact..."	ID mniMainDelete	"D"
+		MENUITEM SEPARATOR
+		MENUITEM "Beam Category"		ID mniMainBeam		"B"
+		MENUITEM "Browse Card"			ID mniMainBrowseCard
+		MENUITEM "Import from Card"		ID mniMainImport
+		MENUITEM "Export to Card"		ID mniMainExport
+	END
+	/* Standard system Edit menu (IDs = sysEditMenu*Cmd) so the Find field + any text
+	 * entry gets Cut/Copy/Paste + the Graffiti command shortcuts. */
+	PULLDOWN "Edit"
+	BEGIN
+		MENUITEM "Undo"					ID 10000	"U"
+		MENUITEM "Cut"					ID 10001	"X"
+		MENUITEM "Copy"					ID 10002	"C"
+		MENUITEM "Paste"				ID 10003	"P"
+		MENUITEM "Select All"			ID 10004	"S"
+		MENUITEM SEPARATOR
+		MENUITEM "Keyboard"				ID 10006	"K"
+		MENUITEM "Graffiti Help"		ID 10007	"G"
+	END
+	PULLDOWN "Options"
+	BEGIN
+		MENUITEM "Font..."				ID mniMainFont		"F"
+		MENUITEM "Preferences..."		ID mniMainPrefs		"R"
+		MENUITEM "About Address35"		ID mniMainAbout
+	END
+END
+
+/* ---- Edit form: inline-editable, section-ordered field rows ------------ *
+ * kEditRows physical [type-selector | value-field] rows are a scrolling window
+ * onto the section-sorted field array; one shared type list drives the pickers.*/
+FORM ID frmEdit AT (0 0 160 160)
+	MENUID mnuEdit
+BEGIN
+	TITLE "Address35"
+	POPUPTRIGGER ""			ID popEditCategory  AT (104 0 56 13) RIGHTANCHOR
+	LIST ""					ID lstEditCategory  AT (84 1 76 1)
+							VISIBLEITEMS 1 NONUSABLE
+	POPUPLIST				ID popEditCategory lstEditCategory
+
+	POPUPTRIGGER "First Name"	ID 1140	AT (0 16 58 13) LEFTANCHOR
+	FIELD	ID 1150	AT (63 17 87 11) EDITABLE UNDERLINED SINGLELINE MAXCHARS 120
+	POPUPTRIGGER "First Name"	ID 1141	AT (0 30 58 13) LEFTANCHOR
+	FIELD	ID 1151	AT (63 31 87 11) EDITABLE UNDERLINED SINGLELINE MAXCHARS 120
+	POPUPTRIGGER "First Name"	ID 1142	AT (0 44 58 13) LEFTANCHOR
+	FIELD	ID 1152	AT (63 45 87 11) EDITABLE UNDERLINED SINGLELINE MAXCHARS 120
+	POPUPTRIGGER "First Name"	ID 1143	AT (0 58 58 13) LEFTANCHOR
+	FIELD	ID 1153	AT (63 59 87 11) EDITABLE UNDERLINED SINGLELINE MAXCHARS 120
+	POPUPTRIGGER "First Name"	ID 1144	AT (0 72 58 13) LEFTANCHOR
+	FIELD	ID 1154	AT (63 73 87 11) EDITABLE UNDERLINED SINGLELINE MAXCHARS 120
+	POPUPTRIGGER "First Name"	ID 1145	AT (0 86 58 13) LEFTANCHOR
+	FIELD	ID 1155	AT (63 87 87 11) EDITABLE UNDERLINED SINGLELINE MAXCHARS 120
+	POPUPTRIGGER "First Name"	ID 1146	AT (0 100 58 13) LEFTANCHOR
+	FIELD	ID 1156	AT (63 101 87 11) EDITABLE UNDERLINED SINGLELINE MAXCHARS 120
+	POPUPTRIGGER "First Name"	ID 1147	AT (0 114 58 13) LEFTANCHOR
+	FIELD	ID 1157	AT (63 115 87 11) EDITABLE UNDERLINED SINGLELINE MAXCHARS 120
+
+	/* ":" separators sit just left of each input, shown/hidden with the row */
+	LABEL ":"	ID 1160	AT (58 17)
+	LABEL ":"	ID 1161	AT (58 31)
+	LABEL ":"	ID 1162	AT (58 45)
+	LABEL ":"	ID 1163	AT (58 59)
+	LABEL ":"	ID 1164	AT (58 73)
+	LABEL ":"	ID 1165	AT (58 87)
+	LABEL ":"	ID 1166	AT (58 101)
+	LABEL ":"	ID 1167	AT (58 115)
+
+	/* field-TYPE picker is now the searchable A35PickList (Graffiti/keyboard find),
+	 * opened via ctlSelectEvent -> EditTypePick; no bound native popup list. */
+
+	/* value pick-lists (positioned at the tapped row before popup) */
+	LIST "Female" "Male" "Non-binary" "Other" "Unspecified" ID lstEditGender AT (68 16 82 65) VISIBLEITEMS 5 NONUSABLE
+	LIST "she/her" "he/him" "they/them" "Other" ID lstEditPronouns AT (68 16 82 52) VISIBLEITEMS 4 NONUSABLE
+	LIST "Mr." "Mrs." "Ms." "Miss" "Dr." "Prof." "Mx." ID lstEditPrefix AT (63 16 82 78) VISIBLEITEMS 7 NONUSABLE
+	LIST "Twitter/X" "Instagram" "LinkedIn" "Facebook" "Mastodon" "Other" ID lstEditSocial AT (68 16 82 78) VISIBLEITEMS 6 NONUSABLE
+
+	SCROLLBAR				ID sclEditFields	AT (152 16 7 112)
+							VALUE 0 MIN 0 MAX 0 PAGESIZE 8
+	BUTTON "Done"		ID btnEditDone		AT (1 147 26 12)
+	BUTTON "Delete"		ID btnEditDelete	AT (PrevRight+4 147 30 12)
+	BUTTON "+ Field"	ID btnEditAddField	AT (PrevRight+4 147 40 12)
+	BUTTON "- Field"	ID btnEditDelField	AT (PrevRight+4 147 40 12)
+	GRAFFITISTATEINDICATOR					AT (151 149)
+END
+
+MENU ID mnuEdit
+BEGIN
+	PULLDOWN "Record"
+	BEGIN
+		MENUITEM "Delete Contact..."	ID mniEditDelete	"D"
+		MENUITEM "Beam Contact"			ID mniEditBeam		"B"
+	END
+	/* Standard system Edit menu (IDs = sysEditMenu*Cmd) for the editable value fields. */
+	PULLDOWN "Edit"
+	BEGIN
+		MENUITEM "Undo"					ID 10000	"U"
+		MENUITEM "Cut"					ID 10001	"X"
+		MENUITEM "Copy"					ID 10002	"C"
+		MENUITEM "Paste"				ID 10003	"P"
+		MENUITEM "Select All"			ID 10004	"S"
+		MENUITEM SEPARATOR
+		MENUITEM "Keyboard"				ID 10006	"K"
+		MENUITEM "Graffiti Help"		ID 10007	"G"
+	END
+END
+
+/* ---- Record (read-only detail) form ------------------------------------ */
+FORM ID frmRecord AT (0 0 160 160)
+	MENUID mnuRecord
+BEGIN
+	TITLE "Address35"
+	/* Change this contact's category directly from the read-only view, without
+	 * entering Edit; hidden in card-browse mode (a card vCard has no category). */
+	POPUPTRIGGER ""			ID popRecordCategory	AT (90 0 70 13) RIGHTANCHOR
+	LIST ""					ID lstRecordCategory	AT (89 1 71 1)
+							VISIBLEITEMS 1 NONUSABLE
+	POPUPLIST				ID popRecordCategory lstRecordCategory
+	TABLE					ID tblRecord	AT (0 16 152 128) ROWS 11 COLUMNS 1
+							COLUMNWIDTHS 152
+	SCROLLBAR				ID sclRecord	AT (153 16 7 128)
+							VALUE 0 MIN 0 MAX 0 PAGESIZE 11
+	BUTTON "Done"		ID btnRecordDone	AT (1 146 28 12)
+	BUTTON "Edit"		ID btnRecordEdit	AT (PrevRight+4 146 28 12)
+END
+
+MENU ID mnuRecord
+BEGIN
+	PULLDOWN "Record"
+	BEGIN
+		MENUITEM "Set as me..."			ID mniRecordSetMe	"M"
+		MENUITEM "Edit Contact"			ID mniRecordEdit	"E"
+		MENUITEM "Duplicate Contact"	ID mniRecordDuplicate	"P"
+		MENUITEM "Delete Contact..."	ID mniRecordDelete	"D"
+		MENUITEM "Beam Contact"			ID mniRecordBeam	"B"
+	END
+END
+
+/* Edit-only menu shared by the modal field dialogs (Email/Address/Social/Date/Rel/Pick)
+ * so their text fields get Cut/Copy/Paste + the Graffiti command shortcuts. */
+MENU ID mnuDlgEdit
+BEGIN
+	PULLDOWN "Edit"
+	BEGIN
+		MENUITEM "Undo"					ID 10000	"U"
+		MENUITEM "Cut"					ID 10001	"X"
+		MENUITEM "Copy"					ID 10002	"C"
+		MENUITEM "Paste"				ID 10003	"P"
+		MENUITEM "Select All"			ID 10004	"S"
+		MENUITEM SEPARATOR
+		MENUITEM "Keyboard"				ID 10006	"K"
+		MENUITEM "Graffiti Help"		ID 10007	"G"
+	END
+END
+
+/* ---- Remove-fields dialog (checkbox list; uncheck to delete) ----------- *
+ * MODAL so it saves/restores the bits behind it. */
+FORM ID frmDelField AT (0 0 160 160) MODAL
+BEGIN
+	TITLE "Remove Fields"
+	CHECKBOX ""		ID 1610		AT (4 16 148 12)
+	CHECKBOX ""		ID 1611		AT (4 29 148 12)
+	CHECKBOX ""		ID 1612		AT (4 42 148 12)
+	CHECKBOX ""		ID 1613		AT (4 55 148 12)
+	CHECKBOX ""		ID 1614		AT (4 68 148 12)
+	CHECKBOX ""		ID 1615		AT (4 81 148 12)
+	CHECKBOX ""		ID 1616		AT (4 94 148 12)
+	CHECKBOX ""		ID 1617		AT (4 107 148 12)
+	CHECKBOX ""		ID 1618		AT (4 120 148 12)
+	CHECKBOX ""		ID 1619		AT (4 133 148 12)
+	SCROLLBAR		ID sclDelField	AT (153 16 7 130)
+					VALUE 0 MIN 0 MAX 0 PAGESIZE 10
+	BUTTON "OK"			ID btnDelFieldOK	AT (4 146 40 12)
+	BUTTON "Cancel"		ID btnDelFieldCancel AT (48 146 44 12)
+END
+
+/* ---- shared searchable list picker ------------------------------------- *
+ * Type-ahead (filters live, no separate Find button) + optional scrollbar;
+ * driven by a nested loop in EditDialogs.c. */
+FORM ID frmPick AT (2 2 156 156) MODAL
+	MENUID mnuDlgEdit
+BEGIN
+	TITLE "Select"
+	LIST ""				ID lstPick			AT (2 16 152 121) VISIBLEITEMS 11
+	LABEL "Find:"		ID lblPickFind		AT (2 144) FONT 1
+	FIELD	ID fldPickFind		AT (26 143 84 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 40
+	BUTTON "Cancel"		ID btnPickCancel	AT (113 141 30 12)
+	GRAFFITISTATEINDICATOR					AT (146 142)
+END
+
+/* ---- Phone Lookup (Lookup.c): small picker over the calling app ------- *
+ * One row per contact, drawn by LkDrawRow; picking one pops up lstLookupItems
+ * with that contact's phones/emails/social handles. Find is pre-filled with
+ * the word being looked up. */
+/* This form lives in a NewGlobals sublaunch, whose memory the OS frees on return.
+ * Nothing here may make the system allocate state that outlives it: no MENUID
+ * (Menu Manager), and Find is NOT an editable field - a focused field's blinking
+ * insertion point keeps a saved-bits window, which would be freed under the
+ * caller ("MemoryMgr.c, Invalid chunk ptr" on its next cursor blink). Lookup.c
+ * handles the keystrokes itself and redraws Find. */
+FORM ID frmLookup AT (2 30 156 128) MODAL SAVEBEHIND
+BEGIN
+	TITLE "Phone Number Lookup"
+	LIST ""				ID lstLookup		AT (2 15 152 77) VISIBLEITEMS 7
+	LABEL "Find:"		ID lblLookupFind	AT (2 97) FONT 1
+	FIELD	ID fldLookupFind	AT (26 96 84 12) NONEDITABLE UNDERLINED SINGLELINE MAXCHARS 24
+	BUTTON "Paste"		ID btnLookupPaste	AT (2 112 36 12)
+	BUTTON "Cancel"		ID btnLookupCancel	AT (42 112 36 12)
+	/* step 2: the picked contact's phones/emails/social handles (LstPopupList) */
+	LIST ""				ID lstLookupItems	AT (2 15 152 11) VISIBLEITEMS 1 NONUSABLE
+END
+
+ALERT ID altLookupNone
+INFORMATION
+BEGIN
+	TITLE "Phone Number Lookup"
+	MESSAGE "No contacts have a phone number, email or social handle yet."
+	BUTTONS "OK"
+END
+
+/* ---- Email value dialog (4 lines) -------------------------------------- *
+ * L1: label popup (Home/Work/iCloud/Other)
+ * L2: username + "@"   L3: domain popup (inline, category-style)
+ * L4: "Other" checkbox (under the ^ arrow) + custom-domain field
+ * Vertical layout: buttons sit 4px above the form bottom (kept a bit more
+ * generous than the literal 2px spec, in case some border/shadow eats into
+ * the declared height - flag if it still doesn't look bottom-aligned). */
+FORM ID frmEmailDlg AT (2 58 156 100) MODAL
+	MENUID mnuDlgEdit
+BEGIN
+	TITLE "Email Address"
+
+	LABEL "Label:"				ID lblEmailLabel	AT (6 16)
+	POPUPTRIGGER "Home"			ID popEmailLabel	AT (36 16 60 12) LEFTANCHOR
+	LIST "Home" "Work" "iCloud" "Other" ID lstEmailLabel AT (36 16 60 48) VISIBLEITEMS 4 NONUSABLE
+	POPUPLIST					ID popEmailLabel lstEmailLabel
+
+	FIELD	ID fldEmailUser		AT (6 30 112 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 80
+	LABEL "@"					ID lblEmailAt		AT (122 30)
+
+	POPUPTRIGGER "gmail.com"	ID popEmailDomain	AT (20 45 124 12) LEFTANCHOR
+	LIST "gmail.com" "mac.com" "icloud.com" "outlook.com" "yahoo.com" "hotmail.com" "proton.me" "protonmail.com" "fastmail.com" ID lstEmailDomain AT (20 45 124 90) VISIBLEITEMS 9 NONUSABLE
+	POPUPLIST					ID popEmailDomain lstEmailDomain
+
+	CHECKBOX ""					ID cbEmailOther		AT (21 59 12 12)
+	LABEL "Other"				ID lblEmailOther	AT (36 59)
+	FIELD	ID fldEmailCustom	AT (36 59 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 60 NONUSABLE
+
+	BUTTON "OK"			ID btnEmailOK		AT (6 84 40 12)
+	BUTTON "Cancel"		ID btnEmailCancel	AT (52 84 44 12)
+	GRAFFITISTATEINDICATOR					AT (138 84)
+END
+
+
+/* ---- Address value dialog (structured; Country = searchable picker) ---- */
+FORM ID frmAddrDlg AT (2 2 156 156) MODAL
+	MENUID mnuDlgEdit
+BEGIN
+	TITLE "Edit Address"
+	LABEL "Line 1:"		ID 1550	AT (4 18) FONT 1
+	FIELD	ID fldAddrLine1	AT (44 18 108 22) EDITABLE UNDERLINED MULTIPLELINES MAXCHARS 60
+	LABEL "Line 2:"		ID 1551	AT (4 42) FONT 1
+	FIELD	ID fldAddrLine2	AT (44 42 108 22) EDITABLE UNDERLINED MULTIPLELINES MAXCHARS 60
+	LABEL "Apt:"			ID 1552	AT (4 68) FONT 1
+	FIELD	ID fldAddrApt	AT (44 68 50 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 20
+	LABEL "City:"		ID 1553	AT (4 84) FONT 1
+	FIELD	ID fldAddrCity	AT (44 84 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 40
+	LABEL "State:"		ID 1554	AT (4 100) FONT 1
+	FIELD	ID fldAddrState	AT (44 100 42 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 20
+	LABEL "Zip:"			ID 1555	AT (90 100) FONT 1
+	FIELD	ID fldAddrZip	AT (114 100 38 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 16
+	LABEL "Country:"		ID 1556	AT (4 116) FONT 1
+	POPUPTRIGGER "(None)"	ID popAddrCountry	AT (50 116 108 12) LEFTANCHOR
+	BUTTON "OK"			ID btnAddrOK		AT (4 136 40 13)
+	BUTTON "Cancel"		ID btnAddrCancel	AT (48 136 44 13)
+	GRAFFITISTATEINDICATOR					AT (144 138)
+END
+
+FORM ID frmNoteDlg AT (0 0 160 160) MODAL
+	MENUID mnuDlgEdit
+BEGIN
+	TITLE "Note"
+	FIELD	ID fldNoteText	AT (2 17 150 124) EDITABLE UNDERLINED MULTIPLELINES
+			MAXCHARS 2000 HASSCROLLBAR
+	SCROLLBAR				ID sclNote	AT (154 17 7 124) VALUE 0 MIN 0 MAX 0 PAGESIZE 10
+	BUTTON "Done"		ID btnNoteDone		AT (2 145 40 12)
+	BUTTON "Cancel"		ID btnNoteCancel	AT (46 145 44 12)
+	GRAFFITISTATEINDICATOR					AT (150 147)
+END
+
+FORM ID frmPhoneDlg AT (2 76 156 82) MODAL
+	MENUID mnuDlgEdit
+BEGIN
+	TITLE "Phone Number"
+	LABEL "Country:"		ID lblPhoneCountry	AT (6 22) FONT 1
+	SELECTORTRIGGER "Select Dial Code"	ID selPhoneDial	AT (54 23 90 12)
+	LABEL "Number:"			ID lblPhoneNumber	AT (6 40) FONT 1
+	FIELD	ID fldPhoneNumber	AT (54 40 90 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 40
+	BUTTON "OK"			ID btnPhoneOK		AT (6 65 40 12)
+	BUTTON "Cancel"		ID btnPhoneCancel	AT (52 65 44 12)
+	GRAFFITISTATEINDICATOR					AT (138 67)
+END
+
+/* Progress dialog with a real bar ("Processing vCard...", "Importing...") -
+ * same 2px-margin/156-wide convention as every other dialog in this app; the
+ * bar itself is hand-drawn by the C code (AddrCard.c A35ProgressBegin/Bar/
+ * End), same idiom as Sec35's own "Working" progress dialog. */
+FORM ID frmCardProgress AT (2 54 156 52)
+MODAL
+BEGIN
+	TITLE "Working"
+END
+
+/* Duplicate-filename prompt: shown by A35CardUniquePath (AddrCard.c) when a
+ * Split or Export write collides with an existing file. Bottom-aligned the
+ * SAME way as every other dialog in this app (frmEmailDlg/frmPhoneDlg/
+ * frmSocialDlg/etc.): the form's own bottom edge sits at y=158 (2px above
+ * the 160px screen bottom, not vertically centered) - AT's y = 158 - h.
+ * Buttons sit 4px above the form's own base (h=80, buttons at y=64,
+ * 64+12=76, 80-76=4); checkbox row 4px above the buttons. */
+FORM ID frmDupFile AT (2 78 156 80) MODAL
+BEGIN
+	TITLE "Duplicate File"
+	LABEL "Same filename already"		ID lblDupMsg1		AT (6 18) FONT 1
+	LABEL "exists. What should I do?"	ID lblDupMsg2		AT (6 30) FONT 1
+	CHECKBOX ""				ID cbDupApplyAll	AT (6 48 12 12)
+	LABEL "Apply to all"			ID lblDupApplyAll	AT (22 48) FONT 1
+	BUTTON "Replace"	ID btnDupReplace	AT (4 64 46 12)
+	BUTTON "Keep Both"	ID btnDupKeepBoth	AT (54 64 50 12)
+	BUTTON "Cancel"		ID btnDupCancel		AT (108 64 44 12)
+END
+
+/* ---- Social value dialog (handle + platform popup + Other) ------------- */
+FORM ID frmSocialDlg AT (2 66 156 92) MODAL
+	MENUID mnuDlgEdit
+BEGIN
+	TITLE "Social Profile"
+	FIELD	ID fldSocialHandle	AT (6 22 138 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 80
+	POPUPTRIGGER "Instagram"	ID popSocialNet		AT (20 40 124 12) LEFTANCHOR
+	LIST "Instagram" "Facebook" "WhatsApp" "X" "Telegram" "Signal" ID lstSocialNet AT (20 40 124 80) VISIBLEITEMS 6 NONUSABLE
+	POPUPLIST					ID popSocialNet lstSocialNet
+	CHECKBOX ""					ID cbSocialOther	AT (21 56 12 12)
+	LABEL "Other"				ID lblSocialOther	AT (36 56)
+	FIELD	ID fldSocialCustom	AT (36 56 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 40 NONUSABLE
+	BUTTON "OK"			ID btnSocialOK		AT (6 74 40 12)
+	BUTTON "Cancel"		ID btnSocialCancel	AT (52 74 44 12)
+	GRAFFITISTATEINDICATOR					AT (138 77)
+END
+
+/* ---- Date value dialog (Birthday / Anniversary): any-year entry -------- *
+ * Resource holds the Anniversary layout (Type on line 1). For a Birthday the
+ * Type row is hidden and the Date/Year/Unknown rows are shifted up one line by
+ * EditDateDialog, so a Birthday starts at line 1 with no gap. The year field
+ * base-aligns with the "Year" label; the Unknown checkbox aligns under the
+ * year field. */
+FORM ID frmDateDlg AT (2 50 156 108) MODAL
+	MENUID mnuDlgEdit
+BEGIN
+	TITLE "Birthday"
+	/* line 1: Type (Anniversary only). Labels bold, at popup_y+1 so their
+	 * baseline lines up with the popup/field text; controls share x=34. */
+	LABEL "Type:"			ID lblDateType	AT (6 21) FONT 1
+	POPUPTRIGGER "Wedding"	ID popDateType	AT (54 20 75 13) LEFTANCHOR
+	LIST "Engagement" "Remembrance" "Wedding" "Work" "Other" ID lstDateType AT (54 20 75 66) VISIBLEITEMS 5 NONUSABLE
+	POPUPLIST				ID popDateType lstDateType
+	/* custom type name, shown beside a shrunk popup only when Type = "Other" */
+	FIELD	ID fldDateTypeOther	AT (111 20 42 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 30 NONUSABLE
+	/* Month / Day / Year each on its own row: ONE push-button holding the whole
+	 * value (not per-digit) + an up/down REPEATBUTTON pair that continuously
+	 * wraps the value while held (see EditDialogs.c DateBump). Real positions
+	 * are set by DateLayout; RCP AT() here is just a fallback/initial size. */
+	LABEL "Month:"			ID lblDateDate	AT (6 39) FONT 1
+	PUSHBUTTON "12"			ID pbDateMonthVal	AT (99 38 24 14)
+	REPEATBUTTON "\x01"		ID btnDateMonthUp	AT (131 36 13 8) NOFRAME FONT 5
+	REPEATBUTTON "\x02"		ID btnDateMonthDn	AT (131 44 13 8) NOFRAME FONT 5
+	LABEL "Day:"			ID lblDateDay	AT (6 57) FONT 1
+	PUSHBUTTON "31"			ID pbDateDayVal		AT (99 56 24 14)
+	REPEATBUTTON "\x01"		ID btnDateDayUp		AT (131 54 13 8) NOFRAME FONT 5
+	REPEATBUTTON "\x02"		ID btnDateDayDn		AT (131 62 13 8) NOFRAME FONT 5
+	LABEL "Year:"			ID lblDateYear	AT (6 75) FONT 1
+	PUSHBUTTON "2026"		ID pbDateYearVal	AT (84 74 38 14)
+	REPEATBUTTON "\x01"		ID btnDateYearUp	AT (131 72 13 8) NOFRAME FONT 5
+	REPEATBUTTON "\x02"		ID btnDateYearDn	AT (131 80 13 8) NOFRAME FONT 5
+	/* Unknown-year checkbox on its own row (box + label). */
+	CHECKBOX ""			ID cbDateNoYear	AT (44 93 12 12)
+	LABEL "Unknown"			ID lblDateUnknown	AT (58 94)
+	BUTTON "OK"			ID btnDateOK		AT (6 110 40 12)
+	BUTTON "Cancel"		ID btnDateCancel	AT (52 110 44 12)
+	GRAFFITISTATEINDICATOR					AT (142 112)
+END
+
+/* ---- Relation dialog: link this record to another contact -------------- */
+FORM ID frmRelDlg AT (2 66 156 92) MODAL
+	MENUID mnuDlgEdit
+BEGIN
+	TITLE "Relationship"
+	LABEL "Type:"			ID lblRelType	AT (6 21) FONT 1
+	POPUPTRIGGER "Spouse"	ID popRelType	AT (40 20 100 13) LEFTANCHOR
+	LIST "Spouse" "Partner" "Child" "Parent" "Sibling" "Assistant" "Manager" "Friend" "Other" ID lstRelType AT (40 20 100 117) VISIBLEITEMS 9 NONUSABLE
+	POPUPLIST				ID popRelType lstRelType
+	LABEL "Contact:"		ID lblRelContact	AT (6 34) FONT 1
+	BUTTON "Pick a contact\205"	ID btnRelPick	AT (6 49 144 13)
+	BUTTON "OK"			ID btnRelOK		AT (6 76 40 12)
+	BUTTON "Cancel"		ID btnRelCancel	AT (52 76 44 12)
+END
+
+/* ---- Contact picker: searchable contact list for relationships --------- *
+ * Type-ahead (filters live, no separate Find button), same idiom as frmPick. */
+FORM ID frmContactPick AT (2 2 156 156) MODAL
+	MENUID mnuDlgEdit
+BEGIN
+	TITLE "Pick a Contact"
+	LIST ""				ID lstContactPick	AT (2 16 152 121) VISIBLEITEMS 11
+	LABEL "Find:"		ID lblContactFind	AT (2 144) FONT 1
+	FIELD	ID fldContactFind	AT (26 143 86 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 30
+	BUTTON "Cancel"		ID btnContactCancel	AT (117 141 30 12)
+	GRAFFITISTATEINDICATOR					AT (148 145)
+END
+
+/* ---- Preferences form -------------------------------------------------- */
+FORM ID frmPrefs AT (2 20 156 138) MODAL
+BEGIN
+	TITLE "Preferences"
+	LABEL "Name Label:"	ID 1310 AT (9 18) FONT 1
+	POPUPTRIGGER "Surname"		ID popPrefsSurname	AT (72 17 62 13) LEFTANCHOR
+	LIST "Surname" "Last Name" "Family Name" ID lstPrefsSurname
+								AT (72 17 62 40) VISIBLEITEMS 3 NONUSABLE
+	POPUPLIST					ID popPrefsSurname lstPrefsSurname
+
+	LABEL "Sort Order By:"		ID 1311 AT (9 36) FONT 1
+	LABEL "Primary:"			ID 1312 AT (20 50)
+	POPUPTRIGGER "Last Name"	ID popPrefsPrimary	AT (72 49 70 13) LEFTANCHOR
+	LIST "Last Name" "First Name" "Company" ID lstPrefsPrimary
+								AT (72 49 70 40) VISIBLEITEMS 3 NONUSABLE
+	POPUPLIST					ID popPrefsPrimary lstPrefsPrimary
+	LABEL "Secondary:"			ID 1313 AT (20 66)
+	POPUPTRIGGER "First Name"	ID popPrefsSecondary AT (72 65 70 13) LEFTANCHOR
+	LIST "Last Name" "First Name" "Company" ID lstPrefsSecondary
+								AT (72 65 70 40) VISIBLEITEMS 3 NONUSABLE
+	POPUPLIST					ID popPrefsSecondary lstPrefsSecondary
+
+	LABEL "Display:"			ID lblPrefsDisplay AT (9 84) FONT 1
+	CHECKBOX "Show Hidden"		ID cbPrefsShowHidden AT (20 100 90 12)
+
+	BUTTON "OK"			ID btnPrefsOK		AT (10 118 40 12)
+	BUTTON "Cancel"		ID btnPrefsCancel	AT (PrevRight+6 118 40 12)
+END
+
+/* ---- About form -------------------------------------------------------- */
+FORM ID frmAbout AT (2 50 156 108) MODAL
+BEGIN
+	TITLE "About Address35"
+	LABEL "Address35 v1.0"						ID 1410 AT (CENTER 22) FONT 1
+	LABEL "Modern era-aware address book."		ID 1411 AT (8 40) FONT 0
+	LABEL "Multiple fields, tags, relations,"	ID 1412 AT (8 54) FONT 0
+	LABEL "birthdays, vCard 3.0/4.0."			ID 1413 AT (8 66) FONT 0
+	BUTTON "OK"				ID btnAboutOK		AT (CENTER 88 40 12)
+END
+
+/* ---- alerts ------------------------------------------------------------ */
+ALERT ID altRomIncompatible
+ERROR
+BEGIN
+	TITLE "System Incompatible"
+	MESSAGE "Address35 requires Palm OS 4.0 or later."
+	BUTTONS "OK"
+END
+
+ALERT ID altHackOff
+INFORMATION
+BEGIN
+	TITLE "Era plugin not active"
+	MESSAGE "The HackMaster Y2K35 plugin is not enabled. Address35 still works, " \
+		"but birthday ages and Datebook35 Agenda integration need it."
+	BUTTONS "OK"
+END
+
+ALERT ID altNotYet
+INFORMATION
+BEGIN
+	TITLE "Coming soon"
+	MESSAGE "This feature isn't implemented in this build yet."
+	BUTTONS "OK"
+END
+
+ALERT ID altNoSelection
+INFORMATION
+BEGIN
+	TITLE "No Contact Selected"
+	MESSAGE "Open a contact first, then use Delete Contact to remove it."
+	BUTTONS "OK"
+END
+
+ALERT ID altNoCard
+INFORMATION
+BEGIN
+	TITLE "No Card"
+	MESSAGE "Insert an SD card to import or export vCards."
+	BUTTONS "OK"
+END
+
+ALERT ID altCardEmpty
+INFORMATION
+BEGIN
+	TITLE "Browse Card"
+	MESSAGE "No vCards found under /Address/. Put .vcf files there to browse them."
+	BUTTONS "OK"
+END
+
+ALERT ID altSetMe
+CONFIRMATION
+BEGIN
+	TITLE "Set as Me"
+	MESSAGE "Make this contact your Me card? It will always show first, in bold."
+	BUTTONS "OK" "Cancel"
+END
+
+ALERT ID altNoSec35
+INFORMATION
+BEGIN
+	TITLE "Cannot Decrypt"
+	MESSAGE "This address book has encrypted records, but the Sec35 security " \
+			"app is not installed. Install Sec35 to unlock your data."
+	BUTTONS "OK"
+END
+
+ALERT ID altCardGroupSplit
+CONFIRMATION
+BEGIN
+	TITLE "Group vCard"
+	MESSAGE "This file contains ^1 contacts. Split into individual contacts?"
+	BUTTONS "OK" "Cancel"
+END
+
+ALERT ID altCardSplitFailed
+ERROR
+BEGIN
+	TITLE "Split Failed"
+	MESSAGE "Could not write the split contacts to the card (write failed - check " \
+			"free space). The original file was left unchanged."
+	BUTTONS "OK"
+END
+
+ALERT ID altCardTooMany
+WARNING
+BEGIN
+	TITLE "Too Many Files"
+	MESSAGE "This folder has more files than Address35 can show. Only the first " \
+			"256 are listed."
+	BUTTONS "OK"
+END
+
+ALERT ID altExportScope
+CONFIRMATION
+BEGIN
+	TITLE "Export to Card"
+	MESSAGE "Which contacts should be written to /Address/Export/ as vCards?"
+	BUTTONS "This Category" "All" "Cancel"
+END
+
+ALERT ID altImportDone
+INFORMATION
+BEGIN
+	TITLE "Import from Card"
+	MESSAGE "Imported ^1 contact(s) from /Address/Import/."
+	BUTTONS "OK"
+END
+
+ALERT ID altExportDone
+INFORMATION
+BEGIN
+	TITLE "Export to Card"
+	MESSAGE "Exported ^1 contact(s) to /Address/Export/."
+	BUTTONS "OK"
+END
+
+ALERT ID altDelFieldWarn
+CONFIRMATION
+BEGIN
+	TITLE "Remove Fields"
+	MESSAGE "Remove the unchecked field(s)? Their data cannot be recovered."
+	BUTTONS "Remove" "Cancel"
+END

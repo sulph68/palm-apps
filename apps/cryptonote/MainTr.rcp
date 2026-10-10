@@ -1,0 +1,607 @@
+#include "MainRsc.h"
+
+/**********************************
+ * Turkish translation by:
+ * Selcuk Demiray
+ * sdemiray@softhome.net
+ **********************************
+ */
+
+ICON "appico.bmp"
+SMALLICON "smallico.bmp"
+
+VERSION ID 1 "3.65"
+
+FORM ID frmMainForm AT (0 0 160 160)
+NOFRAME
+MENUID mnuMainMenu
+BEGIN
+	TITLE "CryptoPad"
+	POPUPTRIGGER ""			ID popMainCategory   AT (90 0 70 13)
+							RIGHTANCHOR
+	LIST ""					ID lstMainCategory   AT (PrevLeft 1 PrevWidth 1)
+							VISIBLEITEMS 5 NONUSABLE
+	POPUPLIST				ID popMainCategory lstMainCategory
+	TABLE					ID tblMainRecordList AT (0 18 152 124)
+							ROWS 11 COLUMNS 1
+							COLUMNWIDTHS 151
+	SCROLLBAR				ID sclMainScrollBar  AT (153 PrevTop 7 121)
+							VALUE 0 MIN 0 MAX 10 PAGESIZE 10 
+	BUTTON "Yeni"			ID btnMainNewMemo    AT (1 147 26 12) 
+END
+
+FORM ID frmProgressForm AT (2 78 156 80)
+FRAME MODAL
+BEGIN
+	TITLE "Sürüyor"
+	GADGET 					ID gadProgressMessage AT (10 25 140 15) 
+	GADGET 					ID gadProgressBar AT (10 52 140 7)  
+END
+
+FORM ID frmEditForm AT (0 0 160 160)
+NOFRAME
+MENUID mnuEditMenu
+BEGIN
+	TITLE "Not"
+	SELECTORTRIGGER ""		ID popEditCategory   AT (89 1 70 11)
+							RIGHTANCHOR
+	LIST ""					ID lstEditCategory   AT (PrevLeft PrevTop PrevWidth 1)
+							VISIBLEITEMS 5 NONUSABLE
+	POPUPLIST				ID popEditCategory lstEditCategory
+	FIELD					ID fldEditText       AT (0 16 153 125)
+							MULTIPLELINES UNDERLINED HASSCROLLBAR
+							AUTOSHIFT MAXCHARS 65000
+	SCROLLBAR				ID sclEditScrollBar  AT (153 18 7 122)
+							VALUE 0 MIN 0 MAX 10 PAGESIZE 10
+	LABEL ">4k"				ID lblEditMaxSize	AT (145 148 ) FONT 0 NONUSABLE
+	BUTTON "Tamamla"			ID btnEditTerminate  AT (1 147 44 12)
+	BUTTON "Detaylar"		ID btnEditDetails    AT (PrevRight+6 PrevTop 44 12)
+	GRAFFITISTATEINDICATOR	                     AT (135 PrevTop)
+END
+
+STRING ID	strEditTitleMemo "Not # / "
+
+FORM ID frmDetailsForm AT (2 86 156 72)
+FRAME MODAL
+HELPID strDetailsHelpString
+BEGIN
+	TITLE "Not Detayý"
+	LABEL "Kategori:"		AUTOID				AT (5 18) FONT 1
+	POPUPTRIGGER ""			ID popDetailsCategory AT (57 PrevTop 70 13)
+							LEFTANCHOR
+	LIST ""					ID lstDetailsCategory   AT (57 PrevTop 70 1)
+							VISIBLEITEMS 5 NONUSABLE
+	POPUPLIST				ID popDetailsCategory lstDetailsCategory
+	LABEL "Özel:"			AUTOID              AT (28 32) FONT 1
+	CHECKBOX ""				ID chkDetailsPrivate AT (58 PrevTop AUTO AUTO)
+	BUTTON "Tamam"				ID btnDetailsOK		AT (6 54 38 AUTO)
+	BUTTON "Vazgeç"			ID btnDetailsCancel	AT (PrevRight+6 PrevTop 38 AUTO)
+	BUTTON "Sil..."		ID btnDetailsDelete	AT (PrevRight+6 PrevTop 40 AUTO)
+END
+
+STRING ID strDetailsHelpString "• Not listesi ekranýnda " \
+					"görülen kategori yeni yaratýlan " \
+					"notlara otomatik olarak " \
+					"atanýr\n" \
+					"\n" \
+					"• Bir notun ait olduðu " \
+					"kategoriyi deðiþtirmenin iki " \
+					"yolu vardýr:\n" \
+					"\n" \
+					"1. Not detaylarý ekranýnda " \
+					"yeni bir kategori seçerek.\n" \
+					"2. Notu yazarken ya da " \
+					"deðiþtirirken listeden yeni bir " \
+					"kategori seçerek."
+
+FORM ID frmPasswordForm AT (2 75 156 83)
+FRAME MODAL
+HELPID strPasswordHelpString
+BEGIN
+	TITLE "Parola"
+	FORMBITMAP 	AT (5 20) BITMAP 10005
+	LABEL "Bir parola giriniz:"		AUTOID					AT (30 PrevTop) FONT 1
+	FIELD							ID fldPasswordText		AT (5 42 146 13)
+							SINGLELINE UNDERLINED
+							MAXCHARS 56
+	BUTTON "Tamam"					ID btnPasswordOK		AT (6 65 38 AUTO)
+	BUTTON "Vazgeç"					ID btnPasswordCancel	AT (PrevRight+6 PrevTop 38 AUTO)
+	BUTTON "Unuttum..."				ID btnPasswordForget	AT (PrevRight+6 PrevTop 48 AUTO)
+	GRAFFITISTATEINDICATOR	                         		AT (144 PrevTop)
+END
+
+STRING ID strPasswordHelpString "• Bu notu þifrelemek için " \
+					"bir parola giriniz.\n" \
+					"\n" \
+					"• Parola hem þifrelemede hem de þifreyi çözmekte " \
+					"kullanýlacaktýr. Unutmamaya dikkat edin çünkü " \
+					"bu parola ile þifrelenen notlarýn içeriðini " \
+					"baþka türlü kurtarmak mümkün deðildir."
+
+FORM ID frmQueryGlobalPasswordForm AT (2 67 156 91)
+FRAME MODAL
+BEGIN
+	TITLE "Genel parola"
+	FORMBITMAP 	AT (5 20) BITMAP 10005
+	LABEL "Þu an geçerli genel"		AUTOID			AT (30 PrevTop) FONT 1
+	LABEL "parolanýzý giriniz:"		AUTOID			AT (PrevLeft 32) FONT 1
+	FIELD							ID fldQueryGlobalPasswordText		 AT (5 50 146 13)
+							SINGLELINE UNDERLINED
+							MAXCHARS 56
+	BUTTON "Tamam"			ID btnQueryGlobalPasswordOK		 AT (6 73 38 AUTO)
+	BUTTON "Vazgeç"			ID btnQueryGlobalPasswordCancel	 AT (PrevRight+6 PrevTop 38 AUTO)
+	GRAFFITISTATEINDICATOR	                         		AT (144 PrevTop)
+END
+
+FORM ID frmConfirmGlobalPasswordForm AT (2 7 156 151)
+FRAME MODAL
+BEGIN
+	TITLE "Genel parola"
+	LABEL "Yeni parolanýzý doðrulayýnýz:"		AUTOID		AT (5 16) FONT 1
+	FIELD					ID fldSetAndChangeGlobalPasswordText		 AT (PrevLeft 32 146 13)
+							SINGLELINE UNDERLINED
+							MAXCHARS 56
+	LABEL "Eðer bu parolayý unutursanýz"		AUTOID		AT (PrevLeft 52)
+ FONT 1
+	LABEL " \"Parola Unutulduysa...\" ya"		AUTOID		AT (PrevLeft PrevTop+12)
+ FONT 1
+ 	LABEL "týklayarak silebilirsiniz,"			AUTOID		AT (PrevLeft PrevTop+12)
+ FONT 1
+  	LABEL "fakat bu parola ile"					AUTOID		AT (PrevLeft PrevTop+12)
+ FONT 1
+  	LABEL "þifrelenmiþ bütün"					AUTOID		AT (PrevLeft PrevTop+12)
+ FONT 1
+  	LABEL "kayýtlarýnýz silinecektir."			AUTOID		AT (PrevLeft PrevTop+12)
+ FONT 1
+	BUTTON "Tamam"				ID btnConfirmGlobalPasswordOK		 AT (6 133 38 AUTO)
+	BUTTON "Vazgeç"			ID btnSetAndChangeGlobalPasswordCancel	 AT (PrevRight+6 PrevTop 38 AUTO)
+	GRAFFITISTATEINDICATOR	                         AT (144 PrevTop)
+END
+
+FORM ID frmSetGlobalPasswordForm AT (2 19 156 139)
+FRAME MODAL
+HELPID strSetGlobalPasswordHelpString
+BEGIN
+	TITLE "Genel parola"
+	LABEL "Bir parola giriniz:"		AUTOID			AT (5 16) FONT 1
+	FIELD					ID fldSetAndChangeGlobalPasswordText	AT (PrevLeft 32 146 13)
+							SINGLELINE UNDERLINED
+							MAXCHARS 56
+	LABEL "Eðer bir parola verirseniz,"			AUTOID				AT (PrevLeft 52)
+ FONT 1
+	LABEL "þifrelenmiþ kayýtlarý"				AUTOID				AT (PrevLeft PrevTop+12)
+ FONT 1
+ 	LABEL "görmek için onu girmelisiniz."		AUTOID				AT (PrevLeft PrevTop+12)
+ FONT 1
+  	LABEL "Þimdi, þifrelenmiþ kayýtlar"			AUTOID				AT (PrevLeft PrevTop+12)
+ FONT 1
+  	LABEL "genel parolayý kullanacaktýr."		AUTOID				AT (PrevLeft PrevTop+12)
+ FONT 1
+	BUTTON "Tamam"				ID btnSetAndChangeGlobalPasswordOK		 AT (6 121 38 AUTO)
+	BUTTON "Vazgeç"			ID btnSetAndChangeGlobalPasswordCancel	 AT (PrevRight+6 PrevTop 38 AUTO)
+	GRAFFITISTATEINDICATOR	                         AT (144 PrevTop)
+END
+
+
+STRING ID strSetGlobalPasswordHelpString "• Genel parolayý ayarlamak " \
+					"için yeni bir parola giriniz.\n" \
+					"\n" \
+					"• Bu genel parola öyle bir parola olacakki " \
+					"hem þifrelemede hem de þifre çözmede " \
+					"kullanýlacaktýr. Unutmamaya dikkat edin " \
+					"çünkü bu parola ile þifrelenmiþ kayýtlarýn " \
+					"içeriðini kurtarmanýn baþka yolu yoktur."
+
+FORM ID frmChangeGlobalPasswordForm AT (2 61 156 97)
+FRAME MODAL
+HELPID strSetGlobalPasswordHelpString
+BEGIN
+	TITLE "Genel parolayý deðiþtir"
+	LABEL "Yeni bir parola girin veya"			AUTOID			AT (5 16)
+ FONT 1
+	LABEL "mevcut parolayý kaldýrmak"			AUTOID			AT (PrevLeft PrevTop+12)
+ FONT 1
+ 	LABEL "için Sil butonuna basýn."			AUTOID			AT (PrevLeft PrevTop+12)
+ FONT 1
+	FIELD					ID fldSetAndChangeGlobalPasswordText		 AT (PrevLeft 56 146 13)
+							SINGLELINE UNDERLINED
+							MAXCHARS 56
+	BUTTON "Tamam"				ID btnSetAndChangeGlobalPasswordOK	AT (6 79 38 AUTO)
+	BUTTON "Vazgeç"			ID btnSetAndChangeGlobalPasswordCancel	AT (PrevRight+6 PrevTop 38 AUTO)
+	BUTTON "Sil"			ID btnChangeGlobalPasswordDelete	 	AT (PrevRight+6 PrevTop 40 AUTO)
+	GRAFFITISTATEINDICATOR	                         				AT (144 PrevTop)
+END
+
+FORM ID frmPrefsForm AT (2 14 156 144)
+FRAME MODAL
+HELPID strPrefsHelpString
+BEGIN
+	TITLE "Not tercihleriniz"
+	LABEL "Sýralama:"				AUTOID					AT (8 16) FONT 0
+	POPUPTRIGGER ""					ID popPrefsSortOrder 	AT (50 PrevTop 70 13)
+									LEFTANCHOR
+	LIST "El ile" "Alfabetik"		ID lstPrefsSortOrder   	AT (PrevLeft PrevTop 70 1)
+									VISIBLEITEMS 2 NONUSABLE
+	POPUPLIST popPrefsSortOrder lstPrefsSortOrder
+	LABEL "Notlarý yukarý taþý"		AUTOID				AT (24 30) FONT 0
+	CHECKBOX ""				ID chkPrefsMoveRecordOnTop AT (5  PrevTop AUTO AUTO)
+	LABEL "Çizgileri göster"		AUTOID					AT (24 41) FONT 0
+	CHECKBOX ""						ID chkPrefsShowLines 	AT (5 PrevTop AUTO AUTO)
+	LABEL "Tek font kullan"			AUTOID					AT (24 52) FONT 0
+	CHECKBOX ""						ID chkPrefsUseSingleFont AT (5 PrevTop AUTO AUTO)
+	LABEL "Dönüþüm alaný:"		AUTOID				AT (8 63) FONT 0
+	POPUPTRIGGER ""			ID popPrefsRotateOrder AT (78 PrevTop 70 13)
+							LEFTANCHOR
+	LIST "All" "All-Unfiled" "Categ.-Unfiled"
+							ID lstPrefsRotateOrder   AT (78 PrevTop PrevWidth 1)
+							VISIBLEITEMS 3  NONUSABLE
+	LABEL "Genel Parola Özellikleri:"		AUTOID				AT (16 78) FONT 1
+	LABEL "Genel Parola:"			AUTOID					AT (7 92) FONT 0
+	SELECTORTRIGGER "-Atanmamýþ-"	ID selPrefsGlobalPassword AT (64 PrevTop AUTO AUTO)
+							LEFTANCHOR
+	BUTTON "Parola Unutulduysa..."	ID btnPrefsForgotten	AT (20 108 112 AUTO)
+	BUTTON "Tamam"					ID btnPrefsOK			AT (6 126 38 AUTO)
+	BUTTON "Vazgeç"					ID btnPrefsCancel		AT (PrevRight+6 PrevTop 38 AUTO)
+END
+
+STRING ID strPrefsHelpString 	"• El ile sýralama notlarýn " \
+					"liste üzerinde kalemcikle "\
+					"tutulup aþaðý ya da yukarý " \
+					"sürüklenerek istenilen sýrada " \
+					"býrakýlmasý ile yapýlýr.\n" \
+					"\n" \
+					"• Alfabetik sýralama " \
+					"notlarý alfabetik olarak " \
+					"sýralayacak ve bu önceki " \
+					"sýralamayý bozacaktýr.\n" \
+					"\n" \
+					"•  Notlarý yukarý taþý, " \
+					"her eriþilen notu listenin " \
+					"en üstüne taþýr.\n" \ 
+					"\n" \
+					"• Çizgileri göster, not " \
+					"deðiþtirme ekranýnda satýr " \
+					"çizgilerinin gözüküp " \ 
+					"gözükmemesini belirler.\n" \
+					"\n" \
+					"• Tek font kullan seçili ise " \
+					"bütün notlarda ve ana listedeki " \
+					"tüm kategorilerde ayný font " \
+					"kullanýlacaktýr.\n" \
+					"\n" \
+					"• Dönüþüm alaný; not " \
+					"defteri tuþuna basýldýðýnda " \
+					"kullanýcýnýn hangi " \
+					"kategorilerin görüleceðini " \
+					"seçmesine yarar. \"All-Unfiled\" " \
+					"\"Unfiled\" kategorisine " \
+					"giderken, \"Categ.-Unfiled\" " \
+					"\"All\" kategorisini atlar.\n" \
+					"\n" \
+					"• Genel parola tüm yeni " \
+					"þifrelenecek notlar için " \
+					"ortak bir parola atamanýza " \
+					"yarar."
+
+FORM ID frmDeleteForm AT (2 72 156 86)
+FRAME MODAL
+HELPID strDeleteHelpString
+BEGIN
+	TITLE "Notu Sil"
+	FORMBITMAP 	AT (5 20) BITMAP 10005
+	LABEL "Bu notu sileyim mi ?"		AUTOID		AT (30 PrevTop) FONT 1
+	CHECKBOX ""							ID chkDeleteBackup AT (3 45 AUTO AUTO)
+	LABEL "Arþiv kopyasý PC\'de dursun"	AUTOID		AT (19 PrevTop) FONT 1
+	BUTTON "Tamam"						ID btnDeleteOK		AT (6 68 38 AUTO)
+	BUTTON "Vazgeç"						ID btnDeleteCancel	AT (PrevRight+6 PrevTop 38 AUTO)
+END
+
+STRING ID strDeleteHelpString	"Arþiv kopyasý PC\'de dursun " \
+								"seçeneði silinen bütün " \
+								"notlarýn sonraki eþlemede " \
+								"bilgisayardaki bir arþiv " \
+								"dosyasýnda tutulmasýna " \
+								"yarayacaktýr. "
+
+
+FORM ID frmAboutForm AT (2 12 156 146)
+FRAME MODAL
+HELPID strAboutHelpString
+BEGIN
+	TITLE "CryptoPad Hakkýnda"
+	FORMBITMAP AT (5 17) BITMAP bmpCryptoPadIcon
+	LABEL "v. 3.65"					AUTOID AT (32 16) FONT 1
+	LABEL "Maxime & JB Labelle"			AUTOID AT (32 27) FONT 1
+	LABEL "http://cryptopad.sourceforge.net/"	AUTOID AT (5 50)
+	LABEL "Eric Young tarafýndan yazýlmýþ"		AUTOID AT (5 76)
+	LABEL "þifreleme yazýlýmý içermektedir."	AUTOID AT (5 87)
+	LABEL "Türkçe çevirisi:"			AUTOID AT (5 100)
+	LABEL "www.palmturk.gen.tr"			AUTOID AT (5 111)
+	BUTTON "Tamam" AUTOID AT (60 130 38 AUTO)
+END
+
+STRING ID strAboutHelpString	"CryptoPad cihazla birlikte gelen " \ 
+								"Memopad uygulamasýnýn " \
+"geliþmiþ bir sürümüdür.\n" \
+								"Yeni sürümler için zaman " \
+								"zaman web sitemizi veya " \ 
+								"www.palmgear.com adresini " \
+"kontrol etmenizi salýk " \
+								"veririz. " \
+"\n" \
+								"Bir notu ýþýnlarken alýcý " \
+								"taraf CryptoPad\'den " \
+								"çýkmalýdýr, buna dikkat" \
+								"ediniz."
+
+
+MENU ID mnuMainMenu
+BEGIN
+	PULLDOWN "Kayýt"
+	BEGIN
+		MENUITEM "Kategoriyi Iþýnla"			ID itemRecordBeamCategory
+		MENUITEM SEPARATOR
+		MENUITEM "Kategoriyi Þifrele..."		ID itemRecordEncryptCategory
+		MENUITEM "Kategorinin Þifresini kaldýr..."		ID itemRecordDecryptCategory
+	END
+
+	PULLDOWN "Seçenekler"
+	BEGIN
+		MENUITEM "Font..."			ID itemOptionsFont "F"
+		MENUITEM "Tercihler..."	ID itemOptionsPrefs "R"
+		MENUITEM "CryptoPad Hakkýnda" 	ID itemOptionsAbout
+	END
+END
+
+MENU ID mnuEditMenu
+BEGIN
+	PULLDOWN "Kayýt"
+	BEGIN
+		MENUITEM "Yeni Not"				ID itemRecordNewMemo	"N"
+		MENUITEM "Notu Sil..."			ID itemRecordDeleteMemo	"D"
+		MENUITEM "Notu Iþýnla"			ID itemRecordBeamMemo	"B"
+		MENUITEM SEPARATOR
+		MENUITEM "Notu Þifrele..."		ID itemRecordEncryptMemo "Y"
+	END
+
+	PULLDOWN "Deðiþtir"
+	BEGIN
+		MENUITEM "Geri Al"				ID 10000 "U"
+		MENUITEM "Kes"					ID 10001 "X"
+		MENUITEM "Kopyala"				ID 10002 "C"
+		MENUITEM "Yapýþtýr"				ID 10003 "P"
+		MENUITEM "Tümünü Seç"			ID 10004 "S"
+		MENUITEM SEPARATOR
+		MENUITEM "Klavye"				ID 10006 "K"
+		MENUITEM "Graffiti"				ID 10007	"G"
+	END
+
+	PULLDOWN "Seçenekler"
+	BEGIN
+		MENUITEM "Font..."					ID itemOptionsFont "F"
+		MENUITEM "Sayfanýn en üstüne git" 	ID itemOptionsGoTopOfPage
+		MENUITEM "Sayfanýn en altýna git" 	ID itemOptionsGoBottomOfPage
+		MENUITEM "Telefon defterine bak" 	ID itemOptionsPhoneLookup "L"
+		MENUITEM "CryptoPad Hakkýnda" 		ID itemOptionsAbout
+	END
+END
+
+MENU ID mnuEditMenuNoPwd
+BEGIN
+	PULLDOWN "Kayýt"
+	BEGIN
+		MENUITEM "Yeni Not"				ID itemRecordNewMemo	"N"
+		MENUITEM "Notu Sil..."			ID itemRecordDeleteMemo	"D"
+		MENUITEM "Notu Iþýnla"			ID itemRecordBeamMemo	"B"
+		MENUITEM SEPARATOR
+		MENUITEM "Þifreyi kaldýr"		ID itemRecordRemovePasswd "R"
+	END
+
+	PULLDOWN "Deðiþtir"
+	BEGIN
+		MENUITEM "Geri Al"				ID 10000 "U"
+		MENUITEM "Kes"					ID 10001 "X"
+		MENUITEM "Kopyala"				ID 10002 "C"
+		MENUITEM "Yapýþtýr"				ID 10003 "P"
+		MENUITEM "Tümünü Seç"			ID 10004 "S"
+		MENUITEM SEPARATOR
+		MENUITEM "Klavye"				ID 10006 "K"
+		MENUITEM "Graffiti"				ID 10007	"G"
+	END
+
+	PULLDOWN "Seçenekler"
+	BEGIN
+		MENUITEM "Font..."					ID itemOptionsFont "F"
+		MENUITEM "Sayfanýn en üstüne git" 	ID itemOptionsGoTopOfPage
+		MENUITEM "Sayfanýn en altýna git" 	ID itemOptionsGoBottomOfPage
+		MENUITEM "Telefon defterine bak" 	ID itemOptionsPhoneLookup "L"
+		MENUITEM "CryptoPad Hakkýnda"		ID itemOptionsAbout
+	END
+END
+
+BITMAP ID bmpCryptoPadIcon "icon.bmp"
+BITMAP ID bmpMainKeyBitmap "key.bmp"
+
+STRING strCryptoHeader "CryptoPad"
+STRING strBeamDescription "a memo"
+STRING strBeamFilename "memo.TXT"
+
+STRING strMenuSecurityItem "Security..."
+STRING strSynchroniseFont "Synchronise Font Settings"
+
+STRING strGlobalPasswordUnassigned "-Atanmamýþ-"
+STRING strGlobalPasswordAssigned "-Atanmýþ-"
+
+STRING strProgressEncryption "Kategori Þifrelenmesi"
+STRING strProgressDecryption "Kategori Þifresi Kaldýrýlmasý"
+
+
+ALERT ID altConfirmDeleteAlert
+CONFIRMATION
+BEGIN
+	TITLE "Notu Sil"
+	MESSAGE "Bu notu sileyim mi?"
+	BUTTONS "Tamam" "Vazgeç"
+END
+
+ALERT ID altInvalidPasswordAlert
+ERROR
+BEGIN
+	TITLE "Parola"
+	MESSAGE "Hatalý parola. \nLütfen tekrar deneyin."
+	BUTTONS "Tamam"
+END
+
+ALERT ID altGlobalPasswordNotMatchAlert
+INFORMATION
+BEGIN
+	TITLE "Genel Parola"
+	MESSAGE "Girmiþ olduðunuz parola uymuyor.\n" \
+			"Lütfen tekrar deneyin."
+	BUTTONS "Tamam"
+END
+
+ALERT ID altConfirmDeleteForgottenPasswordAlert
+INFORMATION
+BEGIN
+	TITLE "Genel Parola"
+	MESSAGE "Unutulmuþ bir parolayý silmek genel parola ile þifrelenmiþ tüm notlarýn kaybedilmesine yol açacaktýr. " \
+			"Devam etmek istiyor musunuz?"
+	BUTTONS "Evet" "Hayýr"
+END
+
+ALERT ID altNoGlobalPasswordToDeleteAlert
+ERROR
+HELPID strDeleteForgottenPassword
+BEGIN
+	TITLE "Genel Parola Silinmesi"
+	MESSAGE "Silinecek genel parola yok."
+	BUTTONS "Tamam"
+END
+
+STRING ID strDeleteForgottenPassword "Bu özellik unutulmuþ genel þifreyi silmenize " \
+				"imkan tanýr.\nÖnceden bu genel parola ile þifrelenmiþ tüm notlarýnýz silinecektir."
+
+ALERT ID altInvalidGlobalPasswordAlert
+ERROR
+BEGIN
+	TITLE "Genel Parola"
+	MESSAGE "Hatalý genel parola. \nLütfen tekrar deneyin."
+	BUTTONS "Tamam"
+END
+
+ALERT ID altUseNoGlobalPasswordAlert
+INFORMATION
+BEGIN
+	TITLE "Parola"
+	MESSAGE "Bu not genel parola ile þifrelenmemiþ.\n" \
+			"Lütfen baþka bir parola ile deneyiniz."
+	BUTTONS "Tamam"
+END
+
+ALERT ID altEncryptRecordWithGlobalPasswordAlert
+INFORMATION
+BEGIN
+	TITLE "Notu Þifreleme"
+	MESSAGE "Bu not genel parola ile þifrelenecektir."
+	BUTTONS "Tamam"
+END
+
+ALERT ID altEncryptCategoryWithGlobalPasswordAlert
+INFORMATION
+BEGIN
+	TITLE "Notu Þifreleme"
+	MESSAGE "Bu kategori genel parola ile þifrelenecektir."
+	BUTTONS "Tamam"
+END
+
+ALERT ID altCategoryAlreadyEncryptedAlert
+INFORMATION
+BEGIN
+	TITLE "Notu Þifreleme"
+	MESSAGE "Bu kategori zaten þifrelenmiþ durumda."
+	BUTTONS "Tamam"
+END
+
+ALERT ID altCategoryAlreadyDecryptedAlert
+INFORMATION
+BEGIN
+	TITLE "Kategori Þifre Kaldýrýlmasý"
+	MESSAGE "Bu kategorinin þifresi zaten kaldýrýlmýþ durumda."
+	BUTTONS "Tamam"
+END
+
+ALERT ID altInvalidFormatAlert
+ERROR
+BEGIN
+	TITLE "Þifreleme Hatasý"
+	MESSAGE "Bir not en az iki satýrdan oluþmalýdýr."
+	BUTTONS "Tamam"
+END
+
+ALERT ID altRemovePasswdAlert
+INFORMATION
+BEGIN
+	TITLE "Parola"
+	MESSAGE "Bu not artýk þifre korumalý deðildir."
+	BUTTONS "Tamam"
+END
+
+ALERT ID altAlphabeticSortAlert
+INFORMATION
+BEGIN
+	TITLE "Alfabetik Sýralama"
+	MESSAGE "Eðer notlar alfabetik olarak sýralanýrsa mevcut sýralama kaybolacaktýr " \
+			"Notlarý sýralamak istediðinize emin misiniz?"
+	BUTTONS "Tamam" "Vazgeç"
+END
+
+ALERT ID altRomIncompatibleAlert
+ERROR
+BEGIN
+	TITLE "ROM Sürümü"
+	MESSAGE "Bu programýn doðru olarak çalýþmasý için ROM sürümü 3.0 veya daha yukarýsý olmalýdýr."
+	BUTTONS "Tamam"
+END
+
+ALERT ID altUseSingleFontAlert
+INFORMATION
+BEGIN
+	TITLE " Tek font kullan"
+	MESSAGE "Tek font kullanýrsanýz çeþitli Notlardaki ayrý font seçimleri " \
+			"kaybolacaktýr.\n Tek font kullanacaðýnýzdan emin misiniz?"
+	BUTTONS "Tamam" "Vazgeç"
+END
+
+ALERT ID altChangeTableFontOfCategoryAllAlert
+INFORMATION
+BEGIN
+	TITLE "Font"
+	MESSAGE "Kategoriler için ayrý fontlar kullanmaktasýnýz All kategorisi " \
+	"için fontu deðiþtiremezsiniz.\n" \
+	"Font komutunu uygulamadan önce bir kategori seçiniz."
+	BUTTONS "Tamam"
+END
+
+ALERT ID altMoveRecordOnTopImpossibleAlert
+INFORMATION
+BEGIN
+	TITLE "Notlarý yukarý taþý"
+	MESSAGE "\"Notlarý yukarý taþý\" özelliðini kullanmak için El ile sýralamayý seçmelisiniz."
+	BUTTONS "OK"
+END
+
+ALERT ID altBeamCryptoDataAlert
+INFORMATION
+BEGIN
+	TITLE "Iþýnlama"
+	MESSAGE "Þifrelenmiþ bir Notu ýþýnlayamazsýnýz."
+	BUTTONS "Tamam"
+END
+
+ALERT ID altDebugAlert
+BEGIN
+	TITLE "Hata Ayýklama Uyarýsý"
+	MESSAGE "^1"
+	BUTTONS "Tamam"
+END

@@ -1,0 +1,4 @@
+// bitmaps.rcp - runtime bitmaps, converted once from the original
+// application's pictures (bitmaps/*.bmp) and kept as source from here on.
+BITMAP ID 1001 "bitmaps/b1001.bmp"
+BITMAP ID 1011 "bitmaps/b1011.bmp"

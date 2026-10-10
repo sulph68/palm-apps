@@ -1,0 +1,5 @@
+application { "LazyFTP" LzTP backup }
+/* Declared segments must actually have code tagged for them, or build-prc
+ * fails with "unknown code section" - grown incrementally as each piece of
+ * lazyFTP lands (see lz_seg.h and project memory lazyftp-project.md). */
+multiple code { "sec001" "sec002" "sec003" "sec004" }

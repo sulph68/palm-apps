@@ -1,0 +1,781 @@
+#include "MainRsc.h"
+
+ICON "appico.bmp"
+SMALLICON "smallico.bmp"
+
+BITMAP ID bmpCardFolder "folder.bmp"
+BITMAP ID bmpCardUp "cardup.bmp"
+
+VERSION ID 1 "3.65"
+
+FORM ID frmMainForm AT (0 0 160 160)
+NOFRAME
+MENUID mnuMainMenu
+BEGIN
+	TITLE "CryptoNote"
+	POPUPTRIGGER ""			ID popMainCategory   AT (90 0 70 13)
+							RIGHTANCHOR
+	LIST ""					ID lstMainCategory   AT (89 1 71 1)
+							VISIBLEITEMS 5 NONUSABLE
+	POPUPLIST				ID popMainCategory lstMainCategory
+	TABLE					ID tblMainRecordList AT (0 18 152 124)
+							ROWS 11 COLUMNS 1
+							COLUMNWIDTHS 151
+	SCROLLBAR				ID sclMainScrollBar  AT (153 PrevTop 7 121)
+							VALUE 0 MIN 0 MAX 10 PAGESIZE 10 
+	BUTTON "New"			ID btnMainNewMemo    AT (1 147 26 12)
+	/* Find bar: [New] __field__ [Clear]. Filters live as every keystroke fires
+	 * fldChangedEvent (MainFormHandleEvent) -- same idiom as Address35's list-view
+	 * Find bar. In card mode filters filenames; otherwise filters memo titles. */
+	FIELD	ID fldMainFind			AT (32 148 90 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 38
+	BUTTON "Clear"			ID btnMainClear		AT (126 147 33 12)
+END
+
+FORM ID frmProgressForm AT (2 78 156 80)
+FRAME MODAL
+BEGIN
+	TITLE "Progress"
+	GADGET 					ID gadProgressMessage AT (10 25 140 15)
+	GADGET 					ID gadProgressBar AT (10 52 140 7)
+END
+
+FORM ID frmEditForm AT (0 0 160 160)
+NOFRAME
+MENUID mnuEditMenu
+BEGIN
+	/* Padded to cardMaxName (64, see CardIO.h) - EditRetrieveCardFile calls
+	 * FrmCopyTitle(formP, gCardEditName) to title this form with a card
+	 * file's leaf name, which can be as long as cardMaxName. FrmCopyTitle
+	 * writes into THIS string's compiled buffer size, never reallocating -
+	 * an unpadded short placeholder here overflows and silently corrupts
+	 * the heap for any card filename longer than the placeholder (same bug
+	 * class as EraNTP.md S4 / lazyFTP.md S5's FrmCopyLabel crash - see
+	 * memory palmos-frmcopylabel-buffer-size-gotcha). Normal (non-card)
+	 * memo editing never calls FrmCopyTitle, so the form just shows this
+	 * text as-is - trailing spaces are clipped by the title bar's own draw
+	 * width, same idiom as Sec35's lblCountdown/lblSession and CryptoNote's
+	 * own label ID 1013. */
+	TITLE "Memo                                                            "
+	SELECTORTRIGGER ""		ID popEditCategory   AT (89 1 70 11)
+							RIGHTANCHOR
+	LIST ""					ID lstEditCategory   AT (83 1 76 1)
+							VISIBLEITEMS 5 NONUSABLE
+	POPUPLIST				ID popEditCategory lstEditCategory
+	FIELD					ID fldEditText       AT (0 16 153 125)
+							MULTIPLELINES UNDERLINED HASSCROLLBAR
+							AUTOSHIFT MAXCHARS 65000
+	LABEL ">4k"				ID lblEditMaxSize	AT (145 148 ) FONT 0 NONUSABLE
+	SCROLLBAR				ID sclEditScrollBar  AT (153 18 7 122)
+							VALUE 0 MIN 0 MAX 10 PAGESIZE 10
+	BUTTON "Done"			ID btnEditTerminate  AT (1 147 30 12)
+	BUTTON "Details"		ID btnEditDetails    AT (PrevRight+6 PrevTop 34 12)
+	GRAFFITISTATEINDICATOR	                     AT (135 PrevTop)
+END
+
+STRING ID	strEditTitleMemo "Memo # of "
+
+FORM ID frmDetailsForm AT (2 86 156 72)
+FRAME MODAL
+HELPID strDetailsHelpString
+BEGIN
+	TITLE "Memo Details"
+	LABEL "Category:"		AUTOID				AT (5 18) FONT 1
+	POPUPTRIGGER ""			ID popDetailsCategory AT (57 PrevTop 70 13)
+							LEFTANCHOR
+	LIST ""					ID lstDetailsCategory   AT (57 18 76 1)
+							VISIBLEITEMS 5 NONUSABLE
+	POPUPLIST				ID popDetailsCategory lstDetailsCategory
+	LABEL "Private:"		AUTOID              AT (13 32) FONT 1
+	CHECKBOX ""				ID chkDetailsPrivate AT (58 PrevTop AUTO AUTO)
+	BUTTON "OK"				ID btnDetailsOK		AT (6 54 38 AUTO)
+	BUTTON "Cancel"			ID btnDetailsCancel	AT (PrevRight+6 PrevTop 38 AUTO)
+	BUTTON "Delete..."		ID btnDetailsDelete	AT (PrevRight+6 PrevTop 40 AUTO)
+END
+
+STRING ID strDetailsHelpString "� The category displayed in\n" \
+					"the Memo List screen is\n" \
+					"assigned automatically to\n" \
+					"new Memos\n" \
+					"\n" \
+					"� There are two ways to\n" \
+					"change the category of a\n" \
+					"memo:\n" \
+					"\n" \
+					"1. Select a new category in\n" \
+					"the Memo Details dialog.\n" \
+					"2. While in memo edit view,\n" \
+					"choose a new category from\n" \
+					"the pick list."
+
+FORM ID frmPasswordForm AT (2 75 156 83)
+FRAME MODAL
+HELPID strPasswordHelpString
+BEGIN
+	TITLE "Password"
+	FORMBITMAP 	AT (5 20) BITMAP 10005
+	LABEL "Enter a password:"		AUTOID			AT (30 PrevTop) FONT 1
+	FIELD					ID fldPasswordText		 AT (5 42 146 13)
+							SINGLELINE UNDERLINED
+							MAXCHARS 56
+	BUTTON "OK"				ID btnPasswordOK		 AT (6 65 38 AUTO)
+	BUTTON "Cancel"			ID btnPasswordCancel	 AT (PrevRight+6 PrevTop 38 AUTO)
+	BUTTON "Forget..."		ID btnPasswordForget	 AT (PrevRight+6 PrevTop 40 AUTO)
+	GRAFFITISTATEINDICATOR	                         AT (144 PrevTop)
+END
+
+STRING ID strPasswordHelpString "� Enter a password to encrypt " \
+					"the memo.\n" \
+					"\n" \
+					"� The password will be used for both encryption " \
+					"and decryption. Make sure not to forget it as " \
+					"it will be impossible to restore the contents " \
+					"of the memos crypted with this password."
+
+/* Numeric keypad for password entry (Preferences > Password Type in Sec35).
+ * Layout is a 1-for-1 copy of Sec35's own frmKeypad (sec35.rcp) -- same
+ * digit-grid geometry, same GADGET-based custom hit-test/draw approach
+ * (see PasswordForm.c). */
+FORM ID frmKeypadForm AT (2 2 156 156)
+MODAL
+BEGIN
+	TITLE "Enter Password"
+	GADGET ID 11001			AT (5 30 46 22) USABLE
+	GADGET ID 11002			AT (55 30 46 22) USABLE
+	GADGET ID 11003			AT (105 30 46 22) USABLE
+	GADGET ID 11004			AT (5 56 46 22) USABLE
+	GADGET ID 11005			AT (55 56 46 22) USABLE
+	GADGET ID 11006			AT (105 56 46 22) USABLE
+	GADGET ID 11007			AT (5 82 46 22) USABLE
+	GADGET ID 11008			AT (55 82 46 22) USABLE
+	GADGET ID 11009			AT (105 82 46 22) USABLE
+	GADGET ID kpdDel		AT (5 108 46 22) USABLE
+	GADGET ID kpd0			AT (55 108 46 22) USABLE
+	BUTTON "OK"				ID kpdOk		AT (5 134 71 16)
+	BUTTON "Cancel"			ID kpdCancel	AT (80 134 71 16)
+END
+
+FORM ID frmQueryGlobalPasswordForm AT (2 67 156 91)
+FRAME MODAL
+BEGIN
+	TITLE "Global password"
+	FORMBITMAP 	AT (5 20) BITMAP 10005
+	LABEL "Enter your current"		AUTOID			AT (30 PrevTop) FONT 1
+	LABEL "global password:"		AUTOID			AT (PrevLeft 32) FONT 1
+	FIELD					ID fldQueryGlobalPasswordText		 AT (5 50 146 13)
+							SINGLELINE UNDERLINED
+							MAXCHARS 56
+	BUTTON "OK"				ID btnQueryGlobalPasswordOK		 AT (6 73 38 AUTO)
+	BUTTON "Cancel"			ID btnQueryGlobalPasswordCancel	 AT (PrevRight+6 PrevTop 38 AUTO)
+	GRAFFITISTATEINDICATOR	                         AT (144 PrevTop)
+END
+
+FORM ID frmConfirmGlobalPasswordForm AT (2 7 156 151)
+FRAME MODAL
+BEGIN
+	TITLE "Global password"
+	LABEL "Verify your new password:"		AUTOID		AT (5 16) FONT 1
+	FIELD					ID fldSetAndChangeGlobalPasswordText		 AT (PrevLeft 32 146 13)
+							SINGLELINE UNDERLINED
+							MAXCHARS 56
+	LABEL "If you forget this password"		AUTOID		AT (PrevLeft 52) FONT 1
+	LABEL "you can tap \"Forgotten"			AUTOID		AT (PrevLeft 64) FONT 1
+ 	LABEL "Password...\" to delete it,"		AUTOID		AT (PrevLeft 76) FONT 1
+  	LABEL "but any records crypted"			AUTOID		AT (PrevLeft 88) FONT 1
+  	LABEL "with the global password"		AUTOID		AT (PrevLeft 100) FONT 1
+  	LABEL "will be deleted."			AUTOID			AT (PrevLeft 112) FONT 1
+	BUTTON "OK"				ID btnConfirmGlobalPasswordOK		 AT (6 133 38 AUTO)
+	BUTTON "Cancel"			ID btnSetAndChangeGlobalPasswordCancel	 AT (PrevRight+6 PrevTop 38 AUTO)
+	GRAFFITISTATEINDICATOR	                         AT (144 PrevTop)
+END
+
+FORM ID frmSetGlobalPasswordForm AT (2 19 156 139)
+FRAME MODAL
+HELPID strSetGlobalPasswordHelpString
+BEGIN
+	TITLE "Global password"
+	LABEL "Enter a password:"		AUTOID			AT (5 16) FONT 1
+	FIELD					ID fldSetAndChangeGlobalPasswordText		 AT (PrevLeft 32 146 13)
+							SINGLELINE UNDERLINED
+							MAXCHARS 56
+	LABEL "If you assign a password, you"		AUTOID		AT (PrevLeft 52) FONT 1
+	LABEL "must enter it to show"				AUTOID		AT (PrevLeft 64) FONT 1
+ 	LABEL "crypted records."					AUTOID		AT (PrevLeft 76) FONT 1
+  	LABEL "Now, the crypted records will"		AUTOID		AT (PrevLeft 88) FONT 1
+  	LABEL "use the global password."			AUTOID		AT (PrevLeft 100) FONT 1
+	BUTTON "OK"				ID btnSetAndChangeGlobalPasswordOK		 AT (6 121 38 AUTO)
+	BUTTON "Cancel"			ID btnSetAndChangeGlobalPasswordCancel	 AT (PrevRight+6 PrevTop 38 AUTO)
+	GRAFFITISTATEINDICATOR	                         AT (144 PrevTop)
+END
+
+
+STRING ID strSetGlobalPasswordHelpString "� Enter a password to set " \
+					"the global password.\n" \
+					"\n" \
+					"� This global password will become the current " \
+					"password and will be used for both encryption " \
+					"and decryption. Make sure not to forget it as " \
+					"it will be impossible to restore the contents " \
+					"of the memo crypted with this password."
+
+FORM ID frmChangeGlobalPasswordForm AT (2 61 156 97)
+FRAME MODAL
+HELPID strSetGlobalPasswordHelpString
+BEGIN
+	TITLE "Change global password"
+	LABEL "Enter new password or tap"		AUTOID		AT (5 16) FONT 1
+	LABEL "the Delete button to remove"		AUTOID		AT (PrevLeft 28) FONT 1
+ 	LABEL "your current password."		AUTOID			AT (PrevLeft 40) FONT 1
+	FIELD					ID fldSetAndChangeGlobalPasswordText		 AT (PrevLeft 56 146 13)
+							SINGLELINE UNDERLINED
+							MAXCHARS 56
+	BUTTON "OK"				ID btnSetAndChangeGlobalPasswordOK		 AT (6 79 38 AUTO)
+	BUTTON "Cancel"			ID btnSetAndChangeGlobalPasswordCancel	 AT (PrevRight+6 PrevTop 38 AUTO)
+	BUTTON "Delete"			ID btnChangeGlobalPasswordDelete	 AT (PrevRight+6 PrevTop 40 AUTO)
+	GRAFFITISTATEINDICATOR	                         AT (144 PrevTop)
+END
+
+FORM ID frmPrefsForm AT (2 3 156 155)
+FRAME MODAL
+HELPID strPrefsHelpString
+BEGIN
+	TITLE "Preferences memos"
+	LABEL "Sort by:"		AUTOID				AT (8 16) FONT 0
+	POPUPTRIGGER ""			ID popPrefsSortOrder AT (44 PrevTop 70 13)
+							LEFTANCHOR
+	LIST "Manual" "Alphabetic"
+							ID lstPrefsSortOrder   AT (44 PrevTop 70 1)
+							VISIBLEITEMS 2 NONUSABLE
+	POPUPLIST				popPrefsSortOrder lstPrefsSortOrder
+	LABEL "Move records on top"		AUTOID				AT (24 30) FONT 0
+	CHECKBOX ""				ID chkPrefsMoveRecordOnTop AT (5  PrevTop AUTO AUTO)
+	LABEL "Show lines"		AUTOID				AT (24 41) FONT 0
+	CHECKBOX ""				ID chkPrefsShowLines AT (5  PrevTop AUTO AUTO)
+	LABEL "Show Hidden"		AUTOID				AT (24 52) FONT 0
+	CHECKBOX ""				ID chkPrefsShowHidden AT (5  PrevTop AUTO AUTO)
+	LABEL "Use single font"		AUTOID				AT (24 63) FONT 0
+	CHECKBOX ""				ID chkPrefsUseSingleFont AT (5 PrevTop AUTO AUTO)
+	LABEL "Rotate between:"		AUTOID				AT (8 74) FONT 0
+	POPUPTRIGGER ""			ID popPrefsRotateOrder AT (78 PrevTop 70 13)
+							LEFTANCHOR
+	LIST "All" "All-Unfiled" "Categ.-Unfiled"
+							ID lstPrefsRotateOrder   AT (78 PrevTop PrevWidth 1)
+							VISIBLEITEMS 3  NONUSABLE
+	LABEL "Global Password Features:"		AUTOID				AT (7 89) FONT 1
+	LABEL "Global password:"		AUTOID				AT (7 103) FONT 0
+	SELECTORTRIGGER "-Unassigned-"		ID selPrefsGlobalPassword AT (80 PrevTop AUTO AUTO)
+							LEFTANCHOR
+	BUTTON "Forgotten Password..."				ID btnPrefsForgotten		AT (20 119 112 AUTO)
+	BUTTON "OK"				ID btnPrefsOK		AT (6 137 38 AUTO)
+	BUTTON "Cancel"			ID btnPrefsCancel	AT (50 PrevTop 38 AUTO)
+END
+
+STRING ID strPrefsHelpString 	"� Sort by Manual allows " \
+							"manual sorting of memos by "\
+							"dragging them up and down " \
+							"the list. To drag, pen down " \
+							"on a memo and drag it to the " \
+							"desired order and lift up the " \
+							"pen.\n" \
+							"\n" \
+							"� Sort by Alphabetic sorts " \
+							"memos alphabetically. This " \
+							"sort order will overwrite " \
+							"the current sort order.\n" \
+							"\n" \
+							"� Move record on top move " \
+							"at the top of the list each " \
+							"consulted memo.\n" \
+							"\n" \
+							"� Show lines allows to " \
+							"display or hide the underlining " \
+							"in the edit form.\n" \
+							"\n" \
+							"� Use single font allows to " \
+							"use a separate font for each " \
+							"record in the edit form and for " \
+							"each category in the main view.\n" \
+							"\n" \
+							"� Rotate between lets the user " \
+							"choose which categories are displayed " \
+							"when hiting the hard key of the " \
+							"application to switch from categories.\n" \
+							"\"All-Unfiled\" goes also in the " \
+							"\"Unfiled\" category while " \
+							"\"Categ.-Unfiled\" jump the \"All\" " \
+							"category.\n" \
+							"\n" \
+							"� Global password allows " \
+							"user to assign a global " \
+							"password for all new crypted " \
+							"memos."
+
+FORM ID frmDeleteForm AT (2 72 156 86)
+FRAME MODAL
+HELPID strDeleteHelpString
+BEGIN
+	TITLE "Delete Memo"
+	FORMBITMAP 	AT (5 20) BITMAP 10005
+	LABEL "Delete current memo ?"		AUTOID		AT (30 20) FONT 1
+	CHECKBOX ""				ID chkDeleteBackup AT (8 45 AUTO AUTO)
+	LABEL "Save archive copy on PC"		AUTOID		AT (28 45) FONT 1
+	BUTTON "OK"				ID btnDeleteOK		AT (6 68 38 AUTO)
+	BUTTON "Cancel"			ID btnDeleteCancel	AT (50 68 38 AUTO)
+END
+
+STRING ID strDeleteHelpString	"The Save Archive Copy " \
+								"option will store deleted " \
+								"records in an archive file on " \
+								"your desktop computer at " \
+								"the next Hotsynch. Some " \
+								"records will be hidden but " \
+								"not deleted until then."
+
+
+FORM ID frmAboutForm AT (2 36 156 122)
+FRAME MODAL
+HELPID strAboutHelpString
+BEGIN
+	TITLE "About CryptoNote"
+	FORMBITMAP AT (5 17) BITMAP bmpCryptoPadIcon
+	LABEL "CryptoNote 3.65"					AUTOID AT (32 16) FONT 1
+	LABEL "Adds SD-card notes to"			AUTOID AT (32 27) FONT 1
+	LABEL "CryptoPad by Maxime & JB Labelle"	AUTOID AT (5 38)
+	LABEL "http://cryptopad.sourceforge.net/"	AUTOID AT (5 50)
+	LABEL "Contains cryptographic software"		AUTOID AT (5 61)
+	LABEL "by Eric Young. AES-128-CTR added"			AUTOID AT (5 72)
+	LABEL "by Benjamin Khoo via Claude"			AUTOID AT (5 83)
+	BUTTON "OK" AUTOID AT (60 106 38 AUTO)
+END
+
+STRING ID strAboutHelpString	"CryptoNote extends CryptoPad " \
+								"with SD-card notes (the \"Card\" " \
+								"category) that can be read, " \
+								"edited and encrypted per file " \
+								"with the same AES model as the " \
+								"built-in encrypted notes.\n" \
+								"\n" \
+								"Notice that while beaming " \
+								"a memo, receiver must exit " \
+								"from CryptoNote in order to " \
+								"receive it."
+
+
+
+FORM ID frmCardPassword AT (2 84 156 74)
+FRAME MODAL
+BEGIN
+	TITLE "Password"
+	LABEL "Enter password:"		AUTOID	AT (5 18) FONT 1
+	FIELD					ID fldCardPassword AT (5 34 146 13)
+						SINGLELINE UNDERLINED
+						MAXCHARS 56
+	BUTTON "OK"				ID btnCardPasswordOK		AT (6 54 38 AUTO)
+	BUTTON "Cancel"			ID btnCardPasswordCancel	AT (PrevRight+6 PrevTop 40 AUTO)
+	GRAFFITISTATEINDICATOR	                    AT (144 PrevTop)
+END
+
+
+FORM ID frmCardNewNote AT (2 84 156 74)
+FRAME MODAL
+BEGIN
+	TITLE "New Note"
+	LABEL "Name:"			AUTOID	AT (5 22) FONT 1
+	FIELD					ID fldCardNewName AT (42 20 108 13)
+						SINGLELINE UNDERLINED
+						MAXCHARS 40
+	BUTTON "OK"				ID btnCardNewOK		AT (6 50 38 AUTO)
+	BUTTON "Cancel"			ID btnCardNewCancel	AT (PrevRight+6 PrevTop 40 AUTO)
+	GRAFFITISTATEINDICATOR	                    AT (144 PrevTop)
+END
+
+
+MENU ID mnuMainMenu
+BEGIN
+	PULLDOWN "Record"
+	BEGIN
+		MENUITEM "Beam Category"			ID itemRecordBeamCategory
+		MENUITEM SEPARATOR
+		MENUITEM "Encrypt Category..."		ID itemRecordEncryptCategory
+		MENUITEM "Decrypt Category..."		ID itemRecordDecryptCategory
+	END
+
+	PULLDOWN "Options"
+	BEGIN
+		MENUITEM "Font..."			ID itemOptionsFont "F"
+		MENUITEM "Preferences..."	ID itemOptionsPrefs "R"
+		MENUITEM "About CryptoNote" 	ID itemOptionsAbout
+	END
+END
+
+MENU ID mnuEditMenu
+BEGIN
+	PULLDOWN "Record"
+	BEGIN
+		MENUITEM "New Memo"				ID itemRecordNewMemo	"N"
+		MENUITEM "Delete Memo..."		ID itemRecordDeleteMemo	"D"
+		MENUITEM "Beam Memo"			ID itemRecordBeamMemo	"B"
+		MENUITEM SEPARATOR
+		MENUITEM "Encrypt Memo..."		ID itemRecordEncryptMemo "Y"
+		MENUITEM "Import to CryptoNote..." ID itemRecordImportToCrypto
+	END
+
+	PULLDOWN "Edit"
+	BEGIN
+		MENUITEM "Undo"					ID 10000 "U"
+		MENUITEM "Cut"					ID 10001 "X"
+		MENUITEM "Copy"					ID 10002 "C"
+		MENUITEM "Paste"				ID 10003 "P"
+		MENUITEM "Select All"			ID 10004 "S"
+		MENUITEM SEPARATOR
+		MENUITEM "Keyboard"				ID 10006 "K"
+		MENUITEM "Graffiti"				ID 10007 "G"
+	END
+
+	PULLDOWN "Options"
+	BEGIN
+		MENUITEM "Font..."				ID itemOptionsFont "F"
+		MENUITEM "Go to Top of Page" 	ID itemOptionsGoTopOfPage
+		MENUITEM "Go to Bottom of Page" ID itemOptionsGoBottomOfPage
+		MENUITEM "About CryptoNote" 	ID itemOptionsAbout
+	END
+END
+
+MENU ID mnuEditMenuNoPwd
+BEGIN
+	PULLDOWN "Record"
+	BEGIN
+		MENUITEM "New Memo"				ID itemRecordNewMemo	"N"
+		MENUITEM "Delete Memo..."		ID itemRecordDeleteMemo	"D"
+		MENUITEM "Beam Memo"			ID itemRecordBeamMemo	"B"
+		MENUITEM SEPARATOR
+		MENUITEM "Remove Password"		ID itemRecordRemovePasswd "R"
+		MENUITEM "Import to CryptoNote..." ID itemRecordImportToCrypto
+	END
+
+	PULLDOWN "Edit"
+	BEGIN
+		MENUITEM "Undo"					ID 10000 "U"
+		MENUITEM "Cut"					ID 10001 "X"
+		MENUITEM "Copy"					ID 10002 "C"
+		MENUITEM "Paste"				ID 10003 "P"
+		MENUITEM "Select All"			ID 10004 "S"
+		MENUITEM SEPARATOR
+		MENUITEM "Keyboard"				ID 10006 "K"
+		MENUITEM "Graffiti"				ID 10007 "G"
+	END
+
+	PULLDOWN "Options"
+	BEGIN
+		MENUITEM "Font..."				ID itemOptionsFont "F"
+		MENUITEM "Go to Top of Page" 	ID itemOptionsGoTopOfPage
+		MENUITEM "Go to Bottom of Page" ID itemOptionsGoBottomOfPage
+		MENUITEM "About CryptoNote"		ID itemOptionsAbout
+	END
+END
+
+BITMAP ID bmpCryptoPadIcon "icon.bmp"
+BITMAP ID bmpMainKeyBitmap "key.bmp"
+BITMAP ID bmpBarFontBitmap "font.bmp"
+
+STRING strMenuSecurityItem "Security..."
+STRING strSynchroniseFont "Synchronise Font Settings"
+
+STRING strCryptoHeader "CryptoNote"
+STRING strBeamDescription "a memo"
+STRING strBeamFilename "memo.TXT"
+
+STRING strGlobalPasswordUnassigned "-Unassigned-"
+STRING strGlobalPasswordAssigned "-Assigned-"
+
+STRING strProgressEncryption "Category Encryption"
+STRING strProgressDecryption "Category Decryption"
+
+
+ALERT ID altConfirmDeleteAlert
+CONFIRMATION
+BEGIN
+	TITLE "Delete Memo"
+	MESSAGE "Delete this memo?"
+	BUTTONS "OK" "Cancel"
+END
+
+ALERT ID altInvalidPasswordAlert
+ERROR
+BEGIN
+	TITLE "Password"
+	MESSAGE "Incorrect password. \nPlease retry."
+	BUTTONS "OK"
+END
+
+ALERT ID altGlobalPasswordNotMatchAlert
+INFORMATION
+BEGIN
+	TITLE "Global Password"
+	MESSAGE "The password you entered do not match.\n" \
+			"Please try again."
+	BUTTONS "OK"
+END
+
+ALERT ID altConfirmDeleteForgottenPasswordAlert
+INFORMATION
+BEGIN
+	TITLE "Global Password"
+	MESSAGE "Deleting a forgotten password will remove all records crypted with the global password. " \
+			"Do you wish to proceed?"
+	BUTTONS "Yes" "No"
+END
+
+ALERT ID altNoGlobalPasswordToDeleteAlert
+ERROR
+HELPID strDeleteForgottenPassword
+BEGIN
+	TITLE "Delete Global Password"
+	MESSAGE "There is no global password to delete."
+	BUTTONS "OK"
+END
+
+STRING ID strDeleteForgottenPassword "This feature lets you delete a forgotten global" \
+				"password.\nAll records previously crypted with the global password are removed."
+
+ALERT ID altInvalidGlobalPasswordAlert
+ERROR
+BEGIN
+	TITLE "Global password"
+	MESSAGE "Incorrect global password. \nPlease retry."
+	BUTTONS "OK"
+END
+
+ALERT ID altUseNoGlobalPasswordAlert
+INFORMATION
+BEGIN
+	TITLE "Password"
+	MESSAGE "This record was not crypted with the global password.\n" \
+			"Please retry with another password."
+	BUTTONS "OK"
+END
+
+ALERT ID altEncryptRecordWithGlobalPasswordAlert
+INFORMATION
+BEGIN
+	TITLE "Encrypt Record"
+	MESSAGE "The current record will be encrypted with the global password."
+	BUTTONS "OK"
+END
+
+ALERT ID altEncryptCategoryWithGlobalPasswordAlert
+INFORMATION
+BEGIN
+	TITLE "Encrypt Category"
+	MESSAGE "The current category will be encrypted with the global password."
+	BUTTONS "OK"
+END
+
+ALERT ID altCategoryAlreadyEncryptedAlert
+INFORMATION
+BEGIN
+	TITLE "Encrypt Category"
+	MESSAGE "The current category is already encrypted."
+	BUTTONS "OK"
+END
+
+ALERT ID altCategoryAlreadyDecryptedAlert
+INFORMATION
+BEGIN
+	TITLE "Decrypt Category"
+	MESSAGE "The current category is already decrypted."
+	BUTTONS "OK"
+END
+
+ALERT ID altInvalidFormatAlert
+ERROR
+BEGIN
+	TITLE "Encryption Error"
+	MESSAGE "The memo should at least contain two lines."
+	BUTTONS "OK"
+END
+
+ALERT ID altRemovePasswdAlert
+INFORMATION
+BEGIN
+	TITLE "Password"
+	MESSAGE "The memo is no longer password protected."
+	BUTTONS "OK"
+END
+
+ALERT ID altAlphabeticSortAlert
+INFORMATION
+BEGIN
+	TITLE "Alphabetic Sort"
+	MESSAGE "The current sort order will be lost if the memos are sorted " \
+			"alphabetically. Are you sure you wish to sort the memos ?"
+	BUTTONS "OK" "Cancel"
+END
+
+ALERT ID altRomIncompatibleAlert
+ERROR
+BEGIN
+	TITLE "ROM Version"
+	MESSAGE "ROM version 3.0 or higher is required for this program to run correctly."
+	BUTTONS "OK"
+END
+
+ALERT ID altMoveRecordOnTopImpossibleAlert
+INFORMATION
+BEGIN
+	TITLE "Move records on top"
+	MESSAGE "You must set the sort order to Manual to use the \"Move records " \
+			"on top\" feature."
+	BUTTONS "OK"
+END
+
+ALERT ID altMigrateMemoPadAlert
+CONFIRMATION
+BEGIN
+	TITLE "Memo Pad"
+	MESSAGE "^1 memo(s) found in Memo Pad. Migrate them into CryptoNote? " \
+			"They will be removed from Memo Pad."
+	BUTTONS "OK" "Cancel"
+END
+
+ALERT ID altUseSingleFontAlert
+INFORMATION
+BEGIN
+	TITLE "Use Single Font"
+	MESSAGE "The separate font settings will be lost if you use a single " \
+			"font.\nAre you sure you wish to use a single font ?"
+	BUTTONS "OK" "Cancel"
+END
+
+ALERT ID altChangeTableFontOfCategoryAllAlert
+INFORMATION
+BEGIN
+	TITLE "Font"
+	MESSAGE "You are using separate fonts for categories so you cannot " \
+	"change the font for the category All.\n" \
+	"Select a category before invoking the font command."
+	BUTTONS "OK"
+END
+
+ALERT ID altBeamCryptoDataAlert
+INFORMATION
+BEGIN
+	TITLE "Beam"
+	MESSAGE "You can't beam crypted record."
+	BUTTONS "OK"
+END
+
+ALERT ID altDebugAlert
+BEGIN
+	TITLE "Debug Alert"
+	MESSAGE "^1"
+	BUTTONS "OK"
+END
+
+
+ALERT ID altCardNewNoName
+ERROR
+BEGIN
+	TITLE "New Note"
+	MESSAGE "Please enter a name for the note."
+	BUTTONS "OK"
+END
+
+ALERT ID altCardNewExists
+ERROR
+BEGIN
+	TITLE "New Note"
+	MESSAGE "A file with that name already exists. Please choose a different name."
+	BUTTONS "OK"
+END
+
+ALERT ID altCardBadPassword
+ERROR
+BEGIN
+	TITLE "Password"
+	MESSAGE "Incorrect password. \nPlease retry."
+	BUTTONS "OK"
+END
+
+ALERT ID altCardReencrypt
+CONFIRMATION
+BEGIN
+	TITLE "Encrypted File"
+	MESSAGE "File was originally encrypted. Save file back as an encrypted file?"
+	BUTTONS "Yes" "New Password" "No"
+END
+
+ALERT ID altCardDeletePlain
+CONFIRMATION
+BEGIN
+	TITLE "Encrypt File"
+	MESSAGE "Delete the original plaintext file?"
+	BUTTONS "Delete" "Keep"
+END
+
+ALERT ID altCardTooLarge
+CONFIRMATION
+BEGIN
+	TITLE "Open File"
+	MESSAGE "This file is too large to edit directly (max ~60 KB). It can " \
+			"still be imported into CryptoNote as ^1 memo(s) instead. Import?"
+	BUTTONS "Import" "Cancel"
+END
+
+ALERT ID altCardNoBeam
+INFORMATION
+BEGIN
+	TITLE "Beam"
+	MESSAGE "Beaming card files is not supported."
+	BUTTONS "OK"
+END
+
+ALERT ID altCardEncAll
+CONFIRMATION
+BEGIN
+	TITLE "Encrypt All"
+	MESSAGE "Every note in this folder will be encrypted with the SAME password. If you forget it, all of them are lost. Continue?"
+	BUTTONS "Encrypt All" "Cancel"
+END
+
+ALERT ID altCardImportConfirm
+CONFIRMATION
+BEGIN
+	TITLE "Import to CryptoNote"
+	MESSAGE "This will create ^1 memo(s) in CryptoNote. The file on the " \
+			"card is not changed. Continue?"
+	BUTTONS "Import" "Cancel"
+END
+
+ALERT ID altCardImportComplete
+INFORMATION
+BEGIN
+	TITLE "Import to CryptoNote"
+	MESSAGE "Import complete: ^1 memo(s) created."
+	BUTTONS "OK"
+END
+
+ALERT ID altCardImportFailed
+ERROR
+BEGIN
+	TITLE "Import to CryptoNote"
+	MESSAGE "Import failed: only ^1 memo(s) created. The file on the " \
+			"card is unchanged."
+	BUTTONS "OK"
+END
+
+ALERT ID altCardOpenFailed
+ERROR
+BEGIN
+	TITLE "Open File"
+	MESSAGE "This file could not be opened. (error ^1)"
+	BUTTONS "OK"
+END
+
+ALERT ID altRecordTooLargeToEdit
+ERROR
+BEGIN
+	TITLE "Memo Too Large"
+	MESSAGE "This memo is too large to edit safely. Please create a new " \
+			"memo for any further changes instead."
+	BUTTONS "OK"
+END

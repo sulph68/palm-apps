@@ -1,0 +1,333 @@
+/* CalDAV Sync - resource IDs are #define'd in CalDAVSyncRsc.h (hand-written,
+ * kept in step with this file by hand - same convention BitWarden/Address35
+ * use, split out because pilrc can't parse a real #include <PalmOS.h>).
+ *
+ * frmMain is just the slot picker, a read-only summary, and a bottom-
+ * aligned Sync Now button; "Edit..." opens frmSlotEdit, a focused modal
+ * dialog (mirrors Address35's frmPhoneDlg/frmEmailDlg) for that one slot's
+ * fields. Long/URL-like fields open frmLongText, a shared full-screen
+ * multi-line editor (mirrors Address35's frmNoteDlg/EditNoteDialog) instead
+ * of a cramped single-line FIELD. Every text-entry dialog carries
+ * mnuDlgEdit (Cut/Copy/Paste/Select All) the same way Address35's own
+ * dialogs do. */
+#include "CalDAVSyncRsc.h"
+
+/* Launcher icon art: pilrc emits these as the standard tAIB 1000 (large)/
+ * 1001 (small) resources the PalmOS launcher reads at runtime. */
+ICON "icons/large_caldav.bmp"
+SMALLICON "icons/small_caldav.bmp"
+
+/* ---- shared Edit menu for every modal text-entry dialog - same item IDs
+ * (10000-10007) and shape as Address35's own mnuDlgEdit. -------------- */
+MENU ID mnuDlgEdit
+BEGIN
+	PULLDOWN "Edit"
+	BEGIN
+		MENUITEM "Undo"				ID 10000	"U"
+		MENUITEM "Cut"				ID 10001	"X"
+		MENUITEM "Copy"				ID 10002	"C"
+		MENUITEM "Paste"			ID 10003	"P"
+		MENUITEM "Select All"		ID 10004	"S"
+		MENUITEM SEPARATOR
+		MENUITEM "Keyboard"			ID 10006	"K"
+		MENUITEM "Graffiti Help"		ID 10007	"G"
+	END
+END
+
+/* ---- frmMain: slot picker + read-only summary + Sync Now (bottom) ----- */
+FORM ID 1000 AT (0 0 160 160)
+USABLE
+MENUID 1600
+BEGIN
+	TITLE "CalDAV Sync"
+
+	/* Value column (popup triangle / field text) starts at x=46 for all 3
+	 * rows, lined up with the labels' own left edge. Rows evenly spaced
+	 * 17px apart. */
+	LABEL "Slot:" ID 1200 AT (4 18) FONT 1
+	POPUPTRIGGER "1" ID popSlotSelector AT (42 18 112 12)
+	LIST "1" "2" "3" "4" "5" "6" "7" "8" ID lstSlotSelector AT (46 18 106 90) VISIBLEITEMS 8 NONUSABLE
+	POPUPLIST ID popSlotSelector lstSlotSelector
+
+	LABEL "Type:" ID 1205 AT (4 35) FONT 1
+	FIELD ID fldMainTypeDisplay AT (46 35 106 12) SINGLELINE MAXCHARS 31
+
+	/* Multi-line read-only status block - MainForm.c's UpdateSummaryDisplay
+	 * builds "OK - N event(s) - <date/time>" or "Failed: <reason> -
+	 * <date/time>". */
+	LABEL "Status:" ID 1206 AT (4 52) FONT 1
+	FIELD ID fldMainStatusDisplay AT (46 52 108 76) MULTIPLELINES MAXCHARS 127
+
+	/* Bottom-aligned 3-button row, all acting on the currently-selected
+	 * slot. Clear DB wipes only this slot's own synced DateBook35DAV.pdb
+	 * entries (MainForm.c, via DAVDb.c's per-slot rebuild primitives with
+	 * no events added back) - the slot's own configuration is untouched.
+	 * Trimmed to end before x=144 so nothing sits under the
+	 * GRAFFITISTATEINDICATOR glyph at the bottom-right corner. */
+	BUTTON "Edit" ID btnMainEditSlot AT (4 138 42 16)
+	BUTTON "Clear DB" ID btnMainClearDB AT (52 138 54 16)
+	BUTTON "Sync" ID btnMainSyncNow AT (112 138 38 16)
+
+	GRAFFITISTATEINDICATOR AT (145 156)
+END
+
+MENU ID menuMain
+BEGIN
+	PULLDOWN "Record"
+	BEGIN
+		MENUITEM "Sync All"        mniMainSyncAll        "A"
+		MENUITEM "Preferences"     mniMainPreferences    "P"
+		MENUITEM SEPARATOR
+		MENUITEM "Recompute Times" mniMainRecompute      "R"
+		MENUITEM "Delete Database" mniMainDeleteDB       "D"
+		MENUITEM SEPARATOR
+		MENUITEM "Help"            mniMainHelp           "H"
+	END
+END
+
+/* ---- frmSlotEdit: focused modal, one slot at a time ------------------- */
+FORM ID frmSlotEdit AT (2 2 156 156)
+FRAME MODAL
+MENUID mnuDlgEdit
+BEGIN
+	TITLE "Edit Slot"
+
+	LABEL "Alias:" ID 1204 AT (6 20) FONT 1
+	FIELD ID fldSlotAlias AT (46 19 100 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 23
+
+	LABEL "Type:" ID 1205 AT (6 34) FONT 1
+	POPUPTRIGGER "CalDAV" ID popSlotType AT (46 34 60 12)
+	LIST "CalDAV" "iCloud" "Google" "ICS Feed" ID lstSlotType AT (46 34 60 46) VISIBLEITEMS 4 NONUSABLE
+	POPUPLIST ID popSlotType lstSlotType
+	/* This flag only ever gates Sync All's own per-slot loop (MainForm.c) -
+	 * a single-slot Sync/Edit is entirely unaffected by it. */
+	CHECKBOX "Skip" ID chkSlotIgnore AT (108 34 44 12) FONT 0
+
+	/* Adaptive-group row grid: 14px deltas from y=48 (Address35's frmEdit
+	 * uses the same rhythm). */
+
+	/* CalDAV group - Server/Path are ordinary-LOOKING FIELDs (same row
+	 * style as every other row) that intercept fldEnterEvent (SlotEditForm.c)
+	 * to open frmLongText instead of allowing direct inline typing.
+	 * User/Password stay normal editable FIELDs (short in practice). */
+	LABEL "Server:" ID lblSlotUrl AT (6 48) FONT 0
+	FIELD ID fldSlotUrl AT (52 48 98 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 127
+	LABEL "Path:" ID lblSlotPath AT (6 62) FONT 0
+	FIELD ID fldSlotPath AT (52 62 98 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 95
+	LABEL "User:" ID lblSlotUser AT (6 76) FONT 0
+	FIELD ID fldSlotUser AT (52 76 98 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 63
+	/* Masked-by-default with a "Show" checkbox to reveal - simpler than
+	 * lazyFTP's per-keystroke reveal-then-hide timer (that exact class of
+	 * dangling-timer bug already bit this suite once for real, see
+	 * sec35-text-entry-reveal-timer-crash-fix). SlotEditForm.c keeps the
+	 * real typed value in its own shadow buffer; this FIELD only ever
+	 * shows either that or a same-length run of '*'. */
+	LABEL "Passwd:" ID lblSlotSecret AT (6 90) FONT 0
+	FIELD ID fldSlotSecret AT (52 90 85 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 63
+	CHECKBOX "" ID chkSlotSecretShow AT (140 90 15 12) FONT 0
+	LABEL "2FA? Use an app password." ID lblSlot2FAHint AT (6 104) FONT 0
+
+	/* iCloud group (same y-band, shown exclusively) - UUID gets the same
+	 * tap-opens-frmLongText FIELD treatment; the rest stay normal editable
+	 * FIELDs. */
+	LABEL "AppleID:" ID lblSlotICloudUser AT (6 48) FONT 0
+	FIELD ID fldSlotICloudUser AT (52 48 98 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 63
+	LABEL "Passwd:" ID lblSlotICloudSecret AT (6 62) FONT 0
+	FIELD ID fldSlotICloudSecret AT (52 62 85 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 63
+	CHECKBOX "" ID chkSlotICloudSecretShow AT (140 62 15 12) FONT 0
+	LABEL "Host:" ID lblSlotICloudShard AT (6 76) FONT 0
+	FIELD ID fldSlotICloudShard AT (52 76 98 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 63
+	LABEL "DSID:" ID lblSlotICloudUUID AT (6 90) FONT 0
+	FIELD ID fldSlotICloudUUID AT (52 90 98 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 39
+	LABEL "Cal UUID:" ID lblSlotICloudCal AT (6 104) FONT 0
+	FIELD ID fldSlotICloudCal AT (52 104 98 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 95
+
+	/* Google group - Calendar ID, Client ID, and Client Secret can all be
+	 * long strings. All three live here, on the Palm, never on WiRSa - see
+	 * CalDAVSync.h's own comment on CDDVSlot.googleClientId/googleClientSecret. */
+	LABEL "Calendar ID:" ID lblSlotGoogleCal AT (6 48) FONT 0
+	FIELD ID fldSlotGoogleCal AT (62 48 88 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 127
+	LABEL "Client ID:" ID lblSlotGoogleClientId AT (6 62) FONT 0
+	FIELD ID fldSlotGoogleClientId AT (62 62 88 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 95
+	LABEL "Secret:" ID lblSlotGoogleClientSecret AT (6 76) FONT 0
+	FIELD ID fldSlotGoogleClientSecret AT (62 76 88 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 47
+	BUTTON "Sign in with Google" ID btnSlotGoogleSignIn AT (6 94 140 14)
+
+	/* ICS Feed group */
+	LABEL "URL:" ID lblSlotIcsUrl AT (6 48) FONT 0
+	FIELD ID fldSlotIcsUrl AT (52 48 98 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 127
+
+	/* "Default" is just the popups' own first list item, standing in for a
+	 * separate enable/disable checkbox. Abbreviated list items
+	 * ("wks"/"mths") so the narrower triggers still show the full word. */
+	LABEL "Sync:" ID lblSyncFrom AT (6 120) FONT 0
+	POPUPTRIGGER "" ID popSlotPastOverride AT (36 120 44 11)
+	LIST "Default" "None" "1wk" "2wks" "1mth" "2mths" "3mths"
+		ID lstSlotPastOverride AT (36 120 44 77) VISIBLEITEMS 7 NONUSABLE
+	POPUPLIST ID popSlotPastOverride lstSlotPastOverride
+	LABEL "to" ID lblSyncTo AT (84 120) FONT 0
+	POPUPTRIGGER "" ID popSlotFutureOverride AT (98 120 44 11)
+	LIST "Default" "2wks" "1mth" "3mths" "6mths" "1yr"
+		ID lstSlotFutureOverride AT (98 120 44 66) VISIBLEITEMS 6 NONUSABLE
+	POPUPLIST ID popSlotFutureOverride lstSlotFutureOverride
+
+	/* Delete confirms first (altConfirmDeleteSlot, notes event details are
+	 * also removed), then resets this slot to unconfigured AND wipes its
+	 * synced DateBook35DAV.pdb entries. btnSlotEditOK's own ID/behavior is
+	 * unchanged, only its label ("Save"). */
+	BUTTON "Save" ID btnSlotEditOK AT (4 136 42 16)
+	BUTTON "Delete" ID btnSlotEditDelete AT (52 136 46 16)
+	BUTTON "Cancel" ID btnSlotEditCancel AT (104 136 46 16)
+
+	GRAFFITISTATEINDICATOR AT (140 153)
+END
+
+/* ---- frmLongText: shared multi-line editor for any long/URL-like field,
+ * mirrors Address35's frmNoteDlg/EditNoteDialog - same dimensions, same
+ * Done/Cancel + scrollbar shape. ---------------------------------------- */
+FORM ID frmLongText AT (0 0 160 160)
+MODAL
+MENUID mnuDlgEdit
+BEGIN
+	TITLE "Edit Text"
+	FIELD ID fldLongText AT (2 17 150 124) EDITABLE UNDERLINED MULTIPLELINES
+		MAXCHARS 255 HASSCROLLBAR
+	SCROLLBAR ID sclLongText AT (154 17 7 124) VALUE 0 MIN 0 MAX 0 PAGESIZE 10
+	BUTTON "Done" ID btnLongTextDone AT (2 145 40 12)
+	BUTTON "Cancel" ID btnLongTextCancel AT (46 145 44 12)
+	GRAFFITISTATEINDICATOR AT (150 147)
+END
+
+/* ---- frmHelp: read-only scrollable reference for every input label,
+ * reached from Record > Help. Bordered inset (2 2 156 156), same shape as
+ * frmSlotEdit, since a FRAME on a literal (0 0 160 160) form draws no
+ * visible edge at all. No FIELD object here - HelpForm.c hand-draws the
+ * content area directly (bold section titles + bold labels, plain
+ * descriptions, no underline) into the same rect a FIELD would use, since a
+ * plain FIELD can only use one font per line and always underlines
+ * MULTIPLELINES text. --------------------------------------------------- */
+FORM ID frmHelp AT (2 2 156 156)
+FRAME MODAL
+BEGIN
+	TITLE "Help"
+	SCROLLBAR ID sclHelp AT (148 17 6 116) VALUE 0 MIN 0 MAX 0 PAGESIZE 10
+	BUTTON "Done" ID btnHelpDone AT (58 138 40 14)
+	GRAFFITISTATEINDICATOR AT (140 140)
+END
+
+/* ---- frmSyncProgress: status+bar modal shown for the duration of a sync -
+ * mirrors BitWarden's own frmSyncProgress: same centered-modal shape/size
+ * (this suite's one documented exception to the bottom-aligned-dialog
+ * rule), status text and bar both hand-drawn (SyncProgress.c). ---------- */
+FORM ID frmSyncProgress AT (2 48 156 64)
+FRAME MODAL
+BEGIN
+	TITLE "Syncing"
+	BUTTON "Cancel"				ID btnSyncCancel	AT (58 46 40 14)
+END
+
+/* ---- frmPrefs: global Preferences (its own modal form - a settings
+ * dialog reached from the menu, not a per-slot view-state toggle). Still
+ * bottom-aligned per this suite's own standing rule (y+H=156). --------- */
+FORM ID frmPrefs AT (2 14 156 144)
+FRAME MODAL
+BEGIN
+	TITLE "Preferences"
+
+	LABEL "Sync past:" ID 1120 AT (6 18) FONT 1
+	POPUPTRIGGER "" ID popPrefsPast AT (70 18 70 12)
+	LIST "None" "1 week" "2 weeks" "1 month" "2 months" "3 months"
+		ID lstPrefsPast AT (70 18 70 66) VISIBLEITEMS 6 NONUSABLE
+	POPUPLIST ID popPrefsPast lstPrefsPast
+
+	LABEL "Sync future:" ID 1121 AT (6 36) FONT 1
+	POPUPTRIGGER "" ID popPrefsFuture AT (70 36 70 12)
+	LIST "2 weeks" "1 month" "3 months" "6 months" "1 year"
+		ID lstPrefsFuture AT (70 36 70 55) VISIBLEITEMS 5 NONUSABLE
+	POPUPLIST ID popPrefsFuture lstPrefsFuture
+
+	LABEL "Each slot may override these." ID 1122 AT (6 54) FONT 0
+
+	LABEL "Google: set your OAuth Consent" ID 1123 AT (6 68) FONT 0
+	LABEL "Screen to 'In production' or" ID 1124 AT (6 79) FONT 0
+	LABEL "tokens expire after 7 days." ID 1125 AT (6 91) FONT 0
+
+	/* Serial baud to WiRSa - same 9 rates/order as WiRSa's own bauds[]
+	 * (main.cpp), same row shape as BitWarden's own equivalent. */
+	LABEL "Baud:" ID 1126 AT (6 107) FONT 1
+	POPUPTRIGGER "57600" ID popPrefsBaud AT (42 106 50 13)
+	LIST "300" "1200" "2400" "4800" "9600" "19200" "38400" "57600" "115200"
+		ID lstPrefsBaud AT (42 10 50 90) VISIBLEITEMS 9 NONUSABLE
+	POPUPLIST ID popPrefsBaud lstPrefsBaud
+
+	BUTTON "OK" ID btnPrefsOK AT (60 126 36 14)
+END
+
+/* ---- shared alerts ------------------------------------------------------ */
+ALERT ID altErr
+ERROR
+BEGIN
+	TITLE "Error"
+	MESSAGE "^1"
+	BUTTONS "OK"
+END
+
+ALERT ID altSyncOk
+INFORMATION
+BEGIN
+	TITLE "Sync Complete"
+	MESSAGE "^1"
+	BUTTONS "OK"
+END
+
+ALERT ID altConfirmDeleteDB
+CONFIRMATION
+BEGIN
+	TITLE "Delete Database"
+	MESSAGE "Delete all synced calendar events? This cannot be undone - the next sync will rebuild it."
+	BUTTONS "Delete" "Cancel"
+END
+
+ALERT ID altConfirmRecompute
+CONFIRMATION
+BEGIN
+	TITLE "Recompute Times"
+	MESSAGE "Recompute all event display times using the current device timezone?"
+	BUTTONS "OK" "Cancel"
+END
+
+/* MainForm's "Clear DB" button - wipes only the selected slot's own synced
+ * entries, not its configuration. ^1 = alias. */
+ALERT ID altConfirmClearSlotDB
+CONFIRMATION
+BEGIN
+	TITLE "Clear Calendar Data"
+	MESSAGE "Clear all synced calendar entries for '^1'? This cannot be undone - the next sync will rebuild them. The slot's own settings are not affected."
+	BUTTONS "Clear" "Cancel"
+END
+
+/* SlotEditForm's "Delete" button - wipes BOTH this slot's configuration AND
+ * its synced entries. ^1 = alias. */
+ALERT ID altConfirmDeleteSlot
+CONFIRMATION
+BEGIN
+	TITLE "Delete Slot"
+	MESSAGE "Delete slot '^1'? This clears its settings AND removes its synced calendar event details. This cannot be undone."
+	BUTTONS "Delete" "Cancel"
+END
+
+ALERT ID altGoogleProductionWarning
+CONFIRMATION
+BEGIN
+	TITLE "Before you continue"
+	MESSAGE "Your Google Cloud OAuth client's Consent Screen must be set to 'In production' (not 'Testing'), or access will silently stop working after 7 days. This is a one-time Google Cloud Console setting, separate from formal app verification."
+	BUTTONS "Continue" "Cancel"
+END
+
+ALERT ID altGoogleOAuthInstructions
+INFORMATION
+BEGIN
+	TITLE "Google Sign-In"
+	MESSAGE "^1"
+	BUTTONS "OK" "Cancel"
+END

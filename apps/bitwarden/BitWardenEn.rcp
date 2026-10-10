@@ -1,0 +1,439 @@
+/* BitWarden - PalmOS Vaultwarden client. Single resource file (this
+ * suite's convention for apps this size - see lazyFTP's MainEn.rcp) - edit
+ * this file directly to tweak layout. Resource IDs are #define'd in
+ * BitWarden.h (included below for pilrc to resolve the symbolic names used
+ * throughout this file), not a separate resource header.
+ */
+#include "BitWardenRsc.h"
+
+VERSION ID 1 "0.1"
+
+/* Launcher icon (tAIB 1000/1001) - see icon/mkicon_bitwarden.py. Same
+ * ICON/SMALLICON -> tAIB pipeline as Address35/CryptoNote/Datebook35/ToDo35/
+ * lazyFTP (see project memory launcher-icon-tAIB-gotcha - Constructor
+ * taif/taic are ignored by the real launcher, only tAIB renders). */
+ICON "icon/bitwarden_large.bmp"
+SMALLICON "icon/bitwarden_small.bmp"
+
+/* Per-item-type row icons - see icon/mkicon_types.py + BitWardenRsc.h's own
+ * comment. MainForm.c's MainDrawRow loads these via DmGetResource(bitmapRsc, ...). */
+BITMAP ID bmpTypeLogin		"icon/login_row.bmp"
+BITMAP ID bmpTypeNote		"icon/note_row.bmp"
+BITMAP ID bmpTypeCard		"icon/card_row.bmp"
+BITMAP ID bmpTypeIdentity	"icon/identity_row.bmp"
+
+/* ---- Main: folder/org popup + type popup + list + search -------------- */
+FORM ID frmMain AT (0 0 160 160)
+MENUID 1600
+BEGIN
+	TITLE "BitWarden"
+
+	/* Top-right: All / Unfiled / Folders / (- - -) / Orgs - see MainForm.c's
+	 * MainLoadFolderPopup for how the list content + the dotted separator
+	 * are built at runtime. VISIBLEITEMS is generous so a real vault's
+	 * folder+org list mostly fits without its own internal scroll. */
+	/* No POPUPLIST pairing here (deliberate, unlike popMainType below) - a
+	 * popup trigger auto-linked via POPUPLIST always redraws its own label
+	 * from the linked list's current selection text on every subsequent
+	 * form redraw, silently overriding any CtlSetLabel call an app makes
+	 * (real-device/POSE64 feedback: a long folder/org name kept reappearing
+	 * at full length and running under the title, no matter when the app
+	 * called CtlSetLabel). MainForm.c instead drives lstMainFolder directly
+	 * via LstPopupList() from a ctlSelectEvent handler, so it can apply its
+	 * own capped label afterward without anything else re-deriving it. */
+	POPUPTRIGGER ""			ID popMainFolder	AT (90 0 70 13) RIGHTANCHOR
+	LIST ""					ID lstMainFolder	AT (89 1 71 1)
+								VISIBLEITEMS 8 NONUSABLE
+
+	/* Height trimmed 128->127 (ends at y=143, not 144) - a filtered redraw's
+	 * last row was bleeding 1px onto btnMainClear's own top edge (AT y=144),
+	 * visually clipping it until the next full form redraw (e.g. opening
+	 * then closing a record) painted over it. Real-device feedback. */
+	TABLE					ID tblMain			AT (0 16 152 127) ROWS 14 COLUMNS 1
+								COLUMNWIDTHS 152
+	SCROLLBAR				ID sclMain			AT (153 16 7 127)
+								VALUE 0 MIN 0 MAX 0 PAGESIZE 10
+
+	/* Bottom row, per explicit design instruction:
+	 * [ type filter popup ] [ search field ] [ Clear ] */
+	POPUPTRIGGER "All"			ID popMainType		AT (1 143 46 13)
+	/* pilrc has no vertical-anchor keyword for LIST (checked the grammar
+	 * directly, only LEFTANCHOR/RIGHTANCHOR exist and those are horizontal,
+	 * for POPUPTRIGGER/button label growth) - a popup LIST's own AT rect
+	 * *is* its literal expanded position, it doesn't dynamically flip to
+	 * avoid running off-screen. Since this trigger sits at y=146 near the
+	 * bottom of a 160px screen, the list is deliberately positioned ABOVE
+	 * it instead (ending at y=146, growing upward) rather than below (which
+	 * would immediately run past the screen edge) - same reasoning applies
+	 * to any future bottom-row popup in this app. VISIBLEITEMS 5 shows all
+	 * five choices at once with no internal scroll. */
+	LIST "All" "Login" "Note" "Card" "Identity"
+								ID lstMainType		AT (1 91 70 55)
+								VISIBLEITEMS 5 NONUSABLE
+	POPUPLIST				ID popMainType lstMainType
+	FIELD					ID fldMainFilter	AT (50 144 76 12)
+								EDITABLE UNDERLINED SINGLELINE MAXCHARS 30
+	BUTTON "Clear"				ID btnMainClear		AT (128 144 31 12)
+END
+
+MENU ID 1600
+BEGIN
+	PULLDOWN "Options"
+	BEGIN
+		MENUITEM "Sync Now"			ID mniSync			"S"
+		MENUITEM "Preferences"			ID mniPreferences	"P"
+		MENUITEM "Lock Now"			ID mniLockNow		"L"
+		MENUITEM SEPARATOR
+		MENUITEM "Archived Items"		ID mniArchive		"V"
+		MENUITEM SEPARATOR
+		MENUITEM "Delete Account"		ID mniDeleteAccount	"D"
+		MENUITEM "About BitWarden"		ID mniAbout			"A"
+	END
+	PULLDOWN "Security"
+	BEGIN
+		MENUITEM "2FA"					ID mniSecurityTwoFactor	"2"
+	END
+END
+
+/* ---- Record views: one purpose-built form per itemType, not a single
+ * shared Login-shaped layout with relabeled/hidden rows - each type shows
+ * exactly its own fields and gives Notes as much room as that type's field
+ * count leaves free (real-device feedback: the old shared layout left some
+ * identity data effectively invisible and wasted most of the screen on a
+ * cramped Notes field for Note-only items). All four: TITLE placeholder is
+ * a length floor for FrmCopyTitle's real dynamic item name (see the
+ * documented FrmCopyLabel/FrmCopyTitle buffer-size gotcha), Done is
+ * left-aligned 4px from the left border and 4px from the screen's own
+ * bottom edge (143+13=156). ---------------------------------------------- */
+
+/* Login: same shared dynamic-table mechanism as Card/Identity (see
+ * BitWardenRsc.h's own comment) - Username/Password/URL/TOTP/Notes shown
+ * only where populated, Password masked behind Show like everything else. */
+FORM ID frmRecordLogin AT (0 0 160 160)
+BEGIN
+	TITLE "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"
+
+	TABLE					ID tblRecordLogin		AT (2 17 150 122) ROWS 24 COLUMNS 1
+								COLUMNWIDTHS 150
+	SCROLLBAR				ID sclRecordLogin		AT (153 17 7 122)
+
+	BUTTON "Show"			ID btnRecordShow		AT (4 143 40 13)
+	BUTTON "Done"			ID btnRecordDone		AT (48 143 40 13)
+END
+
+/* Note: still just the one field (a single item's worth of Notes doesn't
+ * need the dynamic-table treatment), but Show/Done share the bottom row
+ * like every other type for visual consistency - Show masks the note text
+ * (arbitrary in the sense that a note isn't marked "sensitive" the way a
+ * password is, but explicit design instruction: every type gets the same
+ * bottom row). */
+FORM ID frmRecordNote AT (0 0 160 160)
+BEGIN
+	TITLE "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"
+
+	LABEL "Notes:"			ID 1130 AT (2 18) FONT 1
+	FIELD					ID fldRecordNoteText	AT (2 30 148 109) UNDERLINED MULTIPLELINES
+	SCROLLBAR				ID sclRecordNote		AT (153 30 7 109)
+
+	BUTTON "Show"			ID btnRecordNoteShow	AT (4 143 40 13)
+	BUTTON "Done"			ID btnRecordNoteDone	AT (48 143 40 13)
+END
+
+/* Card: only the fields this particular card actually has (RecordForm.c's
+ * shared BwFieldsBuild/FieldsDrawLine - see BitWardenRsc.h's own comment) as
+ * "Label: value" table rows, Notes included as just more rows (wrapped, not
+ * a separate fixed field) - the table is one big panel spanning nearly the
+ * whole form, one scrollbar for everything. Number/Code masked behind Show
+ * like a password; Show sits next to Done on the bottom row instead of its
+ * own row, per explicit design instruction. */
+FORM ID frmRecordCard AT (0 0 160 160)
+BEGIN
+	TITLE "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"
+
+	TABLE					ID tblRecordCard		AT (2 17 150 122) ROWS 24 COLUMNS 1
+								COLUMNWIDTHS 150
+	SCROLLBAR				ID sclRecordCard		AT (153 17 7 122)
+
+	BUTTON "Show"			ID btnRecordCardShow	AT (4 143 40 13)
+	BUTTON "Done"			ID btnRecordCardDone	AT (48 143 40 13)
+END
+
+/* Identity: same shared mechanism as Card, above - up to 18 possible real
+ * Bitwarden Identity fields (title/name/company/SSN/passport/license/email/
+ * phone/address/city/state/postal/country) plus Notes, shown only where
+ * populated. */
+FORM ID frmRecordIdentity AT (0 0 160 160)
+BEGIN
+	TITLE "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"
+
+	TABLE					ID tblRecordId			AT (2 17 150 122) ROWS 24 COLUMNS 1
+								COLUMNWIDTHS 150
+	SCROLLBAR				ID sclRecordId			AT (153 17 7 122)
+
+	BUTTON "Show"			ID btnRecordIdShow		AT (4 143 40 13)
+	BUTTON "Done"			ID btnRecordIdDone		AT (48 143 40 13)
+END
+
+/* ---- Preferences: server URL / email / trust / sync -------------------- */
+/* Height trimmed 134->130 to match the rows below moving up 4px (real-
+ * device feedback: too much dead space between Trusted and Sync Now).
+ * y=26 makes this properly bottom-aligned (y+H=156, this suite's standing
+ * rule for every non-blocking dialog with input fields - see frmUnlock's
+ * own AT for the same shape) - this form had drifted to a fixed y=22
+ * instead of tracking its own height, unlike frmUnlock. */
+FORM ID frmPrefs AT (2 10 156 146)
+FRAME MODAL
+BEGIN
+	TITLE "Preferences"
+
+	LABEL "Server:"			ID 1210 AT (4 20) FONT 1
+	FIELD					ID fldPrefsServer	AT (46 19 106 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 120
+
+	LABEL "Email:"				ID 1211 AT (4 36) FONT 1
+	FIELD					ID fldPrefsEmail	AT (46 35 106 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 80
+
+	LABEL "Trusted:"			ID 1212 AT (4 52) FONT 1
+	/* Just "Yes"/"No" now - the real fingerprint moved to its own
+	 * full-screen viewer (frmFingerprint), reached via "Show". */
+	LABEL "No"					ID lblPrefsFingerprint AT (56 52) FONT 1
+	BUTTON "Show"				ID btnPrefsShowFingerprint AT (80 51 40 13)
+
+	BUTTON "Sync Now"			ID btnPrefsSyncNow		AT (4 72 72 14)
+	BUTTON "Forget Trust"		ID btnPrefsForgetTrust	AT (80 72 72 14)
+
+	LABEL "Lock after:"			ID 1213 AT (4 90) FONT 1
+	/* Grows upward, same reasoning as lstMainType (see that comment) -
+	 * this trigger sits well down the dialog, not enough room below it
+	 * for 5 rows without running past the screen edge. */
+	POPUPTRIGGER "5 min"			ID popPrefsTtl		AT (60 88 60 13)
+	LIST "1 min" "5 min" "15 min" "30 min" "1 hour"
+									ID lstPrefsTtl		AT (60 33 60 55)
+									VISIBLEITEMS 5 NONUSABLE
+	POPUPLIST				ID popPrefsTtl lstPrefsTtl
+
+	/* Must match whatever WiRSa's own serial-speed menu setting currently is
+	 * - see Serial.c's own comment on why this isn't just hardcoded. Same 9
+	 * rates/order as WiRSa's own bauds[] (main.cpp). */
+	LABEL "Baud:"				ID 1215 AT (4 106) FONT 1
+	POPUPTRIGGER "57600"			ID popPrefsBaud		AT (40 104 50 13)
+	LIST "300" "1200" "2400" "4800" "9600" "19200" "38400" "57600" "115200"
+									ID lstPrefsBaud		AT (40 10 50 90)
+									VISIBLEITEMS 9 NONUSABLE
+	POPUPLIST				ID popPrefsBaud lstPrefsBaud
+
+	/* Left-aligned 4px from the form's own left border, 4px apart from each
+	 * other, 4px from the form's own bottom edge (146-14-4=128) - same
+	 * pattern as frmUnlock's own OK/Cancel, now applied consistently to
+	 * every dialog with input fields rather than just the one that
+	 * happened to get real-device feedback first. */
+	BUTTON "OK"					ID btnPrefsOk			AT (4 128 40 14)
+	BUTTON "Cancel"				ID btnPrefsCancel		AT (48 128 44 14)
+END
+
+/* ---- Unlock: master password entry (local unlock, and feeds Sync) ----- *
+ * Bottom-aligned per this suite's standing modal-dialog rule (AT (2 y 156
+ * H) with y+H=156). */
+FORM ID frmUnlock AT (2 86 156 70)
+FRAME MODAL
+BEGIN
+	TITLE "Unlock"
+
+	LABEL "Master password:"		ID lblUnlockPrompt	AT (4 18) FONT 1
+	/* Masked like Sec35's own password fields: the real value never lives in
+	 * this FIELD's own text (which only ever shows '*'s, plus the just-typed
+	 * character briefly in clear like a phone keyboard) - see Dialogs.c's
+	 * PwRedraw/PwKeyDown, modeled directly on sec35.c's RedrawMaskedField/
+	 * PwFieldKeyDown. "Show" is a persistent full-reveal toggle on top of
+	 * that brief per-character reveal, per explicit design instruction. */
+	FIELD						ID fldUnlockPassword AT (4 34 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 100
+	CHECKBOX "Show"				ID chkUnlockShow	AT (114 34 38 12) FONT 0
+
+	/* Left-aligned 4px from the form's own left border, 4px apart from each
+	 * other - real-device feedback that the previous centered placement
+	 * looked misaligned against this dialog's other left-anchored rows. */
+	BUTTON "OK"					ID btnUnlockOk		AT (4 52 40 14)
+	BUTTON "Cancel"				ID btnUnlockCancel	AT (48 52 44 14)
+END
+
+/* ---- Two-Factor: Vaultwarden 2FA challenge mid-sync -------------------- *
+ * Bottom-aligned, same shape as frmUnlock - see BitWardenRsc.h's own
+ * comment. fldTwoFactorLabel is NOT EDITABLE (display-only, dynamic text
+ * from WiRSa/mock - same technique as frmTrust's own fldTrustQuestion). */
+FORM ID frmTwoFactor AT (2 72 156 84)
+FRAME MODAL
+BEGIN
+	TITLE "Two-Factor Code"
+
+	FIELD						ID fldTwoFactorLabel AT (4 18 148 24) MULTIPLELINES FONT 0 MAXCHARS 100
+
+	LABEL "Code:"				ID lblTwoFactorPrompt AT (4 48) FONT 1
+	FIELD						ID fldTwoFactorCode AT (36 47 116 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 32
+
+	BUTTON "OK"					ID btnTwoFactorOk		AT (4 66 40 14)
+	BUTTON "Cancel"				ID btnTwoFactorCancel	AT (48 66 44 14)
+END
+
+/* ---- Two-Factor entry-mode preference (Options > Security > 2FA) ------ *
+ * Same shape as Sec35's own frmPrefs entry-mode picker - LABEL + POPUPTRIGGER
+ * + LIST + OK/Cancel, bottom-aligned per this suite's own standing rule. */
+FORM ID frmTwoFactorPrefs AT (2 98 156 58)
+FRAME MODAL
+BEGIN
+	TITLE "2FA Code Entry"
+
+	LABEL "Type:"				ID lblTwoFactorPrefsType AT (6 22) FONT 1
+	POPUPTRIGGER "Text Field"	ID popTwoFactorPrefsType AT (40 21 108 13)
+	LIST "Text Field" "Numeric Keypad"
+								ID lstTwoFactorPrefsType AT (40 10 108 24)
+								VISIBLEITEMS 2 NONUSABLE
+	POPUPLIST					ID popTwoFactorPrefsType lstTwoFactorPrefsType
+
+	BUTTON "OK"					ID btnTwoFactorPrefsOk		AT (4 40 40 14)
+	BUTTON "Cancel"				ID btnTwoFactorPrefsCancel	AT (48 40 44 14)
+END
+
+/* ---- Numeric keypad for 2FA code entry (Numeric Keypad mode only) ----- *
+ * Mirrors Sec35's own frmKeypad geometry exactly (10 digit GADGETs, 3
+ * cols x 4 rows, same AT coordinates) but no phone-letter decorations -
+ * not useful for a TOTP/backup code. Full-screen-ish like Sec35's,
+ * deliberately breaking the bottom-aligned convention - a real picker,
+ * not a data-entry form (same reasoning as Sec35's own comment). */
+FORM ID frmTwoFactorKeypad AT (2 2 156 156)
+FRAME MODAL
+BEGIN
+	TITLE "2FA Code"
+
+	FIELD						ID fldTwoFactorKeypadDisplay AT (10 15 132 12)
+								SINGLELINE FONT 1
+
+	GADGET ID gadTwoFactorKey1 AT (5 30 46 22)
+	GADGET ID gadTwoFactorKey2 AT (55 30 46 22)
+	GADGET ID gadTwoFactorKey3 AT (105 30 46 22)
+	GADGET ID gadTwoFactorKey4 AT (5 56 46 22)
+	GADGET ID gadTwoFactorKey5 AT (55 56 46 22)
+	GADGET ID gadTwoFactorKey6 AT (105 56 46 22)
+	GADGET ID gadTwoFactorKey7 AT (5 82 46 22)
+	GADGET ID gadTwoFactorKey8 AT (55 82 46 22)
+	GADGET ID gadTwoFactorKey9 AT (105 82 46 22)
+	GADGET ID gadTwoFactorKeyDel AT (5 108 46 22)
+	GADGET ID gadTwoFactorKey0 AT (55 108 46 22)
+
+	BUTTON "OK"					ID btnTwoFactorKeypadOk		AT (5 134 71 16)
+	BUTTON "Cancel"				ID btnTwoFactorKeypadCancel	AT (80 134 71 16)
+END
+
+/* ---- Trust: TOFU "trust this server?" prompt --------------------------- *
+ * Full-screen (real-device feedback: as a small modal popup the Yes/No
+ * buttons landed off the bottom of the screen entirely - unreachable,
+ * blocking every sync). Question in bold, cert data in a plain (no
+ * underline) scrollable text field, Yes/No pinned to the last screen row
+ * so they're always reachable regardless of how much cert data there is.
+ * Both text areas are populated via FldSetTextPtr in Dialogs.c (an
+ * externally-owned buffer), not FrmCopyLabel - the placeholder text below
+ * is cosmetic only and is never what's actually shown. */
+FORM ID frmTrust AT (0 0 160 160)
+FRAME
+BEGIN
+	TITLE "New Server"
+
+	/* Bold font wraps wider than normal (more lines for the same string) -
+	 * given real-device headroom so a 3rd wrapped line isn't clipped. */
+	FIELD					ID fldTrustQuestion	AT (4 18 150 36)
+								MULTIPLELINES FONT 1 MAXCHARS 200
+
+	FIELD					ID fldTrustCertData	AT (2 58 150 82)
+								MULTIPLELINES FONT 0 MAXCHARS 400
+	SCROLLBAR				ID sclTrust			AT (153 58 7 82)
+								VALUE 0 MIN 0 MAX 0 PAGESIZE 8
+
+	BUTTON "Trust"				ID btnTrustYes	AT (20 142 55 14)
+	BUTTON "Cancel"				ID btnTrustNo	AT (85 142 55 14)
+END
+
+/* ---- Fingerprint viewer: read-only, reached from Preferences' "Show" --- *
+ * Same text-display shape as frmTrust's own cert-data area, just a single
+ * OK to dismiss instead of a Yes/No decision. */
+FORM ID frmFingerprint AT (0 0 160 160)
+FRAME
+BEGIN
+	TITLE "Server Fingerprint"
+
+	FIELD					ID fldFingerprintData	AT (2 18 150 122)
+								MULTIPLELINES FONT 0 MAXCHARS 400
+	SCROLLBAR				ID sclFingerprint		AT (153 18 7 122)
+								VALUE 0 MIN 0 MAX 0 PAGESIZE 11
+
+	BUTTON "OK"					ID btnFingerprintOk	AT (60 142 40 14)
+END
+
+/* ---- Sync progress - centered status, same shape as lazyFTP's own
+ * transfer-progress form (the one documented exception to the
+ * bottom-aligned-dialog rule - progress/busy indicators are centered). --- */
+/* Height grown 56->64 to fit a Cancel button below the bar (real-device
+ * request: a long sync - PBKDF2/login retries/large item counts - had no
+ * way to back out of short of pulling the battery). Status/bar positions
+ * (Dialogs.c) are unchanged - the extra height is pure added space at the
+ * bottom, not a shift of what was already there. */
+FORM ID frmSyncProgress AT (2 48 156 64)
+FRAME MODAL
+BEGIN
+	TITLE "Syncing"
+	BUTTON "Cancel"				ID btnSyncCancel	AT (58 46 40 14)
+END
+
+/* ---- Alerts -------------------------------------------------------------*/
+ALERT ID altErr
+ERROR
+BEGIN
+	TITLE "Error"
+	MESSAGE "^1"
+	BUTTONS "OK"
+END
+
+ALERT ID altSyncOk
+INFORMATION
+BEGIN
+	TITLE "Sync Complete"
+	MESSAGE "Bitwarden sync successful!"
+	BUTTONS "OK"
+END
+
+ALERT ID altErr2
+ERROR
+BEGIN
+	TITLE "Sync Error"	/* fixed: Palm OS doesn't substitute ^n in alert titles */
+	MESSAGE "^2"
+	BUTTONS "OK"
+END
+
+ALERT ID altAbout
+INFORMATION
+BEGIN
+	TITLE "BitWarden"
+	MESSAGE "BitWarden Client for PalmOS.\n\nWorks only via WiRSa relay."
+	BUTTONS "OK"
+END
+
+ALERT ID altConfirmForgetTrust
+CONFIRMATION
+BEGIN
+	TITLE "Forget Trusted Server"
+	MESSAGE "Forget this server's trusted certificate? The next sync will ask you to trust it again."
+	BUTTONS "Forget" "Cancel"
+END
+
+ALERT ID altConfirmDeleteAccount
+CONFIRMATION
+BEGIN
+	TITLE "Delete Account"
+	MESSAGE "This removes the trusted server certificate, saved email, cached master password, and every synced record from this device. Continue?"
+	BUTTONS "Yes" "No"
+END
+
+ALERT ID altRomIncompatible
+ERROR
+BEGIN
+	TITLE "System Incompatible"
+	MESSAGE "This app requires PalmOS 4.0 or later."
+	BUTTONS "OK"
+END

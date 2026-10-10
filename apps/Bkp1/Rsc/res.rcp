@@ -1,0 +1,324 @@
+
+ICON "icon-big-lr-1.bmp" COMPRESS
+BITMAP ID 1001 "card.bmp" COMPRESS
+
+
+ALERT ID 1000
+    DEFAULTBUTTON 0
+    ERROR
+BEGIN
+    TITLE "Bkp1"
+    MESSAGE "^1^2^3"
+    BUTTONS "OK"
+END
+
+ALERT ID 1001
+    DEFAULTBUTTON 0
+    INFORMATION
+BEGIN
+    TITLE "Bkp1"
+    MESSAGE "^1^2^3"
+    BUTTONS "OK" 
+END
+
+FORM ID 1000  AT ( 0 0 160 160 )
+NOFRAME MENUID 1000 NOSAVEBEHIND
+BEGIN
+	 TITLE "Bkp1"
+        
+	LIST  ID 1000  AT (1 17 158 123) VISIBLEITEMS 11
+	POPUPTRIGGER "" ID 3000  AT (90 0 70 12) RIGHTANCHOR  
+	LIST  ID 3100  AT (79 2 80 46) VISIBLEITEMS 4 DISABLED NONUSABLE
+	POPUPLIST ID 3000  3100
+	BUTTON "Backup" ID 8000  AT (2 146 36 12)
+	BUTTON "Delete" ID 8001    AT (82 146 36 12)
+	BUTTON "Restore" ID 8002    AT (122 146 36 12)
+END
+
+
+MENU 1000
+BEGIN
+     PULLDOWN "Backup"
+     BEGIN
+          MENUITEM "New" ID 1000 "N"
+          MENUITEM "Rename" ID 1003
+          MENUITEM "Delete" ID 1001 "D"
+          MENUITEM "Restore" ID 1002 "R"
+     END
+     PULLDOWN "Help"
+     BEGIN
+          MENUITEM "About..." ID 9000
+     END
+END
+
+FORM ID 1001  AT ( 2 54 156 104 )
+MODAL
+BEGIN
+        TITLE "XXXXXXXXXXXXX"
+	LABEL "File:" AUTOID AT (3 18)
+	FIELD ID 1000  AT (24 18 131 13) MAXCHARS 255 NONEDITABLE 
+	
+	FIELD ID 1001   AT (24 33 131 13) MAXCHARS 255 NONEDITABLE
+	LABEL "Size:" AUTOID AT (3 33)
+	BUTTON "Cancel" ID 8000  AT (58 90 40 12)
+	LABEL "Now:" AUTOID AT (3 48)
+	FIELD ID 1002   AT (24 48 131 13) MAXCHARS 255 NONEDITABLE
+END
+
+FORM ID 1002  AT ( 2 115 156 43 )
+MODAL DEFAULTBTNID 2001
+BEGIN
+        TITLE "Rename"
+	FIELD ID 1000  AT (0 14 156 13) MAXCHARS 128 EDITABLE UNDERLINED
+	BUTTON "OK" ID 2000  AT (114 29 40 12)
+	BUTTON "Cancel" ID 2001   AT (2 29 40 12)
+	GRAFFITISTATEINDICATOR AT (78 30)
+END
+
+ALERT ID 1002
+    DEFAULTBUTTON 1
+    CONFIRMATION
+BEGIN
+    TITLE "Bkp1"
+    MESSAGE "^1^2^3"
+    BUTTONS "Restore" "Back"
+END
+
+ALERT ID 1003
+    DEFAULTBUTTON 2
+    CONFIRMATION
+BEGIN
+    TITLE "Restore"
+    MESSAGE "Restore everything in this backup, or choose what to restore?"
+    BUTTONS "Everything" "Choose..." "Cancel"
+END
+
+FORM ID 1100  AT ( 2 2 156 156 )
+MODAL
+BEGIN
+	TITLE "Choose what to restore"
+	LIST  ID 1101  AT (3 15 150 99) VISIBLEITEMS 9
+	FIELD ID 1107  AT (3 116 150 12) MAXCHARS 47 NONEDITABLE
+	LABEL "Tick:" AUTOID AT (3 129)
+	POPUPTRIGGER "Apps and data" ID 1102  AT (26 129 110 12) LEFTANCHOR
+	LIST "Everything" "Apps and data" "Data only" "Nothing" ID 1103  AT (28 84 90 44) VISIBLEITEMS 4 NONUSABLE
+	POPUPLIST ID 1102  1103
+	BUTTON "Restore" ID 1104  AT (4 142 44 12)
+	BUTTON "Files..." ID 1105  AT (54 142 44 12)
+	BUTTON "Cancel" ID 1106  AT (104 142 44 12)
+END
+
+FORM ID 1110  AT ( 2 2 156 156 )
+MODAL
+BEGIN
+	TITLE "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+	LIST  ID 1111  AT (3 15 150 121) VISIBLEITEMS 11
+	BUTTON "Done" ID 1112  AT (4 142 44 12)
+END
+
+HEX "err!" ID 0x1001
+	"memErr" 0
+	"ChunkLocked" 0
+	"NotEnoughSpace" 0
+	"InvalidParam" 0
+	"ChunkNotLocked" 0
+	"CardNotPresent" 0
+	"NoCardHeader" 0
+	"InvalidStoreHeader" 0
+	"RAMOnlyCard" 0
+	"WriteProtect" 0
+	"NoRAMOnCard" 0
+	"NoStore" 0
+	"ROMOnlyCard" 0
+
+HEX "err!" ID 0x1002
+	"dmErr" 0
+	"MemError" 0
+	"IndexOutOfRange" 0
+	"InvalidParam" 0
+	"ReadOnly" 0
+	"DatabaseOpen" 0
+	"CantOpen" 0
+	"CantFind" 0
+	"RecordInWrongCard" 0
+	"CorruptDatabase" 0
+	"RecordDeleted" 0
+	"RecordArchived" 0
+	"NotRecordDB" 0
+	"NotResourceDB" 0
+	"ROMBased" 0
+	"RecordBusy" 0
+	"ResourceNotFound" 0
+	"NoOpenDatabase" 0
+	"InvalidCategory" 0
+	"NotValidRecord" 0
+	"WriteOutOfBounds" 0
+	"SeekFailed" 0
+	"AlreadyOpenForWrites" 0
+	"OpenedByAnotherTask" 0
+	"UniqueIDNotFound" 0
+	"AlreadyExists" 0
+	"InvalidDatabaseName" 0
+	"DatabaseProtected" 0
+	"DatabaseNotProtected" 0
+
+HEX "err!" ID 0x1003
+	"serErr" 0
+	"BadParam" 0
+	"BadPort" 0
+	"NoMem" 0
+	"BadConnID" 0
+	"TimeOut" 0
+	"LineErr" 0
+	"AlreadyOpen" 0
+	"StillOpen" 0
+	"NotOpen" 0
+	"NotSupported" 0
+	"NoDevicesAvail" 0
+	"ConfigurationFailed" 0
+
+HEX "err!" ID 0x1004
+	"slkErr" 0
+	"Checksum" 0
+	"Format" 0
+	"Buffer" 0
+	"TimeOut" 0
+	"Handle" 0
+	"BodyLimit" 0
+	"TransId" 0
+	"Response" 0
+	"NoDefaultProc" 0
+	"WrongPacketType" 0
+	"BadParam" 0
+	"AlreadyOpen" 0
+	"OutOfSockets" 0
+	"SocketNotOpen" 0
+	"WrongDestSocket" 0
+	"WrongPktType" 0
+	"Busy" 0
+	"NotOpen" 0
+
+HEX "err!" ID 0x1005
+	"sysErr" 0
+	"Timeout" 0
+	"ParamErr" 0
+	"NoFreeResource" 0
+	"NoFreeRAM" 0
+	"NotAllowed" 0
+	"SemInUse" 0
+	"InvalidID" 0
+	"OutOfOwnerIDs" 0
+	"NoFreeLibSlots" 0
+	"LibNotFound" 0
+	"DelayWakened" 0
+	"RomIncompatible" 0
+	"BufTooSmall" 0
+	"PrefNotFound" 0
+	"UNUSED 50f" 0
+	"NotifyErrEntryNotFound" 0
+	"NotifyErrDuplicateEntry" 0
+	"UNUSED 512" 0
+	"NotifyErrBroadcastBusy" 0
+	"NotifyErrBroadcastCancelled" 0
+	"MbId" 0
+	"MbNone" 0
+	"MbBusy" 0
+	"MbFull" 0
+	"MbDepth" 0
+	"MbEnv" 0
+	"NotifyErrQueueFull" 0
+	"NotifyErrQueueEmpty" 0
+	"NotifyErrQueueNoStackSpace" 0
+	"NotInitialized" 0
+	"NotAsleep" 0
+	"NotAsleepN" 0
+
+
+HEX "err!" ID 0x1015
+	"exgErr" 0
+	"MemError" 0
+	"StackInit" 0
+	"UserCancel" 0
+	"NoReceiver" 0
+	"NoKnownTarget" 0
+	"TargetMissing" 0
+	"NotAllowed" 0
+	"BadData" 0
+	"AppError" 0
+	"Unknown" 0
+	"DeviceFull" 0
+	"Disconnected" 0
+	"NotFound" 0
+	"BadParam" 0
+	"NotSupported" 0
+	"DeviceBusy" 0
+	"BadLibrary" 0
+	"NotEnoughPower" 0
+
+HEX "err!" ID 0x1016
+	"fileErr" 0
+	"MemError" 0
+	"InvalidParam" 0
+	"CorruptFile" 0
+	"NotFound" 0
+	"TypeCreatorMismatch" 0
+	"ReplaceError" 0
+	"CreateError" 0
+	"OpenError" 0
+	"InUse" 0
+	"ReadOnly" 0
+	"InvalidDescriptor" 0
+	"CloseError" 0
+	"OutOfBounds" 0
+	"PermissionDenied" 0
+	"IOError" 0
+	"EOF" 0 
+	"NotStream" 0
+
+HEX "err!" ID 0x101e
+	"pwrErr" 0
+	"Backlight" 0
+	"Radio" 0
+	"Beam" 0
+	"Generic" 0
+
+HEX "err!" ID 0x1029
+	"expErr" 0
+	"UnsupportedOperation" 0
+	"NotEnoughPower" 0
+	"CardNotPresent" 0
+	"InvalidSlotRefNum" 0
+	"SlotDeallocated" 0
+	"CardNoSectorReadWrite" 0
+	"CardReadOnly" 0
+	"CardBadSector" 0
+	"CardProtectedSector" 0
+	"NotOpen" 0
+	"StillOpen" 0
+	"Unimplemented" 0
+	"EnumerationEmpty" 0
+	"IncompatibleAPIVer" 0
+
+HEX "err!" ID 0x102a
+	"vfsErr" 0
+	"BufferOverflow" 0
+	"FileGeneric" 0
+	"FileBadRef" 0
+	"FileStillOpen" 0
+	"FilePermissionDenied" 0
+	"FileAlreadyExists" 0
+	"FileEOF" 0
+	"FileNotFound" 0
+	"VolumeBadRef" 0
+	"VolumeStillMounted" 0
+	"NoFileSystem" 0
+	"BadData" 0
+	"DirNotEmpty" 0
+	"BadName" 0
+	"VolumeFull" 0
+	"Unimplemented" 0
+	"NotADirectory" 0
+	"IsADirectory" 0
+	"DirectoryNotFound" 0
+	"NameShortened" 0
+

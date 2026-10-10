@@ -1,0 +1,35 @@
+// abouttd35.rcp - ToDo35 custom full-screen About form (replaces ROM AbtShowAbout).
+FORM ID 8800 AT (2 2 156 156) MODAL FRAME
+USABLE
+BEGIN
+  TITLE "About ToDo35"
+  LABEL "ToDo35" ID 8801 AT (12 30) FONT 1
+  LABEL "v. 1.0" ID 8802 AT (12 46)
+  LABEL "Extended ToDo v3.5 (2026)\rfrom example source.\rSupport dates beyond 2031." ID 8803 AT (12 70) FONT 0
+  BUTTON "OK" ID 8806 AT (58 138 40 12)
+END
+
+ALERT ID 2003
+INFORMATION
+BEGIN
+  TITLE "Security35"
+  MESSAGE "These to-do items are encrypted, but the Sec35 security app is not " \
+          "installed, so they cannot be decrypted."
+  BUTTONS "OK"
+END
+
+// Td35: custom (not ALERT) - a native ALERT auto-sizes its buttons from label
+// text with no width override, so this needs a real FORM for the specific
+// button geometry. Full app width (x=2 w=156, matching Details/RepeatDialog/
+// About), bottom-aligned (y=66 h=92, bottom=158, same as every other dialog).
+// Buttons evenly spaced across the full row: 5px from each border, 5px
+// between buttons, equal widths (45/45/46 to land exactly on a 5px right
+// margin). Message is hand-drawn bold + word-wrapped (dynamic text) by C,
+// not a LABEL.
+FORM ID 1260 AT (2 66 156 92) MODAL
+BEGIN
+  TITLE "Duplicate Item"
+  BUTTON "This Only"	ID 1261	AT (5 74 45 12)
+  BUTTON "All"			ID 1262	AT (55 74 45 12)
+  BUTTON "Cancel"		ID 1263	AT (105 74 46 12)
+END

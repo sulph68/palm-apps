@@ -1,0 +1,8 @@
+// todo35alert.rcp - Db35 Agenda "ToDo35 not installed" alert (id 8902).
+ALERT ID 8902
+  INFORMATION
+BEGIN
+  TITLE "ToDo35 Not Installed"
+  MESSAGE "The Agenda's To Do list is provided by ToDo35. Install ToDo35 to see and open To Do items here."
+  BUTTONS "OK"
+END

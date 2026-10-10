@@ -1,0 +1,66 @@
+/* EraNTP - single-screen NTP client that sets the device clock and cooperates
+ * with the HackMaster Y2K35 era plugin. One form, no locale variants - edit
+ * this file directly to tweak the layout. Resource IDs are #define'd at the
+ * top of EraNTP.c (Sec35's convention: no separate resource header). */
+
+FORM ID 1000 AT (0 0 160 160)
+USABLE
+MENUID 1600
+BEGIN
+	TITLE "EraNTP"
+
+	LABEL "Server:"				ID 1001 AT (4 18) FONT 1
+	FIELD							ID 1002 AT (44 17 108 12)
+									EDITABLE UNDERLINED SINGLELINE MAXCHARS 63
+
+	CHECKBOX "Set device clock"	ID 1003 AT (4 34 140 12) FONT 0
+
+	/* Always-visible Device/Era/NTP comparison - each row is one LABEL holding
+	 * the whole formatted string ("Device: Aug 19 2026 14:32:07"), redrawn in
+	 * place via FrmCopyLabel every ~1s tick (Device/Era) or after each sync
+	 * (NTP). FrmCopyLabel's target buffer is sized from the INITIAL string
+	 * given here, not grown later ("size of the new label must not exceed
+	 * the size of the label defined in the resource" - Form.h) - so the
+	 * placeholder must already be as long as the longest string ever handed
+	 * to FrmCopyLabel, same padded-blank-label idiom already used elsewhere
+	 * in this suite (Sec35's lblCountdown/lblSession, CryptoNote's ID 1013). */
+	LABEL "                              " ID 1004 AT (4 50) FONT 0
+	LABEL "                              " ID 1005 AT (4 62) FONT 0
+	LABEL "                              " ID 1006 AT (4 74) FONT 0
+
+	/* Scrollable action-trace log. HASSCROLLBAR just lets the field cooperate
+	 * with the FldSetScrollBar-managed control below (Palm fields don't draw
+	 * their own scrollbar) - matches CryptoNote's fldEditText/sclEditScrollBar
+	 * pair, spanning the same near-full screen width (left edge at x=4 to
+	 * match the rows above, right edge flush to the screen at x=160).
+	 * Appends one trace block per Sync Now tap; not persisted. */
+	FIELD							ID 1007 AT (4 88 149 52)
+									NONEDITABLE UNDERLINED MULTIPLELINES
+									HASSCROLLBAR MAXCHARS 4000 FONT 0
+	SCROLLBAR						ID 1008 AT (153 90 7 52)
+									VALUE 0 MIN 0 MAX 0 PAGESIZE 1
+
+	/* Sync Now shifted left of x=148 so it clears the graffiti indicator
+	 * (AT 150,150) - matches Sec35's frmMain button-row precedent. */
+	BUTTON "Done"					ID 1009 AT (4 142 60 14)
+	BUTTON "Sync Now"				ID 1010 AT (78 142 64 14)
+
+	GRAFFITISTATEINDICATOR AT (150 150)
+END
+
+/* Manual network control - real hardware can leave the link only half-up
+ * right after NetLibOpen (routing/DHCP still settling), which Sync Now's own
+ * open+close-per-tap can race. Connect lets the link warm up ahead of a sync
+ * (Net.lib is refcounted, so Sync Now's own open/close pairs no longer tear
+ * the connection down while a manual Connect is outstanding); Disconnect
+ * resets it if it gets stuck. */
+MENU ID 1600
+BEGIN
+	PULLDOWN "Network"
+	BEGIN
+		MENUITEM "Connect"		ID 1601 "C"
+		MENUITEM "Disconnect"	ID 1602 "D"
+	END
+END
+
+VERSION ID 1 "1.0"

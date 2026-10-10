@@ -1,0 +1,846 @@
+/*******************************************************************
+ * 							 Pilot Software  
+ *
+ *		 Copyright(c) 1994, Palm Computing Inc., All Rights Reserved
+ *
+ *-------------------------------------------------------------------
+ * FileName:  
+ *		SysTraps.h
+ *
+ * Description:
+ *		Pilot Traps
+ *
+ * History:
+ *		6/13/95	RM	- Created by Ron Marianetti
+ *
+ *    10/6/96  EK - Trap codes added by Edward Keyes
+ *
+ *******************************************************************/
+
+ #ifndef __SYSTRAPS_H_
+ #define __SYSTRAPS_H_
+
+// Include elementary types
+#include <Common.h>
+#include <M68KHwr.h>
+
+// Regular traps start here and go up by 1's
+#define	sysTrapBase			0xA000
+typedef enum {
+	sysTrapMemInit = sysTrapBase,//0xA000
+	sysTrapMemInitHeapTable,//0xA001
+	sysTrapMemStoreInit,//0xA002
+	sysTrapMemCardFormat,//0xA003
+	sysTrapMemCardInfo,//0xA004
+	sysTrapMemStoreInfo,//0xA005
+	sysTrapMemStoreSetInfo,//0xA006
+	sysTrapMemNumHeaps,//0xA007
+	sysTrapMemNumRAMHeaps,//0xA008
+	sysTrapMemHeapID,//0xA009
+	sysTrapMemHeapPtr,//0xA00A
+	sysTrapMemHeapFreeBytes,//0xA00B
+	sysTrapMemHeapSize,//0xA00C
+	sysTrapMemHeapFlags,//0xA00D
+	sysTrapMemHeapCompact,//0xA00E
+	sysTrapMemHeapInit,//0xA00F
+	sysTrapMemHeapFreeByOwnerID,//0xA010
+	sysTrapMemChunkNew,//0xA011
+	sysTrapMemChunkFree,//0xA012
+	sysTrapMemPtrNew,//0xA013
+	sysTrapMemPtrRecoverHandle,//0xA014
+	sysTrapMemPtrFlags,//0xA015
+	sysTrapMemPtrSize,//0xA016
+	sysTrapMemPtrOwner,//0xA017
+	sysTrapMemPtrHeapID,//0xA018
+	sysTrapMemPtrCardNo,//0xA019
+	sysTrapMemPtrToLocalID,//0xA01A
+	sysTrapMemPtrSetOwner,//0xA01B
+	sysTrapMemPtrResize,//0xA01C
+	sysTrapMemPtrResetLock,//0xA01D
+	sysTrapMemHandleNew,//0xA01E
+	sysTrapMemHandleLockCount,//0xA01F
+	sysTrapMemHandleToLocalID,//0xA020
+	sysTrapMemHandleLock,//0xA021
+	sysTrapMemHandleUnlock,//0xA022
+	sysTrapMemLocalIDToGlobal,//0xA023
+	sysTrapMemLocalIDKind,//0xA024
+	sysTrapMemLocalIDToPtr,//0xA025
+	sysTrapMemMove,//0xA026
+	sysTrapMemSet,//0xA027
+	sysTrapMemStoreSearch,//0xA028
+	sysTrapMemPtrDataStorage,//0xA029
+	sysTrapMemKernelInit,//0xA02A
+	sysTrapMemHandleFree,//0xA02B
+	sysTrapMemHandleFlags,//0xA02C
+	sysTrapMemHandleSize,//0xA02D
+	sysTrapMemHandleOwner,//0xA02E
+	sysTrapMemHandleHeapID,//0xA02F
+	sysTrapMemHandleDataStorage,//0xA030
+	sysTrapMemHandleCardNo,//0xA031
+	sysTrapMemHandleSetOwner,//0xA032
+	sysTrapMemHandleResize,//0xA033
+	sysTrapMemHandleResetLock,//0xA034
+	sysTrapMemPtrUnlock,//0xA035
+	sysTrapMemLocalIDToLockedPtr,//0xA036
+	sysTrapMemSetDebugMode,//0xA037
+	sysTrapMemHeapScramble,//0xA038
+	sysTrapMemHeapCheck,//0xA039
+	sysTrapMemNumCards,//0xA03A
+	sysTrapMemDebugMode,//0xA03B
+	sysTrapMemSemaphoreReserve,//0xA03C
+	sysTrapMemSemaphoreRelease,//0xA03D
+	sysTrapMemHeapDynamic,//0xA03E
+	sysTrapMemNVParams,//0xA03F
+	
+	
+	sysTrapDmInit,//0xA040
+	sysTrapDmCreateDatabase,//0xA041
+	sysTrapDmDeleteDatabase,//0xA042
+	sysTrapDmNumDatabases,//0xA043
+	sysTrapDmGetDatabase,//0xA044
+	sysTrapDmFindDatabase,//0xA045
+	sysTrapDmDatabaseInfo,//0xA046
+	sysTrapDmSetDatabaseInfo,//0xA047
+	sysTrapDmDatabaseSize,//0xA048
+	sysTrapDmOpenDatabase,//0xA049
+	sysTrapDmCloseDatabase,//0xA04A
+	sysTrapDmNextOpenDatabase,//0xA04B
+	sysTrapDmOpenDatabaseInfo,//0xA04C
+	sysTrapDmResetRecordStates,//0xA04D
+	sysTrapDmGetLastErr,//0xA04E
+	sysTrapDmNumRecords,//0xA04F
+	sysTrapDmRecordInfo,//0xA050
+	sysTrapDmSetRecordInfo,//0xA051
+	sysTrapDmAttachRecord,//0xA052
+	sysTrapDmDetachRecord,//0xA053
+	sysTrapDmMoveRecord,//0xA054
+	sysTrapDmNewRecord,//0xA055
+	sysTrapDmRemoveRecord,//0xA056
+	sysTrapDmDeleteRecord,//0xA057
+	sysTrapDmArchiveRecord,//0xA058
+	sysTrapDmNewHandle,//0xA059
+	sysTrapDmRemoveSecretRecords,//0xA05A
+	sysTrapDmQueryRecord,//0xA05B
+	sysTrapDmGetRecord,//0xA05C
+	sysTrapDmResizeRecord,//0xA05D
+	sysTrapDmReleaseRecord,//0xA05E
+	sysTrapDmGetResource,//0xA05F
+	sysTrapDmGet1Resource,//0xA060
+	sysTrapDmReleaseResource,//0xA061
+	sysTrapDmResizeResource,//0xA062
+	sysTrapDmNextOpenResDatabase,//0xA063
+	sysTrapDmFindResourceType,//0xA064
+	sysTrapDmFindResource,//0xA065
+	sysTrapDmSearchResource,//0xA066
+	sysTrapDmNumResources,//0xA067
+	sysTrapDmResourceInfo,//0xA068
+	sysTrapDmSetResourceInfo,//0xA069
+	sysTrapDmAttachResource,//0xA06A
+	sysTrapDmDetachResource,//0xA06B
+	sysTrapDmNewResource,//0xA06C
+	sysTrapDmRemoveResource,//0xA06D
+	sysTrapDmGetResourceIndex,//0xA06E
+	sysTrapDmQuickSort,//0xA06F
+	sysTrapDmQueryNextInCategory,//0xA070
+	sysTrapDmNumRecordsInCategory,//0xA071
+	sysTrapDmPositionInCategory,//0xA072
+	sysTrapDmSeekRecordInCategory,//0xA073
+	sysTrapDmMoveCategory,//0xA074
+	sysTrapDmOpenDatabaseByTypeCreator,//0xA075
+	sysTrapDmWrite,//0xA076
+	sysTrapDmStrCopy,//0xA077
+	sysTrapDmGetNextDatabaseByTypeCreator,//0xA078
+	sysTrapDmWriteCheck,//0xA079
+	sysTrapDmMoveOpenDBContext,//0xA07A
+	sysTrapDmFindRecordByID,//0xA07B
+	sysTrapDmGetAppInfoID,//0xA07C
+	sysTrapDmFindSortPosition,//0xA07D
+	sysTrapDmSet,//0xA07E
+	sysTrapDmCreateDatabaseFromImage,//0xA07F
+
+	
+	sysTrapDbgSrcMessage,//0xA080
+	sysTrapDbgMessage,//0xA081
+	sysTrapDbgGetMessage,//0xA082
+	sysTrapDbgCommSettings,//0xA083
+	
+	sysTrapErrDisplayFileLineMsg,//0xA084
+	sysTrapErrSetJump,//0xA085
+	sysTrapErrLongJump,//0xA086
+	sysTrapErrThrow,//0xA087
+	sysTrapErrExceptionList,//0xA088
+	
+	sysTrapSysBroadcastActionCode,//0xA089
+	sysTrapSysUnimplemented,//0xA08A
+	sysTrapSysColdBoot,//0xA08B
+	sysTrapSysReset,//0xA08C
+	sysTrapSysDoze,//0xA08D
+	sysTrapSysAppLaunch,//0xA08E
+	sysTrapSysAppStartup,//0xA08F
+	sysTrapSysAppExit,//0xA090
+	sysTrapSysSetA5,//0xA091
+	sysTrapSysSetTrapAddress,//0xA092
+	sysTrapSysGetTrapAddress,//0xA093
+	sysTrapSysTranslateKernelErr,//0xA094
+	sysTrapSysSemaphoreCreate,//0xA095
+	sysTrapSysSemaphoreDelete,//0xA096
+	sysTrapSysSemaphoreWait,//0xA097
+	sysTrapSysSemaphoreSignal,//0xA098
+	sysTrapSysTimerCreate,//0xA099
+	sysTrapSysTimerWrite,//0xA09A
+	sysTrapSysTaskCreate,//0xA09B
+	sysTrapSysTaskDelete,//0xA09C
+	sysTrapSysTaskTrigger,//0xA09D
+	sysTrapSysTaskID,//0xA09E
+	sysTrapSysTaskUserInfoPtr,//0xA09F
+	sysTrapSysTaskDelay,//0xA0A0
+	sysTrapSysTaskSetTermProc,//0xA0A1
+	sysTrapSysUILaunch,//0xA0A2
+	sysTrapSysNewOwnerID,//0xA0A3
+	sysTrapSysSemaphoreSet,//0xA0A4
+	sysTrapSysDisableInts,//0xA0A5
+	sysTrapSysRestoreStatus,//0xA0A6
+	sysTrapSysUIAppSwitch,//0xA0A7
+	sysTrapSysCurAppInfoP,//0xA0A8
+	sysTrapSysHandleEvent,//0xA0A9
+	sysTrapSysInit,//0xA0AA
+	sysTrapSysQSort,//0xA0AB
+	sysTrapSysCurAppDatabase,//0xA0AC
+	sysTrapSysFatalAlert,//0xA0AD
+	sysTrapSysResSemaphoreCreate,//0xA0AE
+	sysTrapSysResSemaphoreDelete,//0xA0AF
+	sysTrapSysResSemaphoreReserve,//0xA0B0
+	sysTrapSysResSemaphoreRelease,//0xA0B1
+	sysTrapSysSleep,//0xA0B2
+	sysTrapSysKeyboardDialog,//0xA0B3
+	sysTrapSysAppLauncherDialog,//0xA0B4
+	sysTrapSysSetPerformance,//0xA0B5
+	sysTrapSysBatteryInfo,//0xA0B6
+	sysTrapSysLibInstall,//0xA0B7
+	sysTrapSysLibRemove,//0xA0B8
+	sysTrapSysLibTblEntry,//0xA0B9
+	sysTrapSysLibFind,//0xA0BA
+	sysTrapSysBatteryDialog,//0xA0BB
+	sysTrapSysCopyStringResource,//0xA0BC
+	sysTrapSysKernelInfo,//0xA0BD
+	sysTrapSysLaunchConsole,//0xA0BE
+	sysTrapSysTimerDelete,//0xA0BF
+	sysTrapSysSetAutoOffTime,//0xA0C0
+	sysTrapSysFormPointerArrayToStrings,//0xA0C1
+	sysTrapSysRandom,//0xA0C2
+	sysTrapSysTaskSwitching,//0xA0C3
+	sysTrapSysTimerRead,//0xA0C4
+
+
+	sysTrapStrCopy,//0xA0C5
+	sysTrapStrCat,//0xA0C6
+	sysTrapStrLen,//0xA0C7
+	sysTrapStrCompare,//0xA0C8
+	sysTrapStrIToA,//0xA0C9
+	sysTrapStrCaselessCompare,//0xA0CA
+	sysTrapStrIToH,//0xA0CB
+	sysTrapStrChr,//0xA0CC
+	sysTrapStrStr,//0xA0CD
+	sysTrapStrAToI,//0xA0CE
+	sysTrapStrToLower,//0xA0CF
+
+	sysTrapSerReceiveISP,//0xA0D0
+	
+	sysTrapSlkOpen,//0xA0D1
+	sysTrapSlkClose,//0xA0D2
+	sysTrapSlkOpenSocket,//0xA0D3
+	sysTrapSlkCloseSocket,//0xA0D4
+	sysTrapSlkSocketRefNum,//0xA0D5
+	sysTrapSlkSocketSetTimeout,//0xA0D6
+	sysTrapSlkFlushSocket,//0xA0D7
+	sysTrapSlkSetSocketListener,//0xA0D8
+	sysTrapSlkSendPacket,//0xA0D9
+	sysTrapSlkReceivePacket,//0xA0DA
+	sysTrapSlkSysPktDefaultResponse,//0xA0DB
+	sysTrapSlkProcessRPC,//0xA0DC
+
+	
+	sysTrapConPutS,//0xA0DD
+	sysTrapConGetS,//0xA0DE
+	
+	sysTrapFplInit,//0xA0DF
+	sysTrapFplFree,//0xA0E0
+	sysTrapFplFToA,//0xA0E1
+	sysTrapFplAToF,//0xA0E2
+	sysTrapFplBase10Info,//0xA0E3
+	sysTrapFplLongToFloat,//0xA0E4
+	sysTrapFplFloatToLong,//0xA0E5
+	sysTrapFplFloatToULong,//0xA0E6
+	sysTrapFplMul,//0xA0E7
+	sysTrapFplAdd,//0xA0E8
+	sysTrapFplSub,//0xA0E9
+	sysTrapFplDiv,//0xA0EA
+	
+	sysTrapScrInit,//0xA0EB
+	sysTrapScrCopyRectangle,//0xA0EC
+	sysTrapScrDrawChars,//0xA0ED
+	sysTrapScrLineRoutine,//0xA0EE
+	sysTrapScrRectangleRoutine,//0xA0EF
+	sysTrapScrScreenInfo,//0xA0F0
+	sysTrapScrDrawNotify,//0xA0F1
+	sysTrapScrSendUpdateArea,//0xA0F2
+	sysTrapScrCompressScanLine,//0xA0F3
+	sysTrapScrDeCompressScanLine,//0xA0F4
+	
+	
+	sysTrapTimGetSeconds,//0xA0F5
+	sysTrapTimSetSeconds,//0xA0F6
+	sysTrapTimGetTicks,//0xA0F7
+	sysTrapTimInit,//0xA0F8
+	sysTrapTimSetAlarm,//0xA0F9
+	sysTrapTimGetAlarm,//0xA0FA
+	sysTrapTimHandleInterrupt,//0xA0FB
+	sysTrapTimSecondsToDateTime,//0xA0FC
+	sysTrapTimDateTimeToSeconds,//0xA0FD
+	sysTrapTimAdjust,//0xA0FE
+	sysTrapTimSleep,//0xA0FF
+	sysTrapTimWake,//0xA100
+	
+	sysTrapCategoryCreateList,//0xA101
+	sysTrapCategoryFreeList,//0xA102
+	sysTrapCategoryFind,//0xA103
+	sysTrapCategoryGetName,//0xA104
+	sysTrapCategoryEdit,//0xA105
+	sysTrapCategorySelect,//0xA106
+	sysTrapCategoryGetNext,//0xA107
+	sysTrapCategorySetTriggerLabel,//0xA108
+	sysTrapCategoryTruncateName,//0xA109
+	
+	sysTrapClipboardAddItem,//0xA10A
+	sysTrapClipboardCheckIfItemExist,//0xA10B
+	sysTrapClipboardGetItem,//0xA10C
+	
+	sysTrapCtlDrawControl,//0xA10D
+	sysTrapCtlEraseControl,//0xA10E
+	sysTrapCtlHideControl,//0xA10F
+	sysTrapCtlShowControl,//0xA110
+	sysTrapCtlGetValue,//0xA111
+	sysTrapCtlSetValue,//0xA112
+	sysTrapCtlGetLabel,//0xA113
+	sysTrapCtlSetLabel,//0xA114
+	sysTrapCtlHandleEvent,//0xA115
+	sysTrapCtlHitControl,//0xA116
+	sysTrapCtlSetEnabled,//0xA117
+	sysTrapCtlSetUsable,//0xA118
+	sysTrapCtlEnabled,//0xA119
+
+	
+	sysTrapEvtInitialize,//0xA11A
+	sysTrapEvtAddEventToQueue,//0xA11B
+	sysTrapEvtCopyEvent,//0xA11C
+	sysTrapEvtGetEvent,//0xA11D
+	sysTrapEvtGetPen,//0xA11E
+	sysTrapEvtSysInit,//0xA11F
+	sysTrapEvtGetSysEvent,//0xA120
+	sysTrapEvtProcessSoftKeyStroke,//0xA121
+	sysTrapEvtGetPenBtnList,//0xA122
+	sysTrapEvtSetPenQueuePtr,//0xA123
+	sysTrapEvtPenQueueSize,//0xA124
+	sysTrapEvtFlushPenQueue,//0xA125
+	sysTrapEvtEnqueuePenPoint,//0xA126
+	sysTrapEvtDequeuePenStrokeInfo,//0xA127
+	sysTrapEvtDequeuePenPoint,//0xA128
+	sysTrapEvtFlushNextPenStroke,//0xA129
+	sysTrapEvtSetKeyQueuePtr,//0xA12A
+	sysTrapEvtKeyQueueSize,//0xA12B
+	sysTrapEvtFlushKeyQueue,//0xA12C
+	sysTrapEvtEnqueueKey,//0xA12D
+	sysTrapEvtDequeueKeyEvent,//0xA12E
+	sysTrapEvtWakeup,//0xA12F
+	sysTrapEvtResetAutoOffTimer,//0xA130
+	sysTrapEvtKeyQueueEmpty,//0xA131
+	sysTrapEvtEnableGraffiti,//0xA132
+
+	
+	sysTrapFldCopy,//0xA133
+	sysTrapFldCut,//0xA134
+	sysTrapFldDrawField,//0xA135
+	sysTrapFldEraseField,//0xA136
+	sysTrapFldFreeMemory,//0xA137
+	sysTrapFldGetBounds,//0xA138
+	sysTrapFldGetTextPtr,//0xA139
+	sysTrapFldGetSelection,//0xA13A
+	sysTrapFldHandleEvent,//0xA13B
+	sysTrapFldPaste,//0xA13C
+	sysTrapFldRecalculateField,//0xA13D
+	sysTrapFldSetBounds,//0xA13E
+	sysTrapFldSetText,//0xA13F
+	sysTrapFldGetFont,//0xA140
+	sysTrapFldSetFont,//0xA141
+	sysTrapFldSetSelection,//0xA142
+	sysTrapFldGrabFocus,//0xA143
+	sysTrapFldReleaseFocus,//0xA144
+	sysTrapFldGetInsPtPosition,//0xA145
+	sysTrapFldSetInsPtPosition,//0xA146
+	sysTrapFldSetScrollPosition,//0xA147
+	sysTrapFldGetScrollPosition,//0xA148
+	sysTrapFldGetTextHeight,//0xA149
+	sysTrapFldGetTextAllocatedSize,//0xA14A
+	sysTrapFldGetTextLength,//0xA14B
+	sysTrapFldScrollField,//0xA14C
+	sysTrapFldScrollable,//0xA14D
+	sysTrapFldGetVisibleLines,//0xA14E
+	sysTrapFldGetAttributes,//0xA14F
+	sysTrapFldSetAttributes,//0xA150
+	sysTrapFldSendChangeNotification,//0xA151
+	sysTrapFldCalcFieldHeight,//0xA152
+	sysTrapFldGetTextHandle,//0xA153
+	sysTrapFldCompactText,//0xA154
+	sysTrapFldDirty,//0xA155
+	sysTrapFldWordWrap,//0xA156
+	sysTrapFldSetTextAllocatedSize,//0xA157
+	sysTrapFldSetTextHandle,//0xA158
+	sysTrapFldSetTextPtr,//0xA159
+	sysTrapFldGetMaxChars,//0xA15A
+	sysTrapFldSetMaxChars,//0xA15B
+	sysTrapFldSetUsable,//0xA15C
+	sysTrapFldInsert,//0xA15D
+	sysTrapFldDelete,//0xA15E
+	sysTrapFldUndo,//0xA15F
+	sysTrapFldSetDirty,//0xA160
+	sysTrapFldSendHeightChangeNotification,//0xA161
+	sysTrapFldMakeFullyVisible,//0xA162
+	
+	
+	sysTrapFntGetFont,//0xA163
+	sysTrapFntSetFont,//0xA164
+	sysTrapFntGetFontPtr,//0xA165
+	sysTrapFntBaseLine,//0xA166
+	sysTrapFntCharHeight,//0xA167
+	sysTrapFntLineHeight,//0xA168
+	sysTrapFntAverageCharWidth,//0xA169
+	sysTrapFntCharWidth,//0xA16A
+	sysTrapFntCharsWidth,//0xA16B
+	sysTrapFntDescenderHeight,//0xA16C
+	sysTrapFntCharsInWidth,//0xA16D
+	sysTrapFntLineWidth,//0xA16E
+
+
+	
+	sysTrapFrmInitForm,//0xA16F
+	sysTrapFrmDeleteForm,//0xA170
+	sysTrapFrmDrawForm,//0xA171
+	sysTrapFrmEraseForm,//0xA172
+	sysTrapFrmGetActiveForm,//0xA173
+	sysTrapFrmSetActiveForm,//0xA174
+	sysTrapFrmGetActiveFormID,//0xA175
+	sysTrapFrmGetUserModifiedState,//0xA176
+	sysTrapFrmSetNotUserModified,//0xA177
+	sysTrapFrmGetFocus,//0xA178
+	sysTrapFrmSetFocus,//0xA179
+	sysTrapFrmHandleEvent,//0xA17A
+	sysTrapFrmGetFormBounds,//0xA17B
+	sysTrapFrmGetWindowHandle,//0xA17C
+	sysTrapFrmGetFormId,//0xA17D
+	sysTrapFrmGetFormPtr,//0xA17E
+	sysTrapFrmGetNumberOfObjects,//0xA17F
+	sysTrapFrmGetObjectIndex,//0xA180
+	sysTrapFrmGetObjectId,//0xA181
+	sysTrapFrmGetObjectType,//0xA182
+	sysTrapFrmGetObjectPtr,//0xA183
+	sysTrapFrmHideObject,//0xA184
+	sysTrapFrmShowObject,//0xA185
+	sysTrapFrmGetObjectPosition,//0xA186
+	sysTrapFrmSetObjectPositon,//0xA187
+	sysTrapFrmGetControlValue,//0xA188
+	sysTrapFrmSetControlValue,//0xA189
+	sysTrapFrmGetControlGroupSelection,//0xA18A
+	sysTrapFrmSetControlGroupSelection,//0xA18B
+	sysTrapFrmCopyLabel,//0xA18C
+	sysTrapFrmSetLabel,//0xA18D
+	sysTrapFrmGetLabel,//0xA18E
+	sysTrapFrmSetCategoryLabel,//0xA18F
+	sysTrapFrmGetTitle,//0xA190
+	sysTrapFrmSetTitle,//0xA191
+	sysTrapFrmAlert,//0xA192
+	sysTrapFrmDoDialog,//0xA193
+	sysTrapFrmCustomAlert,//0xA194
+	sysTrapFrmHelp,//0xA195
+	sysTrapFrmUpdateScrollers,//0xA196
+	sysTrapFrmGetFirstForm,//0xA197
+	sysTrapFrmVisible,//0xA198
+	sysTrapFrmGetObjectBounds,//0xA199
+	sysTrapFrmCopyTitle,//0xA19A
+	sysTrapFrmGotoForm,//0xA19B
+	sysTrapFrmPopupForm,//0xA19C
+	sysTrapFrmUpdateForm,//0xA19D
+	sysTrapFrmReturnToForm,//0xA19E
+	sysTrapFrmSetEventHandler,//0xA19F
+	sysTrapFrmDispatchEvent,//0xA1A0
+	sysTrapFrmCloseAllForms,//0xA1A1
+	sysTrapFrmSaveAllForms,//0xA1A2
+	sysTrapFrmGetGadgetData,//0xA1A3
+	sysTrapFrmSetGadgetData,//0xA1A4
+	sysTrapFrmSetCategoryTrigger,//0xA1A5
+
+	
+	sysTrapUIInitialize,//0xA1A6
+	sysTrapUIReset,//0xA1A7
+
+	sysTrapInsPtInitialize,//0xA1A8
+	sysTrapInsPtSetLocation,//0xA1A9
+	sysTrapInsPtGetLocation,//0xA1AA
+	sysTrapInsPtEnable,//0xA1AB
+	sysTrapInsPtEnabled,//0xA1AC
+	sysTrapInsPtSetHeight,//0xA1AD
+	sysTrapInsPtGetHeight,//0xA1AE
+	sysTrapInsPtCheckBlink,//0xA1AF
+	
+	sysTrapLstSetDrawFunction,//0xA1B0
+	sysTrapLstDrawList,//0xA1B1
+	sysTrapLstEraseList,//0xA1B2
+	sysTrapLstGetSelection,//0xA1B3
+	sysTrapLstGetSelectionText,//0xA1B4
+	sysTrapLstHandleEvent,//0xA1B5
+	sysTrapLstSetHeight,//0xA1B6
+	sysTrapLstSetSelection,//0xA1B7
+	sysTrapLstSetListChoices,//0xA1B8
+	sysTrapLstMakeItemVisible,//0xA1B9
+	sysTrapLstGetNumberOfItems,//0xA1BA
+	sysTrapLstPopupList,//0xA1BB
+	sysTrapLstSetPosition,//0xA1BC
+	
+	sysTrapMenuInit,//0xA1BD
+	sysTrapMenuDispose,//0xA1BE
+	sysTrapMenuHandleEvent,//0xA1BF
+	sysTrapMenuDrawMenu,//0xA1C0
+	sysTrapMenuEraseStatus,//0xA1C1
+	sysTrapMenuGetActiveMenu,//0xA1C2
+	sysTrapMenuSetActiveMenu,//0xA1C3
+
+	
+	sysTrapRctSetRectangle,//0xA1C4
+	sysTrapRctCopyRectangle,//0xA1C5
+	sysTrapRctInsetRectangle,//0xA1C6
+	sysTrapRctOffsetRectangle,//0xA1C7
+	sysTrapRctPtInRectangle,//0xA1C8
+	sysTrapRctGetIntersection,//0xA1C9
+
+	
+	sysTrapTblDrawTable,//0xA1CA
+	sysTrapTblEraseTable,//0xA1CB
+	sysTrapTblHandleEvent,//0xA1CC
+	sysTrapTblGetItemBounds,//0xA1CD
+	sysTrapTblSelectItem,//0xA1CE
+	sysTrapTblGetItemInt,//0xA1CF
+	sysTrapTblSetItemInt,//0xA1D0
+	sysTrapTblSetItemStyle,//0xA1D1
+	sysTrapTblUnhighlightSelection,//0xA1D2
+	sysTrapTblSetRowUsable,//0xA1D3
+	sysTrapTblGetNumberOfRows,//0xA1D4
+	sysTrapTblSetCustomDrawProcedure,//0xA1D5
+	sysTrapTblSetRowSelectable,//0xA1D6
+	sysTrapTblRowSelectable,//0xA1D7
+	sysTrapTblSetLoadDataProcedure,//0xA1D8
+	sysTrapTblSetSaveDataProcedure,//0xA1D9
+	sysTrapTblGetBounds,//0xA1DA
+	sysTrapTblSetRowHeight,//0xA1DB
+	sysTrapTblGetColumnWidth,//0xA1DC
+	sysTrapTblGetRowID,//0xA1DD
+	sysTrapTblSetRowID,//0xA1DE
+	sysTrapTblMarkRowInvalid,//0xA1DF
+	sysTrapTblMarkTableInvalid,//0xA1E0
+	sysTrapTblGetSelection,//0xA1E1
+	sysTrapTblInsertRow,//0xA1E2
+	sysTrapTblRemoveRow,//0xA1E3
+	sysTrapTblRowInvalid,//0xA1E4
+	sysTrapTblRedrawTable,//0xA1E5
+	sysTrapTblRowUsable,//0xA1E6
+	sysTrapTblReleaseFocus,//0xA1E7
+	sysTrapTblEditing,//0xA1E8
+	sysTrapTblGetCurrentField,//0xA1E9
+	sysTrapTblSetColumnUsable,//0xA1EA
+	sysTrapTblGetRowHeight,//0xA1EB
+	sysTrapTblSetColumnWidth,//0xA1EC
+	sysTrapTblGrabFocus,//0xA1ED
+	sysTrapTblSetItemPtr,//0xA1EE
+	sysTrapTblFindRowID,//0xA1EF
+	sysTrapTblGetLastUsableRow,//0xA1F0
+	sysTrapTblGetColumnSpacing,//0xA1F1
+	sysTrapTblFindRowData,//0xA1F2
+	sysTrapTblGetRowData,//0xA1F3
+	sysTrapTblSetRowData,//0xA1F4
+	sysTrapTblSetColumnSpacing,//0xA1F5
+
+
+	
+	sysTrapWinCreateWindow,//0xA1F6
+	sysTrapWinCreateOffscreenWindow,//0xA1F7
+	sysTrapWinDeleteWindow,//0xA1F8
+	sysTrapWinInitializeWindow,//0xA1F9
+	sysTrapWinAddWindow,//0xA1FA
+	sysTrapWinRemoveWindow,//0xA1FB
+	sysTrapWinSetActiveWindow,//0xA1FC
+	sysTrapWinSetDrawWindow,//0xA1FD
+	sysTrapWinGetDrawWindow,//0xA1FE
+	sysTrapWinGetActiveWindow,//0xA1FF
+	sysTrapWinGetDisplayWindow,//0xA200
+	sysTrapWinGetFirstWindow,//0xA201
+	sysTrapWinEnableWindow,//0xA202
+	sysTrapWinDisableWindow,//0xA203
+	sysTrapWinGetWindowFrameRect,//0xA204
+	sysTrapWinDrawWindowFrame,//0xA205
+	sysTrapWinEraseWindow,//0xA206
+	sysTrapWinSaveBits,//0xA207
+	sysTrapWinRestoreBits,//0xA208
+	sysTrapWinCopyRectangle,//0xA209
+	sysTrapWinScrollRectangle,//0xA20A
+	sysTrapWinGetDisplayExtent,//0xA20B
+	sysTrapWinGetWindowExtent,//0xA20C
+	sysTrapWinDisplayToWindowPt,//0xA20D
+	sysTrapWinWindowToDisplayPt,//0xA20E
+	sysTrapWinGetClip,//0xA20F
+	sysTrapWinSetClip,//0xA210
+	sysTrapWinResetClip,//0xA211
+	sysTrapWinClipRectangle,//0xA212
+	sysTrapWinDrawLine,//0xA213
+	sysTrapWinDrawGrayLine,//0xA214
+	sysTrapWinEraseLine,//0xA215
+	sysTrapWinInvertLine,//0xA216
+	sysTrapWinFillLine,//0xA217
+	sysTrapWinDrawRectangle,//0xA218
+	sysTrapWinEraseRectangle,//0xA219
+	sysTrapWinInvertRectangle,//0xA21A
+	sysTrapWinDrawRectangleFrame,//0xA21B
+	sysTrapWinDrawGrayRectangleFrame,//0xA21C
+	sysTrapWinEraseRectangleFrame,//0xA21D
+	sysTrapWinInvertRectangleFrame,//0xA21E
+	sysTrapWinGetFramesRectangle,//0xA21F
+	sysTrapWinDrawChars,//0xA220
+	sysTrapWinEraseChars,//0xA221
+	sysTrapWinInvertChars,//0xA222
+	sysTrapWinGetPattern,//0xA223
+	sysTrapWinSetPattern,//0xA224
+	sysTrapWinSetUnderlineMode,//0xA225
+	sysTrapWinDrawBitmap,//0xA226
+	sysTrapWinModal,//0xA227
+	sysTrapWinGetWindowBounds,//0xA228
+	sysTrapWinFillRectangle,//0xA229
+	sysTrapWinDrawInvertedChars,//0xA22A
+	
+	
+	
+	sysTrapPrefOpenPreferenceDB,//0xA22B
+	sysTrapPrefGetPreferences,//0xA22C
+	sysTrapPrefSetPreferences,//0xA22D
+	sysTrapPrefGetAppPreferences,//0xA22E
+	sysTrapPrefSetAppPreferences,//0xA22F
+
+	
+	sysTrapSndInit,//0xA230
+	sysTrapSndSetDefaultVolume,//0xA231
+	sysTrapSndGetDefaultVolume,//0xA232
+	sysTrapSndDoCmd,//0xA233
+	sysTrapSndPlaySystemSound,//0xA234
+	
+	
+	sysTrapAlmInit,//0xA235
+	sysTrapAlmCancelAll,//0xA236
+	sysTrapAlmAlarmCallback,//0xA237
+	sysTrapAlmSetAlarm,//0xA238
+	sysTrapAlmGetAlarm,//0xA239
+	sysTrapAlmDisplayAlarm,//0xA23A
+	sysTrapAlmEnableNotification,//0xA23B
+	
+	
+	sysTrapHwrGetRAMMapping,//0xA23C
+	sysTrapHwrMemWritable,//0xA23D
+	sysTrapHwrMemReadable,//0xA23E
+	sysTrapHwrDoze,//0xA23F
+	sysTrapHwrSleep,//0xA240
+	sysTrapHwrWake,//0xA241
+	sysTrapHwrSetSystemClock,//0xA242
+	sysTrapHwrSetCPUDutyCycle,//0xA243
+	sysTrapHwrLCDInit,//0xA244
+	sysTrapHwrLCDSleep,//0xA245
+	sysTrapHwrTimerInit,//0xA246
+	sysTrapHwrCursor,//0xA247
+	sysTrapHwrBatteryLevel,//0xA248
+	sysTrapHwrDelay,//0xA249
+	sysTrapHwrEnableDataWrites,//0xA24A
+	sysTrapHwrDisableDataWrites,//0xA24B
+	sysTrapHwrLCDBaseAddr,//0xA24C
+	sysTrapHwrLCDDrawBitmap,//0xA24D
+	sysTrapHwrTimerSleep,//0xA24E
+	sysTrapHwrTimerWake,//0xA24F
+	sysTrapHwrLCDWake,//0xA250
+	sysTrapHwrIRQ1Handler,//0xA251
+	sysTrapHwrIRQ2Handler,//0xA252
+	sysTrapHwrIRQ3Handler,//0xA253
+	sysTrapHwrIRQ4Handler,//0xA254
+	sysTrapHwrIRQ5Handler,//0xA255
+	sysTrapHwrIRQ6Handler,//0xA256
+	sysTrapHwrDockSignals,//0xA257
+	sysTrapHwrPluggedIn,//0xA258
+
+	
+	sysTrapCrc16CalcBlock,//0xA259
+	
+	
+	sysTrapSelectDay,//0xA25A
+	sysTrapSelectTime,//0xA25B
+	
+	sysTrapDayDrawDaySelector,//0xA25C
+	sysTrapDayHandleEvent,//0xA25D
+	sysTrapDayDrawDays,//0xA25E
+	sysTrapDayOfWeek,//0xA25F
+	sysTrapDaysInMonth,//0xA260
+	sysTrapDayOfMonth,//0xA261
+	
+	sysTrapDateDaysToDate,//0xA262
+	sysTrapDateToDays,//0xA263
+	sysTrapDateAdjust,//0xA264
+	sysTrapDateSecondsToDate,//0xA265
+	sysTrapDateToAscii,//0xA266
+	sysTrapDateToDOWDMFormat,//0xA267
+	sysTrapTimeToAscii,//0xA268
+		
+	
+	sysTrapFind,//0xA269
+	sysTrapFindStrInStr,//0xA26A
+	sysTrapFindSaveMatch,//0xA26B
+	sysTrapFindGetLineBounds,//0xA26C
+	sysTrapFindDrawHeader,//0xA26D
+	
+	sysTrapPenOpen,//0xA26E
+	sysTrapPenClose,//0xA26F
+	sysTrapPenGetRawPen,//0xA270
+	sysTrapPenCalibrate,//0xA271
+	sysTrapPenRawToScreen,//0xA272
+	sysTrapPenScreenToRaw,//0xA273
+	sysTrapPenResetCalibration,//0xA274
+	sysTrapPenSleep,//0xA275
+	sysTrapPenWake,//0xA276
+	
+	
+	sysTrapResLoadForm,//0xA277
+	sysTrapResLoadMenu,//0xA278
+	
+	sysTrapFtrInit,//0xA279
+	sysTrapFtrUnregister,//0xA27A
+	sysTrapFtrGet,//0xA27B
+	sysTrapFtrSet,//0xA27C
+	sysTrapFtrGetByIndex,//0xA27D
+	
+	
+	
+	sysTrapGrfInit,//0xA27E
+	sysTrapGrfFree,//0xA27F
+	sysTrapGrfGetState,//0xA280
+	sysTrapGrfSetState,//0xA281
+	sysTrapGrfFlushPoints,//0xA282
+	sysTrapGrfAddPoint,//0xA283
+	sysTrapGrfInitState,//0xA284
+	sysTrapGrfCleanState,//0xA285
+	sysTrapGrfMatch,//0xA286
+	sysTrapGrfGetMacro,//0xA287
+	sysTrapGrfFilterPoints,//0xA288
+	sysTrapGrfGetNumPoints,//0xA289
+	sysTrapGrfGetPoint,//0xA28A
+	sysTrapGrfFindBranch,//0xA28B
+	sysTrapGrfMatchGlyph,//0xA28C
+	sysTrapGrfGetGlyphMapping,//0xA28D
+	sysTrapGrfGetMacroName,//0xA28E
+	sysTrapGrfDeleteMacro,//0xA28D
+	sysTrapGrfAddMacro,//0xA290
+	sysTrapGrfGetAndExpandMacro,//0xA291
+	sysTrapGrfProcessStroke,//0xA292
+	sysTrapGrfFieldChange,//0xA293
+	
+	
+	sysTrapGetCharSortValue,//0xA294
+	sysTrapGetCharAttr,//0xA295
+	sysTrapGetCharCaselessValue,//0xA296
+	
+	
+	sysTrapPwdExists,//0xA297
+	sysTrapPwdVerify,//0xA298
+	sysTrapPwdSet,//0xA299
+	sysTrapPwdRemove,//0xA29A
+	
+	sysTrapGsiInitialize,//0xA29B
+	sysTrapGsiSetLocation,//0xA29C
+	sysTrapGsiEnable,//0xA29D
+	sysTrapGsiEnabled,//0xA29E
+	sysTrapGsiSetShiftState,//0xA29F
+	
+	sysTrapKeyInit,//0xA2A0
+	sysTrapKeyHandleInterrupt,//0xA2A1
+	sysTrapKeyCurrentState,//0xA2A2
+	sysTrapKeyResetDoubleTap,//0xA2A3
+	sysTrapKeyRates,//0xA2A4
+	sysTrapKeySleep,//0xA2A5
+	sysTrapKeyWake,//0xA2A6
+	
+	
+	sysTrapCmBroadcast,//0xA2A7
+	
+	sysTrapDlkStartServer,//0xA2A8
+	sysTrapDlkGetSyncInfo,//0xA2A9
+	sysTrapDlkSetLogEntry,//0xA2AA
+
+	sysTrapPsrInit,//0xA2AB
+	sysTrapPsrClose,//0xA2AC
+	sysTrapPsrGetCommand,//0xA2AD
+	sysTrapPsrSendReply,//0xA2AE
+	
+	sysTrapAbtShowAbout,//0xA2AF
+	
+	sysTrapMdmDial,//0xA2B0
+	sysTrapMdmHangUp,//0xA2B1
+	
+	sysTrapDmSearchRecord,//0xA2B2
+
+	sysTrapSysInsertionSort,//0xA2B3
+	sysTrapDmInsertionSort,//0xA2B4
+	
+	sysTrapLstSetTopItem,//0xA2B5
+
+	// WARNING!! LEAVE THIS ONE AT THE END
+	sysTrapLastTrapNumber//0xA2B6
+	} SysTrapNumber;
+	
+#define	sysNumTraps	 (sysTrapLastTrapNumber - sysTrapBase)
+
+
+
+//--------------------------------------------------------------------
+// Define Library Trap Numbers
+//--------------------------------------------------------------------
+// Library traps start here and go up by 1's
+#define	sysLibTrapBase		0xA800
+typedef enum {
+	sysLibTrapName = sysLibTrapBase,//0xA800
+	sysLibTrapOpen,//0xA801
+	sysLibTrapClose,//0xA802
+	sysLibTrapSleep,//0xA803
+	sysLibTrapWake,//0xA804
+	sysLibTrapCustom//0xA805
+	} SysLibTrapNumber;
+
+
+
+	
+/************************************************************
+ * Pilot specific TRAP instruction numbers
+ *************************************************************/
+#define sysDbgBreakpointTrapNum		0		// For soft breakpoints		
+#define sysDbgTrapNum					8		// For compiled breakpoints			
+#define sysDispatchTrapNum				15		// Trap dispatcher
+
+#define SYS_TRAP(trapNum) \
+	TWOWORD_INLINE(m68kTrapInstr+sysDispatchTrapNum,trapNum)
+	
+#define ASM_SYS_TRAP(trapNum)	\
+			DC.W	m68kTrapInstr+sysDispatchTrapNum; \
+			DC.W	trapNum
+	
+
+#endif  //__SYSTRAPS_H_
+
+

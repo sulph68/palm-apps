@@ -1,0 +1,395 @@
+// forms.rcp - Db35's converted-from-Constructor forms (1000-2200) + menu bars,
+// STATIC and hand-maintained from here on -- same convention as the other
+// hand-authored .rcp files in this directory (location35.rcp/todo35alert.rcp/
+// aboutdb35.rcp). Make layout adjustments directly in this file.
+//
+// History: originally emitted at build time by tools/gen_forms.py (since
+// removed from the tree), which
+// converted the ROM DateBook's Constructor resources and applied a set of
+// mechanical transforms (SKIP/REMAP/FORMBOX/NONUSABLE/RELABEL dicts, plus a
+// couple of insert-a-new-row text patches for the Location/Title fields --
+// see gen_forms.py's own comments for the full reasoning behind each one).
+// That script is no longer part of the build; this file is its final output,
+// frozen as of the Title-field feature, kept as the base for all further
+// manual tweaks (pixel alignment, button repositioning, etc.) -- gen_forms.py
+// itself is left in tools/ purely as a historical reference for how each
+// object's geometry was originally derived, not as something to re-run.
+FORM ID 1000 AT (0 0 160 160)
+USABLE
+MENUID 1000
+BEGIN
+  TITLE "................"
+  REPEATBUTTON "\x02" ID 1002 AT (59 0 12 13) NOFRAME FONT 4
+  PUSHBUTTON "S" ID 1003 AT (72 1 10 12) GROUP 1
+  PUSHBUTTON "M" ID 1004 AT (83 1 10 12) GROUP 1
+  PUSHBUTTON "T" ID 1005 AT (94 1 10 12) GROUP 1
+  PUSHBUTTON "W" ID 1006 AT (105 1 10 12) GROUP 1
+  PUSHBUTTON "T" ID 1007 AT (116 1 10 12) GROUP 1
+  PUSHBUTTON "F" ID 1008 AT (127 1 10 12) GROUP 1
+  PUSHBUTTON "S" ID 1009 AT (138 1 10 12) GROUP 1
+  REPEATBUTTON "\x03" ID 1010 AT (149 0 11 13) NOFRAME FONT 4
+  PUSHBUTTON "" ID 1011 AT (1 148 9 11) GROUP 2 GRAPHICAL BITMAPID 2000
+  PUSHBUTTON "" ID 1012 AT (11 148 9 11) GROUP 2 GRAPHICAL BITMAPID 2001
+  PUSHBUTTON "" ID 1013 AT (21 148 9 11) GROUP 2 GRAPHICAL BITMAPID 2002
+  PUSHBUTTON "" ID 1014 AT (31 148 9 11) GROUP 2 GRAPHICAL BITMAPID 2003
+  BUTTON "New" ID 1015 AT (44 147 22 12)
+  BUTTON "Details" ID 1016 AT (70 147 33 12)
+  BUTTON "Go to" ID 1017 AT (107 147 27 12)
+  REPEATBUTTON "\x01" ID 1018 AT (147 144 13 8) NOFRAME FONT 5
+  REPEATBUTTON "\x02" ID 1019 AT (147 152 13 8) NOFRAME FONT 5
+  TABLE ID 1020 AT (0 18 160 121) ROWS 11 COLUMNS 3 COLUMNWIDTHS 1 22 136
+  GRAFFITISTATEINDICATOR AT (137 150)
+END
+
+FORM ID 1100 AT (0 0 160 160)
+USABLE
+MENUID 1002
+BEGIN
+  TITLE "Dec '95 - Jan '96"
+  REPEATBUTTON "\x02" ID 1102 AT (92 0 14 13) NOFRAME FONT 4
+  REPEATBUTTON "\x03" ID 1103 AT (146 0 14 13) NOFRAME FONT 4
+  LABEL "Week  14" ID 1104 AT (108 1)
+  PUSHBUTTON "" ID 1105 AT (1 148 9 11) GROUP 1 GRAPHICAL BITMAPID 2000
+  PUSHBUTTON "" ID 1106 AT (11 148 9 11) GROUP 1 GRAPHICAL BITMAPID 2001
+  PUSHBUTTON "" ID 1107 AT (21 148 9 11) GROUP 1 GRAPHICAL BITMAPID 2002
+  PUSHBUTTON "" ID 1108 AT (31 148 9 11) GROUP 1 GRAPHICAL BITMAPID 2003
+  BUTTON "Go to" ID 1109 AT (46 147 27 12)
+  REPEATBUTTON "\x01" ID 1110 AT (147 144 13 8) NOFRAME FONT 5
+  REPEATBUTTON "\x02" ID 1111 AT (147 152 13 8) NOFRAME FONT 5
+  GADGET ID 1112 AT (0 15 160 130)
+END
+
+FORM ID 1200 AT (0 0 160 160)
+USABLE
+MENUID 1003
+BEGIN
+  TITLE "XXXXXXXXXXXX 1995"
+  REPEATBUTTON "\x02" ID 1202 AT (132 0 14 13) NOFRAME FONT 4
+  REPEATBUTTON "\x03" ID 1203 AT (146 0 14 13) NOFRAME FONT 4
+  PUSHBUTTON "" ID 1204 AT (1 148 9 11) GROUP 1 GRAPHICAL BITMAPID 2000
+  PUSHBUTTON "" ID 1205 AT (11 148 9 11) GROUP 1 GRAPHICAL BITMAPID 2001
+  PUSHBUTTON "" ID 1206 AT (21 148 9 11) GROUP 1 GRAPHICAL BITMAPID 2002
+  PUSHBUTTON "" ID 1207 AT (31 148 9 11) GROUP 1 GRAPHICAL BITMAPID 2003
+  BUTTON "Go to" ID 1208 AT (46 147 27 12)
+  GADGET ID 1209 AT (0 15 160 127)
+END
+
+// Db35: full-screen (2 2 156 156) per user request -- was (2 11 156 147),
+// bottom-anchored the same as it's always been (2+156 = 11+147 = 158).
+// Title grew from 1 line to 2 (11px -> 22px tall); every row below it
+// shifted down using this app's established row-spacing convention (16px
+// pitch between single-line rows, +12px extra after any 2-line field --
+// same math Location's own insertion already used for the Repeat row below
+// it). x-positions are untouched except where noted (Title's were already
+// user-tuned last round).
+FORM ID 1300 AT (2 2 156 156)
+MODAL
+MENUID 1324
+BEGIN
+  TITLE "Event  Details"
+  LABEL "Title:" ID 1322 AT (21 18) FONT 1
+  FIELD ID 1323 AT (53 18 100 22) EDITABLE UNDERLINED MULTIPLELINES MAXCHARS 254
+  // Db35: "Start:"/"End:" replace the old combined "Time:" (ROM SelectTime
+  // start+end trigger) and "Date:" (start-date-only) rows, same two
+  // row-slots -- each shows a single combined "7:30pm Fri 11/12/2035"-style
+  // moment; tapping opens DateSpan.c's "Set Date & Time" sub-dialog, letting
+  // End land on a later day (an event spanning midnight, e.g. a flight).
+  LABEL "Start:" ID 1302 AT (17 46) FONT 1
+  SELECTORTRIGGER "12:00pm Wed 12/31/2035                  " ID 1303 AT (53 46 100 11)
+  LABEL "End:" ID 1304 AT (29 62) FONT 1
+  SELECTORTRIGGER "12:00pm Wed 12/31/2035                  " ID 1305 AT (53 62 100 11)
+  LABEL "Location:" ID 1320 AT (2 78) FONT 1
+  FIELD ID 1321 AT (53 78 100 22) EDITABLE UNDERLINED MULTIPLELINES MAXCHARS 63
+  LABEL "Repeat:" ID 1312 AT (8 106) FONT 1
+  SELECTORTRIGGER "None                                    " ID 1313 AT (53 106 80 11)
+  LABEL "Private:" ID 1314 AT (7 122) FONT 1
+  CHECKBOX "" ID 1315 AT (50 121 14 14)
+  BUTTON "OK" ID 1316 AT (5 140 25 12)
+  BUTTON "Cancel" ID 1317 AT (36 140 35 12)
+  BUTTON "Delete..." ID 1318 AT (77 140 40 12)
+  BUTTON "Note" ID 1319 AT (123 140 28 12)
+END
+
+// Db35: shared by Event Details' Start:/End: rows (DateSpan.c) -- "Date:"
+// opens the era day picker, "Time:" opens the ROM's single-moment picker
+// (SelectOneTime); "No Time" only shown when editing Start (a
+// whole-appointment property, see DateSpan.c). Title is set at runtime
+// (FrmSetTitle, "Start"/"End") -- the text here is just the resource default.
+FORM ID 1360 AT (2 88 156 70)
+MODAL
+BEGIN
+  TITLE "Date & Time"
+  LABEL "Date:" ID 1366 AT (10 19) FONT 1
+  SELECTORTRIGGER "DAY MM/DD/YY+7debug                     " ID 1361 AT (46 19 100 11)
+  LABEL "Time:" ID 1367 AT (10 36) FONT 1
+  SELECTORTRIGGER "12:00 pm                                " ID 1362 AT (46 36 54 11)
+  CHECKBOX "No Time" ID 1363 AT (96 36 52 12)
+  BUTTON "OK" ID 1364 AT (10 54 37 12)
+  BUTTON "Cancel" ID 1365 AT (53 54 44 12)
+END
+
+// "End date must be..." rejection when the picked End date falls outside
+// [start date, start date + 30] -- DateSpan.c re-loops back to the picker.
+ALERT ID 1370	// altSpanOutOfRange
+INFORMATION
+BEGIN
+  TITLE "Invalid Date"
+  MESSAGE "The end date must be on or after the start date, and no more than 30 days after it."
+  BUTTONS "OK"
+END
+
+// Db35: CalDAV Sync event row info - read-only, no separate app view to
+// switch to, so tapping one just shows its own full text.
+ALERT ID 1371	// altDavInfo
+INFORMATION
+BEGIN
+  TITLE "Calendar Event"
+  MESSAGE "^1"
+  BUTTONS "OK"
+END
+
+// Db35: shown from DetailsHandleEvent when the user actually tries to
+// change a CalDAV item (see altDavReadOnly's own header comment).
+ALERT ID 1372	// altDavReadOnly
+INFORMATION
+BEGIN
+  TITLE "Read-Only"
+  MESSAGE "CalDAV events are read-only."
+  BUTTONS "OK"
+END
+
+FORM ID 1400 AT (2 2 156 156)
+MODAL
+BEGIN
+  TITLE "Change Repeat"
+  PUSHBUTTON "None" ID 1402 AT (7 20 26 11) GROUP 1
+  PUSHBUTTON "Day" ID 1403 AT (34 20 23 11) GROUP 1
+  PUSHBUTTON "Week" ID 1404 AT (58 20 30 11) GROUP 1
+  PUSHBUTTON "Month" ID 1405 AT (89 20 32 11) GROUP 1
+  PUSHBUTTON "Year" ID 1406 AT (122 20 25 11) GROUP 1
+  LABEL "Every:" ID 1407 AT (24 38) FONT 1 NONUSABLE
+  FIELD ID 1408 AT (60 38 17 11) MAXCHARS 80 NONUSABLE
+  LABEL "Day(s)" ID 1409 AT (83 38) FONT 1 NONUSABLE
+  LABEL "Week(s)" ID 1410 AT (83 38) FONT 1 NONUSABLE
+  LABEL "Month(s)" ID 1411 AT (83 38) FONT 1 NONUSABLE
+  LABEL "Year(s)" ID 1412 AT (83 38) FONT 1 NONUSABLE
+  LABEL "End on:" ID 1413 AT (21 55) FONT 1 NONUSABLE
+  POPUPTRIGGER "**19 bytes**........                    " ID 1415 AT (60 55 1 13) NONUSABLE
+  LIST "No End Date" "Choose Date..." ID 1416 AT (60 58 70 1) VISIBLEITEMS 2 NONUSABLE
+  LABEL "Repeat on:" ID 1417 AT (5 72) FONT 1 NONUSABLE
+  PUSHBUTTON "S" ID 1418 AT (63 72 10 12) NONUSABLE
+  PUSHBUTTON "M" ID 1419 AT (74 72 10 12) NONUSABLE
+  PUSHBUTTON "T" ID 1420 AT (85 72 10 12) NONUSABLE
+  PUSHBUTTON "W" ID 1421 AT (96 72 10 12) NONUSABLE
+  PUSHBUTTON "T" ID 1422 AT (107 72 10 12) NONUSABLE
+  PUSHBUTTON "F" ID 1423 AT (118 72 10 12) NONUSABLE
+  PUSHBUTTON "S" ID 1424 AT (129 72 10 12) NONUSABLE
+  LABEL "Repeat by:" ID 1425 AT (5 72) FONT 1 NONUSABLE
+  PUSHBUTTON "Day" ID 1426 AT (63 72 40 12) GROUP 2 NONUSABLE
+  PUSHBUTTON "Date" ID 1427 AT (104 72 40 12) GROUP 2 NONUSABLE
+  GADGET ID 1440 AT (3 90 150 45)
+  FIELD ID 1428 AT (10 100 136 22) MAXCHARS 80
+  LABEL "Tap one of the above\rbuttons to set a repeat\rinterval." ID 1429 AT (7 38) FONT 1 NONUSABLE
+  BUTTON "OK" ID 1430 AT (4 140 25 12)
+  BUTTON "Cancel" ID 1431 AT (35 140 36 12)
+  POPUPLIST ID 1415 1416
+END
+
+FORM ID 1500 AT (2 61 156 97)
+MODAL
+BEGIN
+  TITLE "Purge"
+  // UNHANDLED tFBM id=1502
+  LABEL "Delete events older\rthan:" ID 1503 AT (32 19) FONT 1
+  POPUPTRIGGER "1 week                                  " ID 1505 AT (60 29 45 13)
+  LIST "1 Week" "2 Weeks" "3 Weeks" "1 Month" ID 1506 AT (61 30 47 1) VISIBLEITEMS 4 NONUSABLE
+  CHECKBOX "Save archive copy on PC" ID 1507 AT (12 54 136 14) FONT 0
+  BUTTON "OK" ID 1508 AT (5 80 37 12)
+  BUTTON "Cancel" ID 1509 AT (48 80 37 12)
+  POPUPLIST ID 1505 1506
+END
+
+FORM ID 1600 AT (2 61 156 97)
+MODAL
+BEGIN
+  TITLE "Delete Event"
+  // UNHANDLED tFBM id=1602
+  LABEL "Delete selected\revent?" ID 1603 AT (32 19) FONT 1
+  CHECKBOX "Save archive copy on PC" ID 1604 AT (12 54 136 14) FONT 0
+  BUTTON "OK" ID 1606 AT (5 80 37 12)
+  BUTTON "Cancel" ID 1607 AT (48 80 37 12)
+END
+
+FORM ID 1700 AT (2 57 156 101)
+MODAL
+BEGIN
+  TITLE "Monthly Repeat"
+  // UNHANDLED tFBM id=1702
+  LABEL "Does this event occur\ron the 4th or last\rweek of the month?" ID 1703 AT (32 19) FONT 1
+  PUSHBUTTON "4th week" ID 1704 AT (32 58 54 13) GROUP 1
+  PUSHBUTTON "Last week" ID 1705 AT (87 58 54 13) GROUP 1
+  BUTTON "OK" ID 1706 AT (5 84 37 12)
+  BUTTON "Cancel" ID 1707 AT (48 84 37 12)
+END
+
+FORM ID 1800 AT (2 55 156 103)
+MODAL
+BEGIN
+  TITLE "Preferences"
+  LABEL "Start Time:" ID 1802 AT (13 20) FONT 1
+  REPEATBUTTON "\x01" ID 1803 AT (140 17 13 8) NOFRAME FONT 5
+  REPEATBUTTON "\x02" ID 1804 AT (140 25 13 8) NOFRAME FONT 5
+  LABEL "End Time:" ID 1805 AT (25 39) FONT 1
+  REPEATBUTTON "\x01" ID 1806 AT (140 36 13 8) NOFRAME FONT 5
+  REPEATBUTTON "\x02" ID 1807 AT (140 44 13 8) NOFRAME FONT 5
+  BUTTON "OK" ID 1814 AT (5 86 25 12)
+  BUTTON "Cancel" ID 1815 AT (36 86 36 12)
+END
+
+FORM ID 1900 AT (2 10 156 148)
+MODAL
+BEGIN
+  TITLE "Display Options"
+  LABEL "Day View:" ID 1902 AT (5 18) FONT 1
+  CHECKBOX "Show Time Bars" ID 1903 AT (5 31 98 15) FONT 0
+  CHECKBOX "Compress Day View" ID 1904 AT (5 45 116 14) FONT 0
+  LABEL "Month View:" ID 1905 AT (5 70) FONT 1
+  CHECKBOX "Show Timed Events" ID 1906 AT (5 83 115 15) FONT 0
+  CHECKBOX "Show Untimed Events" ID 1907 AT (5 97 127 15) FONT 0
+  CHECKBOX "Show Daily Repeating Evts" ID 1908 AT (5 111 152 15) FONT 0
+  BUTTON "OK" ID 1909 AT (5 131 36 12)
+  BUTTON "Cancel" ID 1910 AT (47 131 36 12)
+END
+
+FORM ID 2000 AT (2 2 156 156)
+MODAL
+BEGIN
+  TITLE " "
+  // UNHANDLED tFBM id=2001
+  BUTTON "Snooze" ID 2002 AT (81 128 70 24)
+  BUTTON "OK" ID 2003 AT (5 128 70 24)
+  GADGET ID 2004 AT (45 25 146 88)
+END
+
+FORM ID 2100 AT (2 36 156 122)
+MODAL
+BEGIN
+  TITLE "Repeating Event"
+  // UNHANDLED tFBM id=2101
+  LABEL "Apply the changes to:" ID 2102 AT (9 19) FONT 1
+  LABEL "- the Current record,\r- this & all Future records,\r- All occurrences?" ID 2109 AT (9 34) FONT 0
+  BUTTON "Current" ID 2103 AT (9 72 61 12)
+  BUTTON "Future" ID 2104 AT (9 89 61 12)
+  BUTTON "All" ID 2105 AT (9 106 61 12)
+  BUTTON "Cancel" ID 2106 AT (105 106 44 12)
+END
+
+FORM ID 2200 AT (0 0 160 160)
+USABLE
+BEGIN
+  TITLE "                 "
+  GADGET ID 2202 AT (50 82 60 13)
+  PUSHBUTTON "" ID 2203 AT (1 148 9 11) GROUP 1 GRAPHICAL BITMAPID 2000
+  PUSHBUTTON "" ID 2204 AT (11 148 9 11) GROUP 1 GRAPHICAL BITMAPID 2001
+  PUSHBUTTON "" ID 2205 AT (21 148 9 11) GROUP 1 GRAPHICAL BITMAPID 2002
+  PUSHBUTTON "" ID 2206 AT (31 148 9 11) GROUP 1 GRAPHICAL BITMAPID 2003
+  BUTTON "Go to" ID 2207 AT (46 147 27 12)
+  POPUPTRIGGER "                                        " ID 2208 AT (134 84 26 11)
+  LIST "" ID 2209 AT (86 84 72 0) VISIBLEITEMS 0 NONUSABLE
+  TABLE ID 2210 AT (0 17 153 110) ROWS 10 COLUMNS 2 COLUMNWIDTHS 22 128
+  GADGET ID 2212 AT (0 86 160 13)
+  // NOTE: original had 5 cols; pilrc caps at 3
+  TABLE ID 2213 AT (0 30 153 110) ROWS 10 COLUMNS 3 COLUMNWIDTHS 12 10 89
+  GADGET ID 2214 AT (0 17 153 127) NONUSABLE
+  REPEATBUTTON "\x02" ID 2215 AT (82 0 12 13) NOFRAME FONT 4
+  REPEATBUTTON "\x03" ID 2216 AT (149 0 11 13) NOFRAME FONT 4
+  BUTTON "Wed, Aug 20" ID 2217 AT (95 1 54 12) NOFRAME
+  SCROLLBAR ID 2218 AT (153 18 7 64) VALUE 0 MIN 0 MAX 0 PAGESIZE 1
+  SCROLLBAR ID 2219 AT (153 96 7 42) VALUE 0 MIN 0 MAX 0 PAGESIZE 1
+  POPUPLIST ID 2208 2209
+END
+
+MENU ID 1000
+BEGIN
+  PULLDOWN "Record"
+  BEGIN
+    MENUITEM "New Event" ID 100 "N"
+    MENUITEM "Duplicate Event" ID 106 "U"
+    MENUITEM "Delete Event..." ID 101 "D"
+    MENUITEM "Attach Note" ID 102 "A"
+    MENUITEM "Delete Note..." ID 103 "O"
+    MENUITEM "Purge..." ID 104 "E"
+    MENUITEM SEPARATOR
+    MENUITEM "Beam Event" ID 105 "B"
+  END
+  PULLDOWN "Edit"
+  BEGIN
+    MENUITEM "Undo" ID 10000 "U"
+    MENUITEM "Cut" ID 10001 "X"
+    MENUITEM "Copy" ID 10002 "C"
+    MENUITEM "Paste" ID 10003 "P"
+    MENUITEM "Select All" ID 10004 "S"
+    MENUITEM SEPARATOR
+    MENUITEM "Keyboard" ID 10006 "K"
+    MENUITEM "Graffiti Help" ID 10007 "G"
+  END
+  PULLDOWN "Options"
+  BEGIN
+    MENUITEM "Font..." ID 300 "F"
+    MENUITEM "Preferences..." ID 301 "R"
+    MENUITEM "Display Options..." ID 302 "Y"
+    MENUITEM "Phone Lookup" ID 303 "L"
+    MENUITEM "CalDAV Sync" ID 306 "C"
+    MENUITEM "Security..." ID 304 "H"
+    MENUITEM "About Date Book" ID 305
+  END
+END
+
+MENU ID 1002
+BEGIN
+  PULLDOWN "Options"
+  BEGIN
+    MENUITEM "Preferences..." ID 300 "R"
+    MENUITEM "Security..." ID 301 "H"
+    MENUITEM "About Date Book" ID 302
+  END
+END
+
+MENU ID 1003
+BEGIN
+  PULLDOWN "Options"
+  BEGIN
+    MENUITEM "Preferences..." ID 300 "R"
+    MENUITEM "Display Options..." ID 301 "Y"
+    MENUITEM "Security..." ID 302 "H"
+    MENUITEM "About Date Book" ID 303
+  END
+END
+
+// Db35: Details dialog's own menu bar -- Details became a full-screen form
+// that intercepts focus from the Day View (Title-field/tap-to-Details
+// feature), so its Record-menu capabilities (Duplicate/Beam) need their own
+// way in. Same item IDs as MENU 1000's Record pulldown (105/106) so
+// DetailsDoCommand (DateDay.c) shares DuplicateCmd/SendRecordCmd directly.
+// Delete Event and Attach/Delete Note are deliberately NOT repeated here --
+// Details already has dedicated Delete.../Note buttons for those.
+MENU ID 1324
+BEGIN
+  PULLDOWN "Record"
+  BEGIN
+    MENUITEM "Duplicate Event" ID 106 "U"
+    MENUITEM "Beam Event" ID 105 "B"
+  END
+  PULLDOWN "Edit"
+  BEGIN
+    MENUITEM "Undo" ID 10000 "U"
+    MENUITEM "Cut" ID 10001 "X"
+    MENUITEM "Copy" ID 10002 "C"
+    MENUITEM "Paste" ID 10003 "P"
+    MENUITEM "Select All" ID 10004 "S"
+    MENUITEM SEPARATOR
+    MENUITEM "Keyboard" ID 10006 "K"
+    MENUITEM "Graffiti Help" ID 10007 "G"
+  END
+END
+

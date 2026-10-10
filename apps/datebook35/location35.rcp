@@ -1,0 +1,109 @@
+// location35.rcp - Db35 event Location feature: hand-authored FORM resources
+// (no Constructor original -- new UI, same idiom as abouttd35.rcp/aboutdb35.rcp's
+// hand-authored dialogs). Modeled closely on Address35's frmAddrDlg/frmContactPick
+// (address35/Address35En.rcp) with the layout changes described in
+// [[app-reference-docs]] Datebook35.md's Location feature section.
+//
+// pilrc has no #include of DatebookRsc.h -- IDs below are raw numbers matching
+// the #defines there (symbolic names given in comments for readability, same
+// convention as the existing hand-authored aboutdb35.rcp / abouttd35.rcp).
+
+// Minimal Edit-only menu (Undo/Cut/Copy/Paste/Select All), same items+IDs as
+// the Day View's own Edit pulldown -- attached to all 3 new forms below so
+// their text fields get standard cut/copy/paste (the ROM Field Manager
+// handles these system command IDs against the focused field automatically;
+// no app-side handler code needed beyond dispatching the menu event).
+MENU ID 2440	// mnuLocEdit
+BEGIN
+	PULLDOWN "Edit"
+	BEGIN
+		MENUITEM "Undo"				ID 10000	"U"
+		MENUITEM "Cut"					ID 10001	"X"
+		MENUITEM "Copy"				ID 10002	"C"
+		MENUITEM "Paste"				ID 10003	"P"
+		MENUITEM "Select All"		ID 10004	"S"
+		MENUITEM SEPARATOR
+		MENUITEM "Keyboard"			ID 10006	"K"
+		MENUITEM "Graffiti Help"	ID 10007	"G"
+	END
+END
+
+// ---- Location edit dialog -------------------------------------------------
+// Clone of Address35's frmAddrDlg with: Line1/Line2 shrunk from 2-line (22px)
+// to single-line (12px) fields; a new single-line Name field added; two
+// picker buttons ("Address35" / "Previous Loc") above Name. The shrink
+// roughly offsets the additions, so this fits Address35's own 156x156
+// full-screen box without growing it.
+FORM ID 2400 AT (2 2 156 156) MODAL	// LocationDialog
+	MENUID 2440
+BEGIN
+	TITLE "Location"
+	BUTTON "Address35"		ID 2401	AT (4 16 72 13)		// btnLocAddress35
+	BUTTON "Previous Loc"	ID 2402	AT (80 16 72 13)	// btnLocPreviousLoc
+	LABEL "Name:"		ID 2450	AT (4 36) FONT 1
+	FIELD	ID 2403	AT (44 34 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 39	// fldLocName
+	LABEL "Line 1:"		ID 2451	AT (4 50) FONT 1
+	FIELD	ID 2404	AT (44 48 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 59	// fldLocLine1
+	LABEL "Line 2:"		ID 2452	AT (4 64) FONT 1
+	FIELD	ID 2405	AT (44 62 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 59	// fldLocLine2
+	LABEL "Apt:"			ID 2453	AT (4 78) FONT 1
+	FIELD	ID 2406	AT (44 76 50 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 19	// fldLocApt
+	LABEL "City:"		ID 2454	AT (4 92) FONT 1
+	FIELD	ID 2407	AT (44 90 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 39	// fldLocCity
+	LABEL "State:"		ID 2455	AT (4 106) FONT 1
+	FIELD	ID 2408	AT (44 104 42 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 19	// fldLocState
+	LABEL "Zip:"			ID 2456	AT (90 106) FONT 1
+	FIELD	ID 2409	AT (114 104 38 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 15	// fldLocZip
+	LABEL "Country:"		ID 2457	AT (4 120) FONT 1
+	POPUPTRIGGER "(None)"	ID 2410	AT (50 120 108 12) LEFTANCHOR	// popLocCountry
+	BUTTON "OK"			ID 2412	AT (4 136 42 13)	// btnLocOk
+	BUTTON "Clear"		ID 2414	AT (51 136 42 13)	// btnLocClear -- wipes all fields + closes, see LocationEditForm
+	BUTTON "Cancel"		ID 2413	AT (98 136 42 13)	// btnLocCancel
+	GRAFFITISTATEINDICATOR				AT (144 138)
+END
+
+// ---- Generic searchable list picker ----------------------------------------
+// Clone of Address35's own frmContactPick/frmPick -- full-screen list +
+// bottom Find field (live-filters on every keystroke -- see LocPickStringList's
+// keyDownEvent handling -- so there's no separate Find button, just Cancel).
+// Reused for BOTH the "Address35" contact picker (read-only against
+// Address35DB; no Delete -- its records are never touched by this feature)
+// AND the Country picker (kLocCountries[] in DateLocation.c); title is set
+// at runtime per use (FrmSetTitle), not fixed here.
+FORM ID 2420 AT (2 2 156 156) MODAL	// LocAddrPickDialog
+	MENUID 2440
+BEGIN
+	TITLE ""
+	LIST ""				ID 2421	AT (2 16 152 121) VISIBLEITEMS 11	// lstLocAddrPick
+	LABEL "Find:"		ID 2460	AT (2 144) FONT 1
+	FIELD	ID 2422	AT (26 143 86 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 30	// fldLocAddrPickFind -- filters live as you type, no Find button needed
+	BUTTON "Cancel"		ID 2424	AT (117 141 30 12)	// btnLocAddrPickCancel
+	GRAFFITISTATEINDICATOR					AT (148 145)
+END
+
+// ---- "Previous Loc" picker (LocationsDB history) ---------------------------
+// Same list+live-filter-Find-field shell as the Address35 picker above, plus
+// a new inline "Delete" button (no existing precedent for delete-inside-a-
+// picker elsewhere in this codebase -- see [[app-reference-docs]] for why).
+// Sits on its own row 1px below the list, so it doesn't crowd Find/Cancel.
+FORM ID 2430 AT (2 2 156 156) MODAL	// LocHistoryPickDialog
+	MENUID 2440
+BEGIN
+	TITLE "Previous Locations"
+	LIST ""				ID 2431	AT (2 16 152 120) VISIBLEITEMS 11	// lstLocHistoryPick
+	BUTTON "Del"		ID 2435	AT (115 141 30 12)	// btnLocHistoryDelete
+	LABEL "Find:"		ID 2470	AT (2 144) FONT 1
+	FIELD	ID 2432	AT (26 143 52 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 30	// fldLocHistoryFind -- filters live as you type, no Find button needed
+	BUTTON "Cancel"		ID 2434	AT (80 141 30 12)	// btnLocHistoryCancel -- 2px from the form's right edge (124+30=154)
+	GRAFFITISTATEINDICATOR					AT (147 142)
+END
+
+// "Delete this location?" confirm for the Delete button above -- same
+// CONFIRMATION-ALERT idiom as Address35's altSetMe.
+ALERT ID 2480	// DeleteLocationAlert
+CONFIRMATION
+BEGIN
+	TITLE "Delete Location"
+	MESSAGE "Delete this location from your history? This does not affect any event currently using it."
+	BUTTONS "OK" "Cancel"
+END

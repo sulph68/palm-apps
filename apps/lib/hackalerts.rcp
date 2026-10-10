@@ -1,0 +1,17 @@
+// hackalerts.rcp - shared "era plugin required" alerts for era-aware apps.
+// Include/compile alongside the app; HcOkOrAlert(8900,8901) shows these.
+ALERT ID 8900
+  ERROR
+BEGIN
+  TITLE "Plugin Required"
+  MESSAGE "This app needs the X-Y2K35 (HackMaster) plugin to handle dates beyond 2031/2040. Please install it, then enable it in X-Master."
+  BUTTONS "OK"
+END
+
+ALERT ID 8901
+  ERROR
+BEGIN
+  TITLE "Plugin Not Enabled"
+  MESSAGE "The X-Y2K35 plugin is installed but not enabled. Please tick it on in X-Master, then reopen this app."
+  BUTTONS "OK"
+END

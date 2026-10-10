@@ -1,0 +1,47 @@
+// HackMaster Y2K35 plugin - UI resources. Layout matches y2k35_design.png.
+
+// tAIN #3000: name shown in the X-Master / HackMaster list (hackapi.htm).
+APPLICATIONICONNAME ID 3000 "X-Y2K35"
+
+// tFRM #2000: control panel (X-Master "Configure").
+// Bold labels; each value is a row of single-digit push-buttons (one selected/
+// inverted); a stacked up/down repeating button (tREP) bumps the selected digit.
+// Month/Day digits are right-aligned under the Year units. Time shows HH:MM + a
+// "Set" button (SelectOneTime dialog). "Based" is a full-width boxed text area.
+// Digit push-buttons: year 2300-2303, month 2310-2311, day 2320-2321.
+// tREP up/down: year 2400/2401, month 2410/2411, day 2420/2421.
+FORM ID 2000 AT (0 0 160 160)
+USABLE
+BEGIN
+    TITLE "Y2K35 Era"
+
+    LABEL "Year:" ID 2100 AT (6 23) FONT 1
+    PUSHBUTTON "2" ID 2300 AT (58 20 14 15) GROUP 1
+    PUSHBUTTON "0" ID 2301 AT (72 20 14 15) GROUP 1
+    PUSHBUTTON "2" ID 2302 AT (86 20 14 15) GROUP 1
+    PUSHBUTTON "8" ID 2303 AT (100 20 14 15) GROUP 1
+    REPEATBUTTON "\x01" ID 2400 AT (120 20 13 8) NOFRAME FONT 5
+    REPEATBUTTON "\x02" ID 2401 AT (120 28 13 8) NOFRAME FONT 5
+
+    LABEL "Month:" ID 2101 AT (6 43) FONT 1
+    PUSHBUTTON "0" ID 2310 AT (86 40 14 15) GROUP 2
+    PUSHBUTTON "1" ID 2311 AT (100 40 14 15) GROUP 2
+    REPEATBUTTON "\x01" ID 2410 AT (120 40 13 8) NOFRAME FONT 5
+    REPEATBUTTON "\x02" ID 2411 AT (120 48 13 8) NOFRAME FONT 5
+
+    LABEL "Day:" ID 2102 AT (6 63) FONT 1
+    PUSHBUTTON "0" ID 2320 AT (86 60 14 15) GROUP 3
+    PUSHBUTTON "1" ID 2321 AT (100 60 14 15) GROUP 3
+    REPEATBUTTON "\x01" ID 2420 AT (120 60 13 8) NOFRAME FONT 5
+    REPEATBUTTON "\x02" ID 2421 AT (120 68 13 8) NOFRAME FONT 5
+
+    LABEL "Time:" ID 2103 AT (6 82) FONT 1
+    FIELD ID 2013 AT (91 82 30 12) NONEDITABLE
+    BUTTON "Set" ID 2203 AT (122 81 33 14)
+
+    LABEL "Based:" ID 2106 AT (6 99) FONT 1
+    FIELD ID 2020 AT (8 117 144 18) NONEDITABLE MULTIPLELINES MAXCHARS 60
+
+    BUTTON "Apply"  ID 2001 AT (70 144 40 13)
+    BUTTON "Cancel" ID 2002 AT (114 144 40 13)
+END

@@ -1,0 +1,2107 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+
+
+  
+  <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+
+
+  
+  <meta name="GENERATOR" content="Microsoft FrontPage 12.0">
+
+  
+
+
+  
+  <title>README for McPhling</title>
+  <style type="text/css">
+body {
+background : white;
+color : black;
+font-family : Arial, Verdana, Helvetica;
+text-align : justify;
+}
+ul.history {
+margin : 0 0 0 0;
+font-weight : bold;
+}
+ul.history ul.history {
+margin : 0 0 1em 2em;
+font-weight : normal;
+list-style : disc;
+}
+ul.history ul.historyInside {
+margin : 0 0 0 2em;
+font-weight : normal;
+list-style : disc;
+}
+a:link, a:visited, a:active {
+color : purple;
+}
+a:hover {
+color : black;
+background : silver;
+}
+h1 {
+border-top : 4pt solid purple;
+border-bottom : 2pt solid black;
+color : silver;
+background : black;
+}
+h2 {
+border-top : 2pt solid purple;
+color : black;
+background : silver;
+}
+  </style>
+</head>
+
+
+<body style="background-color: rgb(255, 255, 255);">
+
+
+<h1>McPhling 5.81 &amp; 4.81<br>
+
+
+<font size="5">(GPL Free Software)</font></h1>
+
+
+<p>&copy; 2000-2009 Michael J. McCollister</p>
+
+
+<address> E-Mail: <a href="mailto:support@MikeMcCollister.com">
+support@MikeMcCollister.com</a>
+</address>
+
+
+<address> Web Page: <a href="http://MikeMcCollister.com/palm/">MikeMcCollister/palm/</a>
+</address>
+
+
+<h2>Forward</h2>
+
+
+<p><i>McPhling</i> allows you to quickly switch from
+your
+current application to the previous one by simply swiping your
+pen from the silkscreen "Apps" button into the upper-left
+graffiti area. In addition, a swipe from the "Menu"
+button to the "Apps" button will pop up a list of your
+most recently used applications (application list) for you to select.
+Users of <i>SwitchHack</i> will find <i>McPhling</i>
+very similar. Other features of <i>McPhling</i> include: </p>
+
+
+<ul>
+
+
+  <li>You can configure how <i>McPhling</i> is
+activated by configuring the swipes or by configuring it to work with
+buttons or keyboards. Jog Dials and custom buttons are supported.</li>
+
+
+  <li>On a Palm OS 5 device, <i>McPhling</i> can be
+activated tapping the <i>McPhling</i> icon in the command
+bar. The command bar can be made visible on most Palm OS devices by
+performing a swipe from the bottom left of the "abc" portion of the
+graffiti area to the upper right of the "abc" portion of the graffiti
+area. This swipe looks like a slash, "/". If your Palm OS device has a
+keyboard there may be a key to bring up the command bar. Be sure to
+consult the documentation for your Palm OS device. Note that enabling
+this feature has been known to slow down the command bar on some
+devices.</li>
+
+
+  <li>You can choose which applications will be ignored by <i>McPhling</i>
+from the preferences screen in <i>HackMaster</i> (or
+whatever Palm OS system extension manager you use).</li>
+
+
+  <li>You can choose "favorite" apps which will always be shown
+in the applications list.</li>
+
+
+  <li>You can choose DAs (Desk Accessories) to be launched by <i>McPhling</i>.
+Note that a DA must be set as a favorite in order for it to show up in
+the application list.</li>
+
+
+  <li>Applications that reside on external memory cards show up
+and are underlined in the applications list.</li>
+
+
+  <li>You can select the number of applications in the
+applications list.</li>
+
+
+  <li>You can choose the order of the applications list. Ordering
+options are:
+    
+    <ul>
+
+
+      <li>Most Recently Used</li>
+
+
+      <li>MRU with Favorites at Top</li>
+
+
+      <li>MRU with Favorites at Bottom</li>
+
+
+      <li>Alphabetical</li>
+
+
+      <li>Alphabetical with Favorites at Top</li>
+
+
+      <li>Alphabetical with Favorites at Bottom</li>
+
+
+    
+    </ul>
+
+
+  </li>
+
+
+  <li>You can specify the location of the applications list.</li>
+
+
+  <li>You can select whether the current application is displayed
+in the application list.</li>
+  <li>You can select whether the last run non-ignored application is selected in the application list.</li>
+
+
+  <li>You can clear the cache of applications stored by <i>McPhling</i>
+from the preferences screen.</li>
+
+
+  <li>Small icons give you a visual cue in the most-recently-used
+list. Note that if an application does not have a small icon, it will
+not show up in <i>McPhling</i>.</li>
+
+
+  <li><i>McPhling</i> can be configured on whether
+icons are shown or whether there is a click when the application list
+is brought up.</li>
+
+
+  <li>A second swipe from the "Menu"
+button to the "Apps" button will remove the applications list if it is
+already up.</li>
+
+
+</ul>
+
+
+<p><i>McPhling5</i> is a stand-alone application that
+will only work in
+Palm OS 5.x. It has its own icon and shows up in the launcher.</p>
+
+
+<p><i>McPhling4</i> requires a Palm OS system
+extension manager, such as
+<i>HackMaster</i>, in order to work. It will only work on
+Palm OS 3.x and 4.x.
+It is assumed that you are familiar with using
+Palm OS system extensions, so please read your Palm OS system extension
+software documentation before installing <i>McPhling4</i>.
+In particular,
+you should always disable system extensions before uninstalling or
+upgrading them.</p>
+
+
+<p>There are various programs that are <i>HackMaster</i>
+compatible. Here are the
+ones that I am familiar with and recommend: </p>
+
+
+<ul>
+
+
+  <li><a href="http://linkesoft.com/xmaster/"><i>X-Master</i></a>
+by LinkeSOFT, freeware (my favorite);</li>
+
+
+  <li><a href="http://www.tealpoint.com/softmstr.htm"><i>TealMaster</i></a>
+by TealPoint Software, shareware $9.95;</li>
+
+
+  <li><a href="http://www.daggerware.com/hackmstr.htm"><i>HackMaster</i></a>
+by DaggerWare, shareware $5.00.</li>
+
+
+</ul>
+
+
+
+<h2>Contents of This Document</h2>
+
+
+<ol type="I">
+
+
+  <li><a href="#Special%20Notes">Special Notes</a></li>
+
+
+  <li><a href="#Installation">Installation</a></li>
+
+
+  <li><a href="#System%20Requirements">System
+Requirements</a></li>
+
+
+  <li><a href="#ZIP%20File%20Contents">ZIP File
+Contents</a></li>
+
+
+  <li><a href="#Usage">Usage</a></li>
+
+
+  <li><a href="#Support">Support</a></li>
+
+
+  <li><a href="#Version%20History">Version History</a></li>
+
+
+  <li><a href="#Credits">Credits</a></li>
+
+
+  <li><a href="#Copying">Copying</a></li>
+
+
+</ol>
+
+
+<h2><a name="Special Notes">I. Special Notes</a></h2>
+
+
+<p>Please note that <i>McPhling</i> is licensed
+under the GPL. Be sure to read the section on <a href="#Copying">Copying</a>
+for full details.</p>
+
+
+<p>If you are using Palm OS 3.x and 4.x, use <i>McPhling4</i>
+and your favorite
+extension manager. If you are using Palm OS 5.x, then use <i>McPhling5</i>
+which requires no third-party applications.</p>
+
+
+<p>Due to the nature of Palm OS 5, some applications that are
+launched from
+an external memory card will not be added to the MRU application list.
+Unfortunately, there is nothing that can be done about this.</p>
+
+
+<h2><a name="Installation">II. Installation</a></h2>
+
+
+<h3><i>McPhling4</i> Considerations</h3>
+
+
+<ul>
+
+
+  <li>Installation of <i>McPhling4</i> is just like
+any other Palm
+system extension. If you have a version of <i>McPhling4</i>
+already
+installed, be sure to disable that version within system extension
+manager or
+your Palm OS device will crash. Once installed, configure <i>McPhling</i>
+as described the <a href="#Usage">Usage</a> section.</li>
+
+
+  <li><i>McPhling4</i> can be installed at the same
+time as <i>PhlegmHack</i>.
+However, only one can be activated at the same time.</li>
+
+
+  <li>Special Upgrade Considerations:
+    
+    <ul>
+
+
+      <li>If you recently upgraded from version 1.07 or prior of <i>McPhling</i>,
+the
+width of MRU list may be incorrect due to the fact that <i>McPhling</i>
+now gets
+the proper icon name. This can be rectified by clearing the cache in
+the <i>McPhling</i> preferences form. </li>
+
+
+      <li>Version 2.01 of <i>McPhling</i> added a
+couple more sorting options.
+Because of this you need to verify your desired sort order if you
+upgraded from
+version 1.10.</li>
+
+
+      <li>If you upgraded from a version prior to 3.0 of <i>McPhling</i>,
+you will need to open
+the <i>McPhling</i> Prefs form at least once (and tap
+"OK")
+in order for the icons to show up. This is due to the new icon cache
+being
+used.</li>
+
+
+    
+    </ul>
+
+
+  </li>
+
+
+</ul>
+
+
+<h3><i>McPhling5</i> Considerations</h3>
+
+
+<ul>
+
+
+  <li>Installation of <i>McPhling5</i> is just like
+any other Palm OS
+application. There is no need to disable an older version of <i>McPhling5</i>
+during an installation. Once installed, configure <i>McPhling</i>
+as described the <a href="#Usage">Usage</a>
+section. However, if you are beamed a newer version of <i>McPhling5</i>,
+you will need to disable your version before the transfer.</li>
+
+
+</ul>
+
+
+<h3>Common Considerations</h3>
+
+
+<ul>
+
+
+  <li>On a new install, <i>McPhling</i> will default
+to ignoring the <i>HotSync</i> application. This can be
+overridden by going to the <i>McPhling</i> Prefs dialog.</li>
+
+
+</ul>
+
+
+<h2><a name="System Requirements">III. System
+Requirements</a></h2>
+
+
+<ul>
+
+
+  <li><i>McPhling4</i> requires Palm OS 3.x and Palm
+OS 4.x with an extension manager, such as <a href="http://linkesoft.com/xmaster/"><i>X-Master</i></a>
+installed. 43 Kbytes of free memory on the Palm OS device is required.</li>
+
+
+  <li><i>McPhling5</i> requires Palm OS 5.x and does <b>not</b>
+require any other software. 57 Kbytes of free memory on the Palm OS
+device is required.</li>
+
+
+</ul>
+
+
+<h2><a name="ZIP File Contents">IV. ZIP File Contents</a></h2>
+
+
+<table border="0">
+
+
+  <tbody>
+
+
+    <tr>
+
+
+      <td valign="top"><i><a href="McPhling4.prc">McPhling4.prc</a></i></td>
+
+
+      <td>&nbsp;</td>
+
+
+      <td>The <i>McPhling</i> extension that you
+install on your Palm OS version 3.0 or 4.x device. Note that a
+third-party extension manager is required to use this.</td>
+
+
+    </tr>
+
+
+    <tr>
+
+
+      <td valign="top"><i><a href="McPhling5.prc">McPhling5.prc</a></i></td>
+
+
+      <td>&nbsp;</td>
+
+
+      <td>The <i>McPhling</i> program that you
+install on your Palm OS version 5.x device.</td>
+
+
+    </tr>
+
+
+    <tr>
+
+
+      <td valign="top"><i>README.htm</i></td>
+
+
+      <td>&nbsp;</td>
+
+
+      <td>This file</td>
+
+
+    </tr>
+
+
+  
+  </tbody>
+</table>
+
+
+<h2><a name="Usage">V. Usage</a></h2>
+
+
+<p>From the Preferences screen, you can mark any application on
+your Palm OS device to be either a "Favorite" or to be "Ignored".
+Applications that are ignored will never show up on your applications
+list, and you cannot jump back to them with the backstroke (Apps
+button to graffiti area or whatever your have configured it to be).
+Applications that you mark as "Favorites"
+will <b>always</b> show up on your application list, and
+will be shown in
+bold font. DAs can be either "Favorite" or "Ignored".
+Any application on your application list will show its associated
+small-icon if the author of that application created it. If not, it
+will
+show a default icon. Application order is configurable. Applications
+that
+reside on an external memory card will show up underlined.</p>
+
+
+<h2><a name="Support">VI. Support</a></h2>
+
+
+<p>If you have any feedback or comments (or bugs) please feel
+free to mail them to <a href="mailto:support@MikeMcCollister.com">
+support@MikeMcCollister.com</a>.
+However, please do the following before sending e-mail:</p>
+
+
+<ol>
+
+
+  <li>Make sure that you have the latest version of <i>McPhling</i>.
+You can find this at <a href="http://MikeMcCollister.com/palm/">MikeMcCollister.com/palm/</a>.</li>
+
+
+  <li>If you have problems with <i>McPhling</i>
+then:
+    
+    <ul>
+
+
+      <li>If you are running <i>Find Ignore Hack</i>
+and are having problems with
+HotSyncing and <i>AvantGo</i>, then disable <i>Find
+Ignore Hack</i> as it has a known memory problem.</li>
+
+
+      <li>If you have an over-clocking utility installed, then
+disable the over-clocking utility and see if the problem goes away.</li>
+
+
+      <li>Disable all other extensions and see if the problem
+still exists.</li>
+
+
+      <li>Disable any keyboard driver and see if the problem
+still exists.</li>
+
+
+      <li>If the problem goes away, then start enabling other
+extensions until the problem starts back up again. You now know the
+source of the problem.</li>
+
+
+      <li>If the problem does not go away, then contact me.</li>
+
+
+    
+    </ul>
+
+
+  </li>
+
+
+  <li>When you contact support, be sure to include the following:
+    
+    <ul>
+
+
+      <li>A statement that you have followed the debugging
+procedures in the previous section ("If you have problems with McPhling
+then:").</li>
+
+
+      <li>The method of activating <i>McPhling</i>
+be it a swipe or a button/keyboard press.</li>
+
+
+      <li>The make and model number of the Palm OS device that
+you are using.</li>
+
+
+      <li>The OS version that you are running.</li>
+
+
+      <li>The name and version number of your extension manager
+(for <i>McPhling4</i> only).</li>
+
+
+      <li>The version number of <i>McPhling</i>.</li>
+
+
+      <li>The maximum number of applications that <i>McPhling</i>
+will display.</li>
+
+
+      <li>The number of favorites you have selected.</li>
+
+
+      <li>The number of ignored applications you have selected.</li>
+
+
+      <li>A list of other extensions (with version numbers) that
+you are running.</li>
+
+
+      <li>A list of any DAs (with version numbers) that you may
+be trying to run.</li>
+
+
+      <li>The name an version number of any installed keyboard
+drivers.</li>
+
+
+      <li>A list of applications (with version numbers) that you
+suspect may cause conflicts with <i>McPhling</i>.</li>
+
+
+      <li>Amount of free RAM available on your device.</li>
+
+
+      <li>The approximate number of applications in RAM.</li>
+
+
+      <li>The approximate number of applications on your memory
+card(s), if applicable.</li>
+
+
+    
+    </ul>
+
+
+  </li>
+
+
+  <li><font color="#ff0000"><b>It is very
+important that you send the above information when contacting technical
+support.</b></font></li>
+
+
+</ol>
+
+
+<p>The latest version of <i>McPhling</i> will always
+be available
+from <a href="http://MikeMcCollister.com/palm/">MikeMcCollister.com/palm/</a>.</p>
+
+
+<h2><a name="Version History">VII. Version History</a></h2>
+
+
+<ul class="history">
+
+
+  <li>5.82 &amp; 4.82 (11/01/2009) by Mike McCollister</li>
+
+
+  
+  <ul class="history">
+
+
+ <li>No more registration information.</li>
+
+
+  
+  </ul>
+
+
+  5.81 &amp; 4.81 (10/21/2006) by Mike McCollister</li>
+
+
+  
+  <ul class="history">
+	<li>Lowered registration amount from $12 to $10.</li>
+	<li>Now uses zip (Info-ZIP) in place of WinZip to compress distribution 
+    files.</li>
+	</ul>
+
+
+  5.80 &amp; 4.80 (07/29/2006) by Mike McCollister</li>
+
+
+  
+  <ul class="history">
+	<li>Added the feature to&nbsp;select whether the last run non-ignored application is selected in the application list.</li>
+	<li>Decreased the delay for a press and hold of the button a little bit.</li>
+	<li>Fixed a rare problem with a Treo not turning on properly if the key lock 
+	is enabled.</li>
+	<li>Added support for the Treo volume up/down and side buttons.</li>
+	<li>Added support for selecting items in the application list using the 
+	Tapwave Zodiac joystick.</li>
+	<li>Removed some dead links in the documentation.</li>
+	<li>The source code was cleaned up a little bit.</li>
+	</ul>
+	<li>5.71 &amp; 4.71 (11/30/2005) by Mike McCollister
+    
+    <ul class="history">
+		<li>Added the top center and bottom center list position
+options.</li>
+		<li>The new default list position is the top left.</li>
+		<li>Added recognition of the hard keys on new devices such
+as the Palm T|X.</li>
+		<li>Added up, down and push support for the Fossil watches.</li>
+		<li>The application list is now closed when the Tungsten T3
+case is closed.</li>
+		<li>Increased the delay for a press and hold of the button.</li>
+		<li>Fixed a bug that allowed the center 5-way navigator
+button to be selected as a means to bring up <i>McPhling</i>.</li>
+		<li>Fixed some minor bugs.</li>
+		<li>Made some help changes within the program.</li>
+		<li>Now using the latest headers from Palm, SDK 5.1, No
+more Handspring headers are used.</li>
+	</ul>
+
+
+5.70 &amp; 4.70 (12/18/2004) by Mike McCollister
+    
+    <ul class="history">
+		<li>Added a new feature to specify the location of the
+application list (i.e. "Top Left", "Top Right", "Bottom Left", "Bottom
+Right" or "Screen Center"). This was in response to some Palm OS
+devices with dynamic inputs areas (DIA) that obscure the application
+list when brought up. If this DIA problem exists, the best solution is
+to select the "Top Left" option. If&nbsp; you are using a PalmOne
+Tungsten T5, this feature is for you.</li>
+		<li>Fixed a bug that caused <i>McPhling</i> to
+lock up on a Tapwave device if "Mem. Card(s)" was enabled.</li>
+		<li>Renamed "VFS Support" to "Mem. Card(s)" as this better
+describes what it does. This supports applications that reside on
+memory (sometimes external) cards.</li>
+		<li>In the customization form, the Treo 5-Way buttons are
+now referred to as palmOne 5-way buttons.</li>
+		<li>Fixed a minor cosmetic bug in which the pull-down lists
+on the main configuration form were being partially erased under some
+circumstances.</li>
+		<li>Made some minor cosmetic changes.</li>
+	</ul>
+
+
+5.60 &amp; 4.60 (11/14/2004) by Mike McCollister
+    
+    <ul class="history">
+		<li>The Press and Hold option is now independent for the
+applications list and the back in the buttons/keyboard activation
+option. Note that due to the variety of hardware, this feature may not
+work with your device. Please spend time experimenting with the custom
+option.</li>
+		<li>Fixed cosmetic problem with some Palm OS devices when
+the graffiti area is minimized.</li>
+		<li>Changed support e-mail address.</li>
+	</ul>
+
+
+5.50 &amp; 4.50 (06/29/2004) by Mike McCollister
+    
+    <ul class="history">
+		<li>Added the option to enable or disable the <i>McPhling</i>
+command bar icon. Note that it is disabled by default. Go to the
+"Activation" form to enable this option. </li>
+		<li>Added pre-defined Tapwave keys in the Buttons/Keyboard
+section of the Activation form.</li>
+		<li>Fixed a bug that would lock up the Palm OS device when
+launching <i>McPhling</i> if 256 or more applications are
+installed.</li>
+		<li>Fixed a minor bug when a DA (desk accessory) was
+launched.</li>
+		<li>Changed to versions 5.50 (Palm OS 5.x) and 4.50 (Palm
+OS 3.x and 4.x) so that version numbers are better aligned.</li>
+		<li>Since <i>McPhling</i> will not work on
+Palm OS Cobalt (version 6), <i>McPhling</i> now detects
+this OS version and does not run on such a device. Palm OS Cobalt is
+radically different than Palm OS 5 and will not allow for background
+programs to detect swipes or detect when an application is being
+launched.</li>
+		<li>Made some changes to the way <i>McPhling</i>
+compiles:
+        
+        <ul class="historyInside">
+			<li>Now compiles with PilRC 3.1.</li>
+			<li>Removed an unused alert dialog.</li>
+		</ul>
+		</li>
+	</ul>
+	</li>
+	<li>5.40 &amp; 4.42 (12/30/2003) by Mike McCollister
+    
+    <ul class="history">
+		<li>Added the <i>McPhling</i> command bar icon
+for Palm OS 5 devices.</li>
+		<li>Fixed a bug in which hidden applications would show up
+in the application list.</li>
+		<li>Fixed a bug in which the rotate button on a Tungsten T3
+would be grayed out after the application list was dismissed.</li>
+		<li>Fixed a crashing bug on the HandEra 330 when the
+configuration screen is brought up.</li>
+		<li>Fixed a bug in the configuration screen in which the
+application names would not fill the whole width of the list box in
+certain conditions.</li>
+		<li>Cleaned up the source code.</li>
+	</ul>
+	</li>
+	<li>5.30 &amp; 4.41 (10/23/2003) by Mike McCollister
+    
+    <ul class="history">
+		<li>Added the custom button details option.</li>
+		<li>Added support for Sony ALT-letter and CTRL-letter
+custom buttons.</li>
+		<li>Now supports the Handspring Treo 600.</li>
+		<li>Now supports the Kyocera 7135 buttons.</li>
+		<li>The activation form now describes the silkscreen
+buttons by position instead of function. This is for devices that do
+not conform to the legacy Palm OS device silkscreen button layout, such
+as the Palm Tungsten T3.</li>
+		<li>Now works with more devices that have virtual graffiti
+areas.</li>
+		<li>Fixed a typo in which "Silk" was spelled "Slik".</li>
+		<li>Removed the color HandEra icons as there will never be
+such a device.</li>
+		<li>Added 1.5x density bitmaps and icons.</li>
+		<li>Fixed some minor bugs.</li>
+		<li>Made some changes to the way <i>McPhling</i>
+compiles:
+        
+        <ul class="historyInside">
+			<li>Now compiles with PRC-Tools 2.3.</li>
+			<li>Now compiles with PilRC 3.0 beta.</li>
+			<li>Now compiles with Palm OS 5 R3 header files.</li>
+			<li>Now compiles with Handspring version 5 header files.</li>
+			<li>Now compiles with Palm SG SDK version 2.</li>
+			<li>Now compiles with Sony SDK 5.0 version 1.2.</li>
+			<li>Cleaned up the source code some more and made the
+Makefile more efficient.</li>
+		</ul>
+		</li>
+	</ul>
+	</li>
+	<li>5.20 &amp; 4.40 (05/20/2003) by Mike McCollister
+    
+    <ul class="history">
+		<li>Press and Hold option now available for
+button/keyboard. With this option enabled, pressing a key will not
+invoke <i>McPhling</i> but pressing and holding will. Note
+that due to the variety of hardware, this feature may not work with
+your device.</li>
+		<li>When the activation form is open <i>McPhling</i>
+is now disabled.</li>
+		<li>In the activation form the button/keyboard list now
+includes the following:
+        
+        <ul class="historyInside">
+			<li>Silk: Alpha Keyboard</li>
+			<li>Silk: Numeric Keyboard</li>
+			<li>Palm: Silk Clock</li>
+			<li>Palm: Silk Brightness</li>
+		</ul>
+		</li>
+		<li>Fixed some minor incompatibilities with Palm's 5-Way
+Navigator. This includes the exclusion of using the 5-Way Select as a
+custom button, due to compatibility issues.</li>
+		<li>Made some very minor cosmetic changes.</li>
+		<li>Made some OS 5 specific changes and fixes:
+        
+        <ul class="historyInside">
+			<li>Fixed a bug that would crash the device if the <i>McPhling</i>
+application list was invoked using a button or keyboard while a native
+ARM application (such as HotSync) was running. This fixes a number of
+instability issues while using a button or keyboard.</li>
+			<li>There is no longer an "enable <i>McPhling</i>"
+form after a reset. If <i>McPhling</i> was enabled before
+reset, it will automatically be enabled afterwards.</li>
+			<li>Changes in the <i>McPhling</i> main
+form are automatically applied. You no longer need to exit <i>McPhling</i>
+in order for the changed to come into effect.</li>
+		</ul>
+		</li>
+	</ul>
+	</li>
+	<li>5.11 &amp; 4.31 (03/19/2003) by Mike McCollister
+    
+    <ul class="history">
+		<li>Tapping outsize the application list no longer selects
+an invisible application list.</li>
+		<li>Hidden applications are no longer displayed in the
+preference form.</li>
+		<li>Fixed a memory leak in the beam and send menu options.</li>
+		<li>A beep now sounds if one taps outsize of the
+application list.</li>
+		<li>Tweaked the list drawing routines on Palm OS 3.3
+devices.</li>
+		<li><i>McPhling</i> now properly recognizes the
+Handspring Treo Opt+Up and Opt+Down keys. Users who have installed the
+GPRS update and those with newer Treo devices will appreciate this.
+Don't forget about the "Custom..." option though.</li>
+		<li>If the graffiti area is minimized on a Sony device,
+with a 320x480 screen, <i>McPhling</i> no longer
+recognizes to the silk screen buttons that are no longer visible.</li>
+		<li>Made some OS 5 specific changes and fixes:
+        
+        <ul class="historyInside">
+			<li><i>McPhling5</i> can now be deleted
+without having to disable it first.</li>
+			<li>Fixed some conflicts with the "enable <i>McPhling</i>"
+form after a reset.</li>
+			<li>Increased the stability of McPhling5 by improving
+on its locking of code.</li>
+			<li>Made some minor improvements to the source code.</li>
+		</ul>
+		</li>
+	</ul>
+	</li>
+	<li>5.10 &amp; 4.30 (12/17/2002) by Mike McCollister
+    
+    <ul class="history">
+		<li>Modified the activation form layout to accommodate for
+some more descriptive options.</li>
+		<li>Fixed a minor bug when <i>McPhling</i> was
+configured to bring up the application list upon the tapping of a silk
+screen button.</li>
+		<li>Made some OS 5 specific changes and fixes:
+        
+        <ul class="historyInside">
+			<li>Fixed the "pen q out of sync" problem.</li>
+			<li><i>McPhling</i> no longer hogs the
+system as much as it used to. Applications that detect pen strokes are
+no not effected so much.</li>
+			<li>Fixed a problem with an extremely slow HotSync.</li>
+			<li>After a reset, a prompt will be displayed asking
+whether <i>McPhling</i> should be enabled or not.</li>
+			<li>Made some minor user interface changes.</li>
+		</ul>
+		</li>
+	</ul>
+	</li>
+	<li>5.01 &amp; 4.22 (12/01/2002) by Mike McCollister
+    
+    <ul class="history">
+		<li>Improved the way <i>McPhling</i> handles
+hard buttons, especially with the Sony jog dial. This includes fixing
+the bug in which the application list would be brought up and back down
+if an assigned button was held down too long.</li>
+		<li>Added the four "silk" buttons to the list of buttons
+that can be programmed for<i> McPhling</i> to use.</li>
+		<li>Removed the Palm 5-Way Navigator select key from the
+list of valid buttons since this did not work.</li>
+		<li>If the Palm OS device is off and a hard button is
+assigned to bring up the application list, then the list will stay up
+after power up.</li>
+		<li>On a Sony device with a virtual graffiti area (320 x
+480 screen) <i>McPhling</i> now recognizes the smaller
+applications, menu and find buttons. This will allow <i>McPhling</i>
+to operate when the graffiti area is minimized.</li>
+		<li>On a clean install the default ignored application is
+now only HotSync.</li>
+		<li>Made some OS 5 specific changes and fixes:
+        
+        <ul class="historyInside">
+			<li>Fixed some incompatibilities with some
+applications, such as <i>Launcher X</i>.</li>
+			<li><i>McPhling5</i> properly selects an
+application when the enter, space or select buttons are pressed.</li>
+			<li>Improved the Sony Jog dial support. It now works
+the way it should.</li>
+			<li>If the application list is up and the button
+assigned to bring up the application list is pressed again then the
+application list will go away.</li>
+			<li>The Palm Voice Memo button is now a valid button to
+use as an activation button.</li>
+			<li>The character interception has been improved in <i>McPhling5</i>.</li>
+		</ul>
+		</li>
+	</ul>
+
+
+5.0 &amp; 4.21 (11/18/2002) by Mike McCollister
+    
+    <ul class="history">
+		<li>The bitmaps for the favorites and ignored applications
+have been improved. Many thanks to Sing Yong Tan for his hard work.</li>
+		<li>The Buttons/Keyboard activations for the Treo Opt+Up
+and Opt+Down are now set properly.</li>
+		<li>The whole screen no longer refreshes after the "VFS
+Support" option is toggled.</li>
+		<li>Added support for the Palm 5-Way Navigator.</li>
+		<li>Added OS 5 support in <i>McPhling5</i>.
+Here is a list of changes specific to the OS 5 version:
+        
+        <ul class="historyInside">
+			<li><i>McPhling5</i> now shows up as an
+application in the launcher and includes Palm OS 5 high resolution
+icons.</li>
+			<li>Added a menu item to beam or send (via SMS or
+Bluetooth) <i>McPhling</i>.</li>
+		</ul>
+		</li>
+		<li>Fixed a rare bug that may have caused <i>McPhling</i>
+to crash if "VFS Support" is enabled an there were no VFS applications
+found.</li>
+		<li>Fixed a rare bug due to a feature conflict between
+FTR_KEYINFO and FTR_OLDWINRECT.</li>
+		<li>The Makefile has been changed to handling the compiling
+of the OS 5 version of <i>McPhling</i>.</li>
+		<li>Now compiles with the Palm OS 5 header files.</li>
+	</ul>
+	</li>
+	<li>4.20 (10/08/2002) by Mike McCollister
+    
+    <ul class="history">
+		<li><i>McPhling.prc</i> has been renamed to <i>McPhling4.prc</i>
+in preparation for a separate Palm OS 5 version of <i>McPhling</i>.
+      </li>
+		<li>Made a major rewrite of the code for VFS (external
+memory card) launching of applications. <i>McPhling</i>
+now properly launches all applications on external memory cards.</li>
+		<li>If using a keyboard to navigate the applications list,
+a space will now launch the selected application.</li>
+		<li><i>McPhling</i> icon has been improved.</li>
+		<li>If you try to re-launch the current application,
+nothing will happen. This was causing a crash of the device, especially
+if the application was launched from an external memory card.</li>
+		<li>Fixed a display bug that caused a mangled display after
+exiting <i>McPhling</i> on the HandEra 330. This bug did
+not show up if <i>X-Master</i> was being used.</li>
+		<li>The custom activation list has been changed so that the
+current selection is visible when first opened.</li>
+		<li>Made some various tweaks, bug fixes and improvements.</li>
+		<li>Made some source code changes:
+        
+        <ul class="historyInside">
+			<li>Now compiles with PRC-Tools 2.2. Because of this a
+.def file was added.</li>
+			<li>Made some major changes to the Makefile due to
+PRC-Tools 2.2 changes.</li>
+			<li>One combined Makefile for building both <i>McPhling4</i>
+and <i>McPhling5</i> (Palm OS 5 version).</li>
+			<li>Renamed most of the source files to be in decimal
+instead of hex.</li>
+			<li>Made some more changes in preparation for a Palm OS
+5 version.</li>
+		</ul>
+		</li>
+	</ul>
+	</li>
+	<li>4.11 (08/02/2002) by Mike McCollister
+    
+    <ul class="history">
+		<li>Added a shift indicator to the Custom Button or Key
+form.</li>
+		<li>Removed the stack adjustment code in the DA launch
+section.</li>
+		<li>Moved the location of the "Activation" button on the
+left one space.</li>
+		<li>The About Box has been redesigned, with new icon.
+Thanks to Edward P. Ross for helping me with the icon design.</li>
+		<li>Removed the unnecessary gray heart bitmap.</li>
+		<li>Did some more preparation for a Palm OS 5 version.
+        
+        <ul class="historyInside">
+			<li>Now have high resolution OS 5 icons and bitmaps
+(not compiled into this version).</li>
+			<li>Renamed many of the bitmaps for easier management
+of the source code.</li>
+		</ul>
+		</li>
+		<li>Cleaned up the source code some.</li>
+		<li>Now compiles with PilRC 2.9p9.</li>
+	</ul>
+	</li>
+	<li>4.10 (06/08/2002) by Mike McCollister
+    
+    <ul class="history">
+		<li>Fixed a bug that would prevent the back swipe from
+working if it started from the same button as the apps swipe. Thanks to
+Vesely Vaclav for finding this bug.</li>
+		<li>Added DA (Desk Accessory) support. Thanks to Christian
+Rozycki for his source code an inspiration.</li>
+		<li>Fixed a bug on the HandEra 330 that under rare
+conditions the width of the applications list would be too large.</li>
+		<li>Modified the way that <i>McPhling</i>
+finds the location of the silk screen buttons. It is now more generic
+and will work better with newer devices.</li>
+		<li>Added support for the Kyocera jog dial.</li>
+		<li>Made some preparations for a Palm OS 5 version of <i>McPhling</i>:
+        
+        <ul class="historyInside">
+			<li>Modified the code so that it will no longer
+directly access some user interface structures.</li>
+			<li>Modified the way that <i>McPhling</i>
+stores the information about the last run application.</li>
+		</ul>
+		</li>
+		<li>Now compiles with PRC-Tools 2.1 and PilRC 2.9p8.</li>
+	</ul>
+	</li>
+	<li>4.01 (05/11/2002) by Mike McCollister
+    
+    <ul class="history">
+		<li>Sony JogDial selection now works with the Sony NR70
+series devices. Thanks to Sony for helping me with this problem.</li>
+		<li>Fixed a double clicking sound on some devices when
+items selected with a jog dial.</li>
+		<li>When selecting an application with a jog dial or
+keyboard, there is now a non-select point when wrapping from the top to
+the bottom, or visa versa. When in this non-select state, the
+applications list can be dismissed with a jog dial push.</li>
+		<li>Fixed a minor bug that may have caused problems when
+reading a <i>McPhling</i> preference.</li>
+	</ul>
+
+
+4.0 (04/18/2002) by Mike McCollister
+    
+    <ul class="history">
+		<li>Added the activation screen which will allow
+configuration of the following activation methods:
+        
+        <ul class="historyInside">
+			<li>User configurable swipes.</li>
+			<li>Activation via buttons, keyboards or Jog Dials.
+This is especially useful for devices without a graffiti area. Thanks
+to Matt Fisher for his help with Sony Jog Dial support. Thanks to
+Jennifer Shelamer for her help with debugging the Handspring Treo
+support.</li>
+		</ul>
+		</li>
+		<li>Added a white border around the color favorite and
+ignore bitmaps to make them more readable when selected.</li>
+		<li>Fixed the problem when certain applications being run
+from an external card caused the device to crash.</li>
+		<li>Fixed the problem when certain applications being run
+from an external card would not be registered in the MRU list.</li>
+		<li>Fixed a memory leak if closing the applications list by
+swiping for a second time.</li>
+		<li>Verified that <i>McPhling</i> works on the
+Samsung SPH-I300.</li>
+		<li>Made some major modifications to the Makefile to make
+it compile faster. Also, converted the "common" code to a library;</li>
+		<li>Now compiles with PilRC 2.9p1. Version 2.9p3 had some
+bugs.</li>
+		<li>Now compiles Palm OS 4.0 header files with update #1.</li>
+	</ul>
+	</li>
+	<li>3.11 (03/02/2002) by Mike McCollister
+    
+    <ul class="history">
+		<li>Much less memory required for the Prefs form thus
+enabling it to open in lower memory conditions.</li>
+		<li>The "low memory" dialogs for the Prefs form are more
+descriptive.</li>
+		<li>Now compiles with PilRC 2.9p3.</li>
+	</ul>
+	<p>3.10 (02/16/2002) by Mike McCollister </p>
+	<ul class="history">
+		<li>Extreme VFS Speed Improvements! Improved upon the speed
+of swiping when there were tens or hundreds of files in the
+/Palm/Launcher directory. All swipes are now under one second
+regardless of how many files are in the /Palm/Launcher directory.</li>
+		<li>VFS Applications are now properly launched. Previous
+versions of <i>McPhling</i> did not tell an application
+that it was being launched from an external card. This has been fixed.</li>
+		<li>When "VFS Support" is checked or unchecked on the <i>McPhling</i>
+Prefs form, the application list is refreshed to show the VFS
+applications or not. This can dramatically improve the speed of opening
+up the <i>McPhling</i> Prefs form if "VFS Support" is
+disabled.</li>
+		<li>Upon a new install of <i>McPhling</i>,
+"VFS Support" is disabled by default.</li>
+		<li>Added an information dialog when "VFS Support" is
+enabled.</li>
+		<li>Certain applications, such as <i>WordSmith</i>,
+would be promoted on the MRU list during operations such as Find and
+beaming receive. This has been fixed.</li>
+		<li>All alert forms now have the appropriate icon.</li>
+		<li>The Preference form now handles low memory situations
+gracefully.</li>
+		<li>Fix a rare memory leak due to the variable
+"vfsLastSize" not being initialized.</li>
+		<li>Fixed a rare form bug due to the default button not
+being properly specified.</li>
+		<li>Now compiles with PilRC 2.8p8.</li>
+		<li>Makefile modified to accommodate for new features of
+PilRC 2.8p8.</li>
+		<li>Optimized the source code a little bit more.</li>
+	</ul>
+	</li>
+	<li>3.02 (01/25/2002) by Mike McCollister
+    
+    <ul class="history">
+		<li>Fixed a bug that caused a crash when tapping a button
+with the application list up and <i>LapTopHack</i>
+installed. Thanks to Paul Nevai (<a href="http://PaulComputing.com" style="color: purple;">PaulComputing.com</a>) for
+helping me track down this problem.</li>
+		<li>The "OK" button is now the default button in the
+Preferences screen.</li>
+		<li>Cleaned up the source code a little more.</li>
+	</ul>
+	</li>
+	<li>3.01 (11/10/2001) by Mike McCollister
+    
+    <ul class="history">
+		<li>Faster external memory card (VFS) access.</li>
+		<li>Made some minor bug fixes.</li>
+		<li>A version number is now embedded in the "McPhlingCache".</li>
+	</ul>
+	<p>3.0 (10/21/2001) by Mike McCollister </p>
+	<ul class="history">
+		<li>Now supports external memory cards (VFS support).
+Applications that reside on a memory card show up underlined.</li>
+		<li>Made many optimizations to the code in order for the
+VFS support to work at a reasonable speed. This includes creating an
+icon cache.</li>
+		<li>Swipes are now much more responsive. No more missed
+swipes.</li>
+		<li>Fixed a a bug on the HandEra 330 that would prevent the
+application list in the preference screen from being properly filled if
+the virtual graffiti area was minimized.</li>
+		<li>Made some documentation changes, especially on support
+options. Please read the <a href="#Support" style="color: purple;">Support</a> section for details.</li>
+		<li>Now shareware. Please see the 
+		<a href="#Registration" style="color: purple;">Registration</a>
+section for more information.</li>
+	</ul>
+	</li>
+	<li>2.12 (09/19/2001) by Mike McCollister
+    
+    <ul class="history">
+		<li>The memory leak fix in version 2.11 caused certain Sony
+devices to crash when the application list is brought up when a menu is
+active. This has been fixed.</li>
+		<li>Fixed a display bug that showed up on the HandEra 330
+while running certain extension managers (<i>HackMaster</i>,
+        <i>TealMaster</i> and others). This bug caused the
+screen to be garbled after exiting the <i>McPhling</i>
+Prefs form.</li>
+	</ul>
+	</li>
+	<li>2.11 (09/15/2001) by Mike McCollister
+    
+    <ul class="history">
+		<li>Fixed a memory leak that would occur in the rare case
+when the application list is brought up when a menu is active.</li>
+	</ul>
+	</li>
+	<li>2.10 (09/09/2001) by Mike McCollister
+    
+    <ul class="history">
+		<li>Fixed a problem that prevented the application list
+from consistently coming up on some devices.</li>
+	</ul>
+	</li>
+	<li>2.09 (08/25/2001) by Mike McCollister
+    
+    <ul class="history">
+		<li>Really fixed the "long program names not being properly
+truncated" problem in the preferences screen.</li>
+		<li>Made some minor tweaks to the interface.</li>
+		<li>Fixed a bug in which the width of the application list
+would be incorrect after an application has been removed from the Palm
+OS device.</li>
+		<li>Some HandEra 330 specific improvements:
+		<ul class="history">
+			<li>The preferences form will now fill the whole screen
+when the virtual graffiti area is minimized.</li>
+			<li>Pressing the jog wheel button in the preferences
+screen is the same as tapping "OK".</li>
+		</ul>
+		</li>
+	</ul>
+	</li>
+	<li>2.08 (07/14/2001) by Mike McCollister
+    
+    <ul class="history">
+		<li>The previous updated introduced a bug that when a
+HandEra 330 application was rotated 90 or 270 degrees the swipes would
+not work. This version now fixes it.</li>
+	</ul>
+	</li>
+	<li>2.07 (07/10/2001) by Mike McCollister
+    
+    <ul class="history">
+		<li>Now works with any button configuration on the HandEra
+330, whether the virtual graffiti area is minimized, or maximized or if
+the buttons are not in their standard places. Thanks to Eric
+Schwertfeger for his help.</li>
+		<li>Simplified the online help now that it properly detects
+where the buttons are on the HandEra 330.</li>
+		<li>Fixed a minor bug that did not scroll the proper number
+of lines in the preferences screen when the page up and page down keys
+were pressed.</li>
+		<li><i>McPhling</i> now alerts the user
+immediately when too many favorites have been added.</li>
+	</ul>
+	</li>
+	<li>2.06 (06/23/2001) by Mike McCollister
+    
+    <ul class="history">
+		<li>Fixed a bug that caused a conflict with launching
+applications with <i>EasyLaunch</i> using the upper right
+of the graffiti area.</li>
+	</ul>
+	</li>
+	<li>2.05 (06/18/2001) by Mike McCollister
+    
+    <ul class="history">
+		<li>If a program name was too long, it would not be
+properly truncated in the preferences screen. This has been
+fixed.&nbsp;</li>
+		<li>Now uses HandEra SDK version 1.03.</li>
+	</ul>
+	</li>
+	<li>2.04 (06/13/2001) by Mike McCollister
+    
+    <ul class="history">
+		<li>Now supports the HandEra 330 and its 240x320 screen
+with virtual graffiti area.</li>
+		<li>Preferences screen changed a little bit so that more
+applications are visible.</li>
+		<li>The application list is now always the correct width.
+Previous versions would sometimes show a list that was too wide.</li>
+	</ul>
+	</li>
+	<li>2.03 (05/31/2001) by Mike McCollister
+    
+    <ul class="history">
+		<li>Fixed a bug that would sometimes cause the Palm OS
+device to crash when the application list size was set to fourteen.</li>
+	</ul>
+	</li>
+	<li>2.02 (05/30/2001) by Mike McCollister
+    
+    <ul class="history">
+		<li>Fixed a bug that improperly sorted the applications
+list when "MRU with Favorites at Top" or&nbsp; "MRU with Favorites
+at Bottom" was selected. For those technically inclined, this was fixed
+by switching from the Q Sort algorithm to the Insertion Sort algorithm.</li>
+		<li>Fixed a bug that caused favorites to disappear from the
+application list.</li>
+		<li>Cleaned up the source code a little bit more.</li>
+	</ul>
+	</li>
+	<li>2.01 (05/12/2001) by Mike McCollister
+    
+    <ul class="history">
+		<li>Fixed a bug that caused the Palm OS device to crash
+when used with large applications.</li>
+		<li>Added two new sorting options; MRU with favorites at
+top, and MRU with favorites at bottom. If you are upgrading from
+version 1.10, please verify your desired sort option since this version
+changes the sort option list.</li>
+		<li>The minimum number of applications is now two instead
+of four.</li>
+		<li>Changed to version 2.01. The previous version, version
+1.10, really should have been version 2.0.</li>
+		<li>Now compiles with PilRC 2.8.</li>
+	</ul>
+	</li>
+	<li>2.0 (not released) by Mike McCollister
+    
+    <ul class="history">
+		<li>This version was not released. Because of the major
+updates, version 1.10 really should have been version 2.0.</li>
+	</ul>
+	</li>
+	<li>1.10 (05/06/2001) by Mike McCollister
+    
+    <ul class="history">
+		<li>Added new sorting features. The application list can
+now be sorted in most recently used, alphabetical, alphabetical with
+favorites at the top and alphabetical with favorites at the bottom.</li>
+		<li>The "Show Current App." option was added.</li>
+		<li>The <i>McPhling</i> Prefs dialog was
+drastically changed so that the new features could be added.</li>
+		<li>Modified the algorithm some to make it easier to
+understand and more efficient.</li>
+		<li>Modified Makefile so that the source distribution no
+longer contains intermediate files (OBJs). This makes it smaller.</li>
+		<li>The Makefile now uses displays all warnings while
+compiling. Because of this, some small coding "fixes" were made.</li>
+		<li>Did some cleaning of the resource file (McPhling.rcp).</li>
+		<li>Now compiles with Palm OS 4.0 header files.</li>
+		<li>Now compiles with PRC-Tools 2.0.92 (pre-release of
+PRC-Tools 2.1).</li>
+		<li>Made the Makefile a little more efficient due to the
+new PRC-Tools changes.</li>
+	</ul>
+	<p>1.09 (03/25/2001) by Mike McCollister </p>
+	<ul class="history">
+		<li>The number of applications displayed is now
+configurable.</li>
+		<li>If an application is removed and then reinstalled, it
+will show back up in the MRU list as long as not too many other
+applications were run between the time the application was removed and
+when it was reinstalled. This is extremely useful for Handspring Visor
+(and others) owners who have applications that reside on a Springboard
+module.</li>
+		<li>If too many favorites are selected, a warning is
+displayed telling the user that only the top "N" are used.</li>
+		<li>Changed the logic that determines the number of
+applications displayed in the MRU list. If the user selected 10, there
+will be no more than ten displayed, regardless.</li>
+		<li>Fixed a bug in which there could only be N-1 favorites
+where N is the number of applications displayed in the MRU list.</li>
+		<li>If an application does not have a small icon, a default
+one is now displayed.</li>
+		<li>Cleaned up the code some more. Put some more common
+code in common.c.</li>
+	</ul>
+	<p>1.08 (03/05/2001) by Mike McCollister </p>
+	<ul class="history">
+		<li>The icon name is now used instead of the program name.
+This fixed a bug that would show "Launcher" in the MRU list and
+"Applications" in the setup dialog. <i>McPhling</i> now
+shows "Applications" in all cases. This also now gives accurate names
+in foreign language Palms.</li>
+		<li>Added an option to turn off the icons in the MRU list.</li>
+		<li>Added an option to disable the click when the MRU list
+comes up.</li>
+		<li>When the MRU list is up, the user can do a second swipe
+to make the list go away.</li>
+		<li>When an application has been removed, it no longer
+shows up in the MRU list as "&bull; App Gone &bull;".</li>
+		<li>On a new install, <i>McPhling</i> will
+default to ignoring the built-in application launcher, <i>
+		<a href="http://www.synsolutions.com/software/launchem/" style="color: purple;">Launch 'Em</a></i> by
+Synergy Solutions and <i>HotSync</i>. These can be
+overridden by going to the <i>McPhling</i> Prefs dialog.</li>
+		<li>A lot of the code as been cleaned up and optimized.</li>
+		<li>Modified the Makefile so that it can handle the new
+"common" code.</li>
+		<li>Made minor changes to the about box order.</li>
+		<li>Now compiles with PilRC 2.7b.</li>
+		<li>Makefile now defaults to WinZip command line for
+compressing files.</li>
+		<li>Changed all references of char to Char.</li>
+	</ul>
+	<p>1.07 (01/30/2001) by Mike McCollister </p>
+	<ul class="history">
+		<li>Fixed a memory leak that showed up when exiting <i>HackMaster</i>.
+This was fixed by putting in a MemHandleFree for the handle that
+SysCreateDataBaseList created.</li>
+		<li>Fixed a possible memory leak by calling FtrUnregister
+for the Prefs form source code.</li>
+		<li>Fixed a minor bug in which the transparent color was
+incorrect.</li>
+		<li>Changed the version number format slightly.</li>
+	</ul>
+	</li>
+	<li>1.6 (01/07/2001) by Mike McCollister
+    
+    <ul class="history">
+		<li>Fixed a bug that caused AvantGo to crash the Palm OS
+device during HotSync. Thanks to Michael Weinmayr for pointing out this
+bug to me.</li>
+		<li>Fixed a bug that sometimes caused the application list
+to be too tall.</li>
+		<li>Fixed a bug that sometimes caused the application list
+to not be at the bottom right of the screen.</li>
+		<li>Fixed a bug that always prevented the built-in launcher
+from ever coming up in the application list. If you don't want it to
+show up, then ignore "Applications" the the <i>McPhling</i>
+Prefs.</li>
+		<li>Did some considerable code cleanup while tracking down
+various bugs.</li>
+		<li>Now compiles with PilRC 2.7a.</li>
+	</ul>
+	</li>
+	<li>1.5 (12/31/2000) by Mike McCollister
+    
+    <ul class="history">
+		<li>Renamed <i>PhlegmHack</i> to <i>McPhling.</i></li>
+		<li>Put bitmaps into the bitmap directory.</li>
+		<li>Renamed "index.htm" to "README.htm".</li>
+		<li>Put the source files in the "src" directory and the
+intermediate files (during compile) are placed in the "obj" directory; </li>
+		<li>Changed the Makefile quite a bit to accommodate the new
+directory structure.</li>
+		<li>Removed callback.h and all references to the callback
+macros since this has been fixed with PRC-Tools 2.0.</li>
+		<li>Now compiles with Palm OS 3.5 header files. This
+required the changing of many of the variable types.</li>
+		<li>Changed the creator ID to 'McPg' to avoid any conflict
+with <i>PhlegmHack</i>.</li>
+		<li>Updated the about box.</li>
+		<li>Removed "Bugs" file and incorporated into this document.</li>
+		<li>Combined all documentation files into this README.htm
+file. </li>
+		<li>Now compiles with PilRC 2.6.</li>
+	</ul>
+	</li>
+	<li>1.4 (07/12/2000, Not Released) <i>PhlegmHack</i>
+by Mike McCollister
+    
+    <ul class="history">
+		<li>The built-in application icons now show up in Palm OS
+3.5. Thanks to Aaron Ardiri for his help on this.</li>
+		<li>Color and grayscale are now displayed. Thanks to Aaron
+Ardiri for his help on this.</li>
+		<li>If the current application is a preference application
+then it will now switch to the previous application with the right
+stroke. Before it would just stay on that preference.</li>
+		<li>The "favorite" and "ignore" bitmaps are now in color.</li>
+		<li>For apps that have been deleted, replaced "Err" with "*
+Deleted App. *"</li>
+		<li>Added help within <i>PhlegmHack</i>.</li>
+		<li>Made some minor layout changes.</li>
+		<li>Icons are centered for Palm OS 3.5.</li>
+		<li>The bitmaps in the "favorite" and "ignored" legend have
+had their order changed. This is consistent with the first tap of an
+application being an "ignore".</li>
+		<li>Fixed an illegal memory access by reading one element
+past the ignored apps array during the perferences initialization.</li>
+		<li>Respond to frmCloseEvent. This may prevent a possible
+memory leak.</li>
+		<li>Added contact information for Mike McCollister in the
+about box.</li>
+		<li>Included the missing BUGS file.</li>
+	</ul>
+	</li>
+	<li>1.3 (02/07/2000) <i>PhlegmHack</i> by Mitch
+Blevins
+    
+    <ul class="history">
+		<li>Added semi-automatic clearing of apps from the cache
+that have been deleted from the Palm. If you enter the <i>PhlegmHack</i>
+Prefs screen or try to follow a deleted app, it will be deleted.</li>
+	</ul>
+	</li>
+	<li>1.2 (02/06/2000) <i>PhlegmHack</i> by Mitch
+Blevins
+    
+    <ul class="history">
+		<li>Will now clear the ignored apps from your cache when
+you push the "OK" button in the Prefs.</li>
+		<li>Added "Favorites" to the Prefs, with groovy icons for
+Ignore and Favs.</li>
+		<li>Fixed bug where you could see "snow" or "garbage" in
+the list behind the text and icons.</li>
+		<li>Fixed bug where pointer wasn't being freed on the Prefs
+screen.</li>
+		<li>Applications with no small icon will now show nothing
+instead of the default app icon.</li>
+	</ul>
+	</li>
+	<li>1.1 (01/20/2000) <i>PhlegmHack</i> by Mitch
+Blevins
+    
+    <ul class="history">
+		<li>Changed LocalID storage to creatorID to eliminate most
+of the instability problems with 1.0.</li>
+	</ul>
+	</li>
+	<li>1.0 (01/18/2000) <i>PhlegmHack</i> by Mitch
+Blevins
+    
+    <ul class="history">
+		<li>Initial release.</li>
+	</ul>
+	</li>
+
+
+</ul>
+
+
+<h2><a name="Credits">VIII. Credits</a></h2>
+
+
+<p>Thanks go to the following people who have mailed bug reports
+and suggestions or have submitted code during the development of <i>McPhling</i>:
+</p>
+
+
+<ul>
+
+
+  <li><b>Mitch Blevins</b> &lt;<a href="mailto:mblevins@debian.com">mblevins@debian.com</a>&gt;<br>
+
+
+The originator of <i>PhlegmHack</i> and writer of many
+great Palm OS device programs.<br>
+
+
+    <br>
+
+
+  </li>
+
+
+  <li><b>Aaron Ardiri</b> &lt;<a href="mailto:aaron@ardiri.com">aaron@ardiri.com</a>&gt;
+    <br>
+
+
+Helped with many of the color icon problems that I was having.<br>
+
+
+    <br>
+
+
+  </li>
+
+
+  <li><b>Andreas Linke</b> &lt;<a href="mailto:andreas@LinkeSOFT.com">andreas@LinkeSOFT.com</a>&gt;
+    <br>
+
+
+Helped with incorporating some new features. Andreas also wrote <a href="http://linkesoft.com/xmaster/"><i>X-Master</i></a>,
+the freeware <a href="http://www.daggerware.com/hackmstr.htm"><i>HackMaster</i></a>
+replacement.<br>
+
+
+    <br>
+
+
+  </li>
+
+
+  <li><b>Thomas Chapman</b> &lt;<a href="mailto:tcchap@hotmail.com">tcchap@hotmail.com</a>&gt;
+    <br>
+
+
+Helped with the new sorting features. His persistence was greatly
+appreciated. </li>
+
+
+  <br>
+
+
+  <br>
+
+
+  <li><b>Hynek Syrovatka</b> &lt;<a href="mailto:syr@atlas.cz">syr@atlas.cz</a>&gt; <br>
+
+
+Helped with the HandEra 330 support. </li>
+
+
+  <br>
+
+
+  <br>
+
+
+  <li><b>Eric Schwertfeger</b> &lt;<a href="mailto:eric@cybernut.com">eric@cybernut.com</a>&gt;
+    <br>
+
+
+Helped with better virtual button handling on the HandEra 330. </li>
+
+
+  <br>
+
+
+  <br>
+
+
+  <li><b>Alexander Hinds</b> &lt;<a href="http://www.BlueNomad.com">www.BlueNomad.com</a>&gt;
+and <b>Scott Maxwell</b> &lt;<a href="http://QuikSense.com">QuikSense.com</a>&gt; <br>
+
+
+These guys, the writers of WordSmith, helped me a lot with the VFS
+support. Check out their products. They do great stuff.</li>
+
+
+  <br>
+
+
+  <br>
+
+
+  <li><b>Paul Nevai</b> &lt;<a href="http://PaulComputing.com">PaulComputing.com</a>&gt;<br>
+
+
+Paul helped me find a nasty little bug that caused a crash when
+pressing a button with the application list up and <i>LapTopHack</i>
+installed. Be sure to check out <i>LapTopHack</i>, it is
+an incredible piece of software.</li>
+
+
+  <br>
+
+
+  <br>
+
+
+  <li><b>Matt Fisher</b> &lt;<a href="mailto://Matt.Fisher@tellabs.com">Matt.Fisher@tellabs.com</a>&gt;<br>
+
+
+Matt helped me with the Sony Jog Dial support. In fact, he wrote the
+original version of the code. Without his help, this feature would not
+exist. Thanks Matt.</li>
+
+
+  <br>
+
+
+  <br>
+
+
+  <li><b>Jennifer Shelamer</b> &lt;<a href="http://pdarentals.com">pdarentals.com</a>&gt;<br>
+
+
+Jennifer helped me debug the Handspring Treo support. If you need to
+rent a PDA, she is the person to contact.</li>
+
+
+  <br>
+
+
+  <br>
+
+
+  <li><b>Christian Rozycki</b> &lt;<a href="http://www.fh-merseburg.de/%7Erozycki/">http://www.fh-merseburg.de/~rozycki/</a>&gt;<br>
+
+
+Christian supplied source code and the inspiration to get DA (Desk
+Accessory) support included in <i>McPhling</i>.</li>
+
+
+  <br>
+
+
+  <br>
+
+
+  <li><b>Sing Yong Tan</b> &lt;<a href="mailto:tsingyo@hotmail.com">tsingyo@hotmail.com</a>&gt;<br>
+
+
+Sing Yong made the new bitmaps for the favorites and ignored
+applications.</li>
+
+
+  <br>
+
+
+</ul>
+
+
+<h2>I<a name="Copying">X. Copying</a></h2>
+
+
+<h3 style="text-align: left;">GNU GENERAL PUBLIC LICENSE
+&lt;<a href="http://www.gnu.org/copyleft/gpl.html" style="color: purple;">www.gnu.org/copyleft/gpl.html</a>&gt;</h3>
+
+
+<p align="center">Version 2, June 1991 </p>
+
+
+<p align="center">Copyright (C) 1989, 1991 Free Software
+Foundation, Inc.<br>
+
+
+59 Temple Place - Suite 330, Boston, MA 02111-1307, USA &nbsp;
+Everyone is permitted to copy and distribute verbatim copies of
+this license document, but changing it is not allowed. </p>
+
+
+<h3>Preamble</h3>
+
+
+<p>The licenses for most software are designed to take away your
+freedom to share and change it. By contrast, the GNU General
+Public License is intended to guarantee your freedom to share and
+change free software--to make sure the software is free for all
+its users. This General Public License applies to most of the
+Free Software Foundation's software and to any other program
+whose authors commit to using it. (Some other Free Software
+Foundation software is covered by the GNU Library General Public
+License instead.) You can apply it to your programs, too. </p>
+
+
+<p>When we speak of free software, we are referring to freedom,
+not price. Our General Public Licenses are designed to make sure
+that you have the freedom to distribute copies of free software (and
+charge for this service if you wish), that you receive source
+code or can get it if you want it, that you can change the
+software or use pieces of it in new free programs; and that you
+know you can do these things. </p>
+
+
+<p>To protect your rights, we need to make restrictions that
+forbid anyone to deny you these rights or to ask you to surrender
+the rights. These restrictions translate to certain
+responsibilities for you if you distribute copies of the software,
+or if you modify it. </p>
+
+
+<p>For example, if you distribute copies of such a program,
+whether gratis or for a fee, you must give the recipients all the
+rights that you have. You must make sure that they, too, receive
+or can get the source code. And you must show them these terms so
+they know their rights. </p>
+
+
+<p>We protect your rights with two steps: (1) copyright the
+software, and (2) offer you this license which gives you legal
+permission to copy, distribute and/or modify the software. </p>
+
+
+<p>Also, for each author's protection and ours, we want to make
+certain that everyone understands that there is no warranty for
+this free software. If the software is modified by someone else
+and passed on, we want its recipients to know that what they have
+is not the original, so that any problems introduced by others
+will not reflect on the original authors' reputations. </p>
+
+
+<p>Finally, any free program is threatened constantly by software
+patents. We wish to avoid the danger that redistributors of a
+free program will individually obtain patent licenses, in effect
+making the program proprietary. To prevent this, we have made it
+clear that any patent must be licensed for everyone's free use or
+not licensed at all. </p>
+
+
+<p>The precise terms and conditions for copying, distribution and
+modification follow. </p>
+
+
+<h3>TERMS AND CONDITIONS FOR COPYING, DISTRIBUTION AND
+MODIFICATION</h3>
+
+
+<p><strong>0.</strong> This License applies to any
+program or
+other work which contains a notice placed by the copyright holder
+saying it may be distributed under the terms of this General
+Public License. The "Program", below, refers to any
+such program or work, and a "work based on the Program"
+means either the Program or any derivative work under copyright
+law: that is to say, a work containing the Program or a portion
+of it, either verbatim or with modifications and/or translated
+into another language. (Hereinafter, translation is included
+without limitation in the term "modification".) Each
+licensee is addressed as "you". </p>
+
+
+<p>Activities other than copying, distribution and modification
+are not covered by this License; they are outside its scope. The
+act of running the Program is not restricted, and the output from
+the Program is covered only if its contents constitute a work
+based on the Program (independent of having been made by running
+the Program). Whether that is true depends on what the Program
+does. </p>
+
+
+<p><strong>1.</strong> You may copy and distribute
+verbatim
+copies of the Program's source code as you receive it, in any
+medium, provided that you conspicuously and appropriately publish
+on each copy an appropriate copyright notice and disclaimer of
+warranty; keep intact all the notices that refer to this License
+and to the absence of any warranty; and give any other recipients
+of the Program a copy of this License along with the Program. </p>
+
+
+<p>You may charge a fee for the physical act of transferring a
+copy, and you may at your option offer warranty protection in
+exchange for a fee. </p>
+
+
+<p><strong>2.</strong> You may modify your copy or
+copies of the
+Program or any portion of it, thus forming a work based on the
+Program, and copy and distribute such modifications or work under
+the terms of Section 1 above, provided that you also meet all of
+these conditions: </p>
+
+
+<ul>
+
+
+  <li><strong>a)</strong> You must cause the modified
+files to carry prominent notices stating that you changed the files and
+the date of any change. </li>
+
+
+  <li><strong>b)</strong> You must cause any work
+that you distribute or publish, that in whole or in part contains or is
+derived from the Program or any part thereof, to be licensed as a whole
+at no charge to all third parties under the terms of this License. </li>
+
+
+  <li><strong>c)</strong> If the modified program
+normally reads commands interactively when run, you must cause it, when
+started running for such interactive use in the most ordinary way, to
+print or display an announcement including an appropriate copyright
+notice and a notice that there is no warranty (or else, saying that you
+provide a warranty) and that users may redistribute the program under
+these conditions, and telling the user how to view a copy of this
+License. (Exception: if the Program itself is interactive but does not
+normally print such an announcement, your work based on the Program is
+not required to print an announcement.) </li>
+
+
+</ul>
+
+
+<p>These requirements apply to the modified work as a whole. If
+identifiable sections of that work are not derived from the
+Program, and can be reasonably considered independent and
+separate works in themselves, then this License, and its terms,
+do not apply to those sections when you distribute them as
+separate works. But when you distribute the same sections as part
+of a whole which is a work based on the Program, the distribution
+of the whole must be on the terms of this License, whose
+permissions for other licensees extend to the entire whole, and
+thus to each and every part regardless of who wrote it. </p>
+
+
+<p>Thus, it is not the intent of this section to claim rights or
+contest your rights to work written entirely by you; rather, the
+intent is to exercise the right to control the distribution of
+derivative or collective works based on the Program. </p>
+
+
+<p>In addition, mere aggregation of another work not based on the
+Program with the Program (or with a work based on the Program) on
+a volume of a storage or distribution medium does not bring the
+other work under the scope of this License. </p>
+
+
+<p><strong>3.</strong> You may copy and distribute
+the Program (or
+a work based on it, under Section 2) in object code or executable
+form under the terms of Sections 1 and 2 above provided that you
+also do one of the following:<!-- we use this doubled UL to get the sub-sections indented, --><!-- while making the bullets as unobvious as possible. -->
+</p>
+
+
+<ul>
+
+
+  <li><strong>a)</strong> Accompany it with the
+complete corresponding machine-readable source code, which must be
+distributed under the terms of Sections 1 and 2 above on a medium
+customarily used for software interchange; or, </li>
+
+
+  <li><strong>b)</strong> Accompany it with a written
+offer, valid for at least three years, to give any third party, for a
+charge no more than your cost of physically performing source
+distribution, a complete machine-readable copy of the corresponding
+source code, to be distributed under the terms of Sections 1 and 2
+above on a medium customarily used for software interchange; or, </li>
+
+
+  <li><strong>c)</strong> Accompany it with the
+information you received as to the offer to distribute corresponding
+source code. (This alternative is allowed only for noncommercial
+distribution and only if you received the program in object code or
+executable form with such an offer, in accord with Subsection b above.)
+  </li>
+
+
+</ul>
+
+
+<p>The source code for a work means the preferred form of the
+work for making modifications to it. For an executable work,
+complete source code means all the source code for all modules it
+contains, plus any associated interface definition files, plus
+the scripts used to control compilation and installation of the
+executable. However, as a special exception, the source code
+distributed need not include anything that is normally
+distributed (in either source or binary form) with the major
+components (compiler, kernel, and so on) of the operating system
+on which the executable runs, unless that component itself
+accompanies the executable. </p>
+
+
+<p>If distribution of executable or object code is made by
+offering access to copy from a designated place, then offering
+equivalent access to copy the source code from the same place
+counts as distribution of the source code, even though third
+parties are not compelled to copy the source along with the
+object code. </p>
+
+
+<p><strong>4.</strong> You may not copy, modify,
+sublicense, or
+distribute the Program except as expressly provided under this
+License. Any attempt otherwise to copy, modify, sublicense or
+distribute the Program is void, and will automatically terminate
+your rights under this License. However, parties who have
+received copies, or rights, from you under this License will not
+have their licenses terminated so long as such parties remain in
+full compliance. </p>
+
+
+<p><strong>5.</strong> You are not required to accept
+this
+License, since you have not signed it. However, nothing else
+grants you permission to modify or distribute the Program or its
+derivative works. These actions are prohibited by law if you do
+not accept this License. Therefore, by modifying or distributing
+the Program (or any work based on the Program), you indicate your
+acceptance of this License to do so, and all its terms and
+conditions for copying, distributing or modifying the Program or
+works based on it. </p>
+
+
+<p><strong>6.</strong> Each time you redistribute the
+Program (or
+any work based on the Program), the recipient automatically
+receives a license from the original licensor to copy, distribute
+or modify the Program subject to these terms and conditions. You
+may not impose any further restrictions on the recipients'
+exercise of the rights granted herein. You are not responsible
+for enforcing compliance by third parties to this License. </p>
+
+
+<p><strong>7.</strong> If, as a consequence of a
+court judgment
+or allegation of patent infringement or for any other reason (not
+limited to patent issues), conditions are imposed on you (whether
+by court order, agreement or otherwise) that contradict the
+conditions of this License, they do not excuse you from the
+conditions of this License. If you cannot distribute so as to
+satisfy simultaneously your obligations under this License and
+any other pertinent obligations, then as a consequence you may
+not distribute the Program at all. For example, if a patent
+license would not permit royalty-free redistribution of the
+Program by all those who receive copies directly or indirectly
+through you, then the only way you could satisfy both it and this
+License would be to refrain entirely from distribution of the
+Program. </p>
+
+
+<p>If any portion of this section is held invalid or
+unenforceable under any particular circumstance, the balance of
+the section is intended to apply and the section as a whole is
+intended to apply in other circumstances. </p>
+
+
+<p>It is not the purpose of this section to induce you to
+infringe any patents or other property right claims or to contest
+validity of any such claims; this section has the sole purpose of
+protecting the integrity of the free software distribution system,
+which is implemented by public license practices. Many people
+have made generous contributions to the wide range of software
+distributed through that system in reliance on consistent
+application of that system; it is up to the author/donor to
+decide if he or she is willing to distribute software through any
+other system and a licensee cannot impose that choice. </p>
+
+
+<p>This section is intended to make thoroughly clear what is
+believed to be a consequence of the rest of this License. </p>
+
+
+<p><strong>8.</strong> If the distribution and/or use
+of the
+Program is restricted in certain countries either by patents or
+by copyrighted interfaces, the original copyright holder who
+places the Program under this License may add an explicit
+geographical distribution limitation excluding those countries,
+so that distribution is permitted only in or among countries not
+thus excluded. In such case, this License incorporates the
+limitation as if written in the body of this License. </p>
+
+
+<p><strong>9.</strong> The Free Software Foundation
+may publish
+revised and/or new versions of the General Public License from
+time to time. Such new versions will be similar in spirit to the
+present version, but may differ in detail to address new problems
+or concerns. </p>
+
+
+<p>Each version is given a distinguishing version number. If the
+Program specifies a version number of this License which applies
+to it and "any later version", you have the option of
+following the terms and conditions either of that version or of
+any later version published by the Free Software Foundation. If
+the Program does not specify a version number of this License,
+you may choose any version ever published by the Free Software
+Foundation. </p>
+
+
+<p><strong>10.</strong> If you wish to incorporate
+parts of the
+Program into other free programs whose distribution conditions
+are different, write to the author to ask for permission. For
+software which is copyrighted by the Free Software Foundation,
+write to the Free Software Foundation; we sometimes make
+exceptions for this. Our decision will be guided by the two goals
+of preserving the free status of all derivatives of our free
+software and of promoting the sharing and reuse of software
+generally. </p>
+
+
+<p><strong>NO WARRANTY</strong></p>
+
+
+<p><strong>11.</strong> BECAUSE THE PROGRAM IS
+LICENSED FREE OF
+CHARGE, THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT
+PERMITTED BY APPLICABLE LAW. EXCEPT WHEN OTHERWISE STATED IN
+WRITING THE COPYRIGHT HOLDERS AND/OR OTHER PARTIES PROVIDE THE
+PROGRAM "AS IS" WITHOUT WARRANTY OF ANY KIND, EITHER
+EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+PURPOSE. THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE
+PROGRAM IS WITH YOU. SHOULD THE PROGRAM PROVE DEFECTIVE, YOU
+ASSUME THE COST OF ALL NECESSARY SERVICING, REPAIR OR CORRECTION.
+</p>
+
+
+<p><strong>12.</strong> IN NO EVENT UNLESS REQUIRED
+BY APPLICABLE
+LAW OR AGREED TO IN WRITING WILL ANY COPYRIGHT HOLDER, OR ANY
+OTHER PARTY WHO MAY MODIFY AND/OR REDISTRIBUTE THE PROGRAM AS
+PERMITTED ABOVE, BE LIABLE TO YOU FOR DAMAGES, INCLUDING ANY
+GENERAL, SPECIAL, INCIDENTAL OR CONSEQUENTIAL DAMAGES ARISING OUT
+OF THE USE OR INABILITY TO USE THE PROGRAM (INCLUDING BUT NOT
+LIMITED TO LOSS OF DATA OR DATA BEING RENDERED INACCURATE OR
+LOSSES SUSTAINED BY YOU OR THIRD PARTIES OR A FAILURE OF THE
+PROGRAM TO OPERATE WITH ANY OTHER PROGRAMS), EVEN IF SUCH HOLDER
+OR OTHER PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+DAMAGES. </p>
+
+
+</body>
+</html>

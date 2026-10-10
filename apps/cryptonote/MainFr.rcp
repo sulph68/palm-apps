@@ -1,0 +1,610 @@
+#include "MainRsc.h"
+
+ICON "appico.bmp"
+SMALLICON "smallico.bmp"
+
+VERSION 1 "3.65"
+
+FORM ID frmMainForm AT (0 0 160 160)
+NOFRAME
+MENUID mnuMainMenu
+BEGIN
+	TITLE "CryptoPad"
+	POPUPTRIGGER ""			ID popMainCategory   AT (90 0 70 13)
+							RIGHTANCHOR
+	LIST ""					ID lstMainCategory   AT (PrevLeft 1 PrevWidth 1)
+							VISIBLEITEMS 5 NONUSABLE
+	POPUPLIST				ID popMainCategory lstMainCategory
+	TABLE					ID tblMainRecordList AT (0 18 152 124)
+							ROWS 11 COLUMNS 1 COLUMNWIDTHS 151
+	SCROLLBAR				ID sclMainScrollBar  AT (153 PrevTop 7 121)
+							VALUE 0 MIN 0 MAX 10 PAGESIZE 10
+	BUTTON "Nouv."			ID btnMainNewMemo    AT (1 147 34 12)
+END
+
+FORM ID frmProgressForm AT (2 78 156 80)
+FRAME MODAL
+BEGIN
+	TITLE ""
+	GADGET 					ID gadProgressMessage AT (10 25 140 15) 
+	GADGET 					ID gadProgressBar AT (10 52 140 7)  
+END
+
+FORM ID frmEditForm AT (0 0 160 160)
+NOFRAME
+MENUID mnuEditMenu
+BEGIN
+	TITLE "Mémo"
+	SELECTORTRIGGER ""		ID popEditCategory   AT (89 1 70 11)
+							RIGHTANCHOR
+	LIST ""					ID lstEditCategory   AT (PrevLeft PrevTop PrevWidth 1)
+							VISIBLEITEMS 5 NONUSABLE
+	POPUPLIST				ID popEditCategory lstEditCategory
+	FIELD					ID fldEditText       AT (0 16 153 125)
+							MULTIPLELINES UNDERLINED
+							AUTOSHIFT MAXCHARS 65000
+	SCROLLBAR				ID sclEditScrollBar  AT (153 18 7 121)
+							VALUE 0 MIN 0 MAX 10 PAGESIZE 10
+	LABEL ">4k"				ID lblEditMaxSize	AT (145 148 ) FONT 0 NONUSABLE
+	BUTTON "Terminé"		ID btnEditTerminate  AT (1 147 40 12)
+	BUTTON "Détails"		ID btnEditDetails    AT (PrevRight+6 PrevTop 34 12)
+	GRAFFITISTATEINDICATOR	                     AT (135 PrevTop)
+END
+
+STRING ID	strEditTitleMemo "Mémo # of "
+
+FORM ID frmDetailsForm AT (2 86 156 72)
+FRAME MODAL
+HELPID strDetailsHelpString
+BEGIN
+	TITLE "Mémo détaillé"
+	LABEL "Catégorie:"		AUTOID				AT (5 18) FONT 1
+	POPUPTRIGGER ""			ID popDetailsCategory AT (59 18 70 13)
+							LEFTANCHOR
+	LIST ""					ID lstDetailsCategory   AT (PrevLeft PrevTop 70 1)
+							VISIBLEITEMS 5 NONUSABLE
+	POPUPLIST				ID popDetailsCategory lstDetailsCategory
+	LABEL "Personnel:"		AUTOID              AT (5 32) FONT 1
+	CHECKBOX ""				ID chkDetailsPrivate AT (60 PrevTop AUTO AUTO)
+	BUTTON "OK"				ID btnDetailsOK		AT (6 54 38 AUTO)
+	BUTTON "Annuler"		ID btnDetailsCancel	AT (PrevRight+6 PrevTop 40 AUTO)
+	BUTTON "Supprimer..."	ID btnDetailsDelete	AT (PrevRight+6 PrevTop 54 AUTO)
+END
+
+STRING ID strDetailsHelpString "• Les nouveaux mémos sont\n" \
+					"automatiquement classés\n" \
+					"sous la catégorie affichée\n" \
+					"dans l'écran Liste des mémos.\n" \
+					"\n" \
+					"• Il existe deux façons de\n" \
+					"changer la catégorie d'un\n" \
+					"mémo:\n" \
+					"\n" \
+					"1. Sélectionnez une nouvelle\n" \
+					"catégorie dans le dialogue\n" \
+					"Mémo détaillé.\n" \
+					"2. Au cours de la modification\n" \
+					"du mémo, choisissez une\n" \
+					"nouvelle catégorie dans la\n" \
+					"liste de sélection."
+
+FORM ID frmPasswordForm AT (2 75 156 83)
+FRAME MODAL
+HELPID strPasswordHelpString
+BEGIN
+	TITLE "Mot de passe"
+	FORMBITMAP 	AT (5 20) BITMAP 10005
+	LABEL "Entrer un mot de passe:"		AUTOID			AT (30 20) FONT 1
+	FIELD					ID fldPasswordText		 AT (5 42 146 13)
+							SINGLELINE UNDERLINED
+							MAXCHARS 56
+	BUTTON "OK"				ID btnPasswordOK		 AT (6 65 35 AUTO)
+	BUTTON "Annuler"		ID btnPasswordCancel	 AT (PrevRight+6 PrevTop 40 AUTO)
+	BUTTON "Oublier..."		ID btnPasswordForget	 AT (PrevRight+6 PrevTop AUTO AUTO)
+	GRAFFITISTATEINDICATOR	                         AT (144 PrevTop)
+END
+
+STRING ID strPasswordHelpString "• Entrez le mot de passe pour " \
+					"crypter le mémo.\n" \
+					"\n" \
+					"• Le mot de passe sera utilisé à la fois " \
+					"pour le cryptage et le décryptage. Veillez à " \
+					"ne pas l'oublier, car il serait alors impossible " \
+					"de restaurer le contenu du mémo."
+
+FORM ID frmQueryGlobalPasswordForm AT (2 67 156 91)
+FRAME MODAL
+BEGIN
+	TITLE "Mot de passe global"
+	FORMBITMAP 	AT (5 20) BITMAP 10005
+	LABEL "Entrer votre mot de"		AUTOID			AT (30 20) FONT 1
+	LABEL "passe global actuel:"	AUTOID			AT (PrevLeft 32) FONT 1
+	FIELD					ID fldQueryGlobalPasswordText		 AT (5 50 146 13)
+							SINGLELINE UNDERLINED
+							MAXCHARS 56
+	BUTTON "OK"				ID btnQueryGlobalPasswordOK		 AT (6 73 38 AUTO)
+	BUTTON "Annuler"		ID btnQueryGlobalPasswordCancel	 AT (PrevRight+6 PrevTop 40 AUTO)
+	GRAFFITISTATEINDICATOR	                         AT (144 PrevTop)
+END
+
+FORM ID frmConfirmGlobalPasswordForm AT (2 8 156 150)
+FRAME MODAL
+BEGIN
+	TITLE "Mot de passe global"
+	LABEL "Verif. nouveau mot de passe:"		AUTOID			AT (5 16) FONT 1
+	FIELD					ID fldSetAndChangeGlobalPasswordText		 AT (PrevLeft 32 146 13)
+							SINGLELINE UNDERLINED
+							MAXCHARS 56
+	LABEL "Si vous oubliez ce mot de"		AUTOID			AT (PrevLeft 52)
+ FONT 1
+	LABEL "passe, tapez \"Mot de passe"		AUTOID			AT (PrevLeft PrevTop+12)
+ FONT 1
+ 	LABEL "perdu\" pour le supprimer,"		AUTOID			AT (PrevLeft PrevTop+12)
+ FONT 1
+  	LABEL "mais tous les mémos cryptés"		AUTOID			AT (PrevLeft PrevTop+12)
+ FONT 1
+  	LABEL "avec le mot de passe global"		AUTOID			AT (PrevLeft PrevTop+12)
+ FONT 1
+  	LABEL "seront supprimés."		AUTOID			AT (PrevLeft PrevTop+12)
+ FONT 1
+	BUTTON "OK"				ID btnConfirmGlobalPasswordOK		 AT (6 132 38 AUTO)
+	BUTTON "Annuler"			ID btnSetAndChangeGlobalPasswordCancel	 AT (PrevRight+6 PrevTop 40 AUTO)
+	GRAFFITISTATEINDICATOR	                         AT (144 PrevTop)
+END
+
+FORM ID frmSetGlobalPasswordForm AT (2 20 156 138)
+FRAME MODAL
+HELPID strSetGlobalPasswordHelpString
+BEGIN
+	TITLE "Mot de passe global"
+	LABEL "Entrer un mot de passe:"		AUTOID			AT (5 16) FONT 1
+	FIELD					ID fldSetAndChangeGlobalPasswordText		 AT (PrevLeft 32 146 13)
+							SINGLELINE UNDERLINED
+							MAXCHARS 56
+	LABEL "Si vous affectez un mot de"		AUTOID			AT (PrevLeft 52)
+ FONT 1
+	LABEL "passe, vous devrez l'entrer"		AUTOID			AT (PrevLeft PrevTop+12)
+ FONT 1
+ 	LABEL "pour voir les memos cryptés."		AUTOID			AT (PrevLeft PrevTop+12)
+ FONT 1
+  	LABEL "Désormais, les mémos utilise-"		AUTOID			AT (PrevLeft PrevTop+12)
+ FONT 1
+  	LABEL "ront le mot de passe global."		AUTOID			AT (PrevLeft PrevTop+12)
+ FONT 1
+	BUTTON "OK"				ID btnSetAndChangeGlobalPasswordOK		 AT (6 120 38 AUTO)
+	BUTTON "Annuler"			ID btnSetAndChangeGlobalPasswordCancel	 AT (PrevRight+6 PrevTop 40 AUTO)
+	GRAFFITISTATEINDICATOR	                         AT (144 PrevTop)
+END
+
+STRING ID strSetGlobalPasswordHelpString "• Entrez un mot de passe pour " \
+					"définir le mot de passe global.\n" \
+					"\n" \
+					"• Ce mot de passe deviendra le mot de passe " \
+					"courant et sera utilisé à la fois " \
+					"pour le cryptage et le décryptage. Veillez à " \
+					"ne pas l'oublier, car il serait alors impossible " \
+					"de restaurer le contenu des mémos cryptés avec " \
+					"ce mot de passe."
+
+FORM ID frmChangeGlobalPasswordForm AT (2 49 156 109)
+FRAME MODAL
+HELPID strSetGlobalPasswordHelpString
+BEGIN
+	TITLE "Changer m. de p. global"
+	LABEL "Entrer un nouveau mot de"		AUTOID			AT (5 16)
+ FONT 1
+	LABEL "passe global ou appuyer"		AUTOID			AT (PrevLeft PrevTop+12)
+ FONT 1
+ 	LABEL "sur Supprimer pour le"		AUTOID			AT (PrevLeft PrevTop+12)
+ FONT 1
+  	LABEL "supprimer."		AUTOID			AT (PrevLeft PrevTop+12)
+ FONT 1
+	FIELD					ID fldSetAndChangeGlobalPasswordText		 AT (PrevLeft 68 146 13)
+							SINGLELINE UNDERLINED
+							MAXCHARS 56
+	BUTTON "OK"				ID btnSetAndChangeGlobalPasswordOK		 AT (6 91 35 AUTO)
+	BUTTON "Annuler"			ID btnSetAndChangeGlobalPasswordCancel	 AT (PrevRight+6 PrevTop 40 AUTO)
+	BUTTON "Supprimer"			ID btnChangeGlobalPasswordDelete	 AT (PrevRight+6 PrevTop 50 AUTO)
+	GRAFFITISTATEINDICATOR	                         AT (144 PrevTop)
+END
+
+FORM ID frmPrefsForm AT (2 14 156 144)
+FRAME MODAL
+HELPID strPrefsHelpString
+BEGIN
+	TITLE "Préférences mémos"
+	LABEL "Tri:"		AUTOID				AT (8 16) FONT 0
+	POPUPTRIGGER ""			ID popPrefsSortOrder AT (24 PrevTop 70 13)
+							LEFTANCHOR
+	LIST "Manuel" "Alphabétique"
+							ID lstPrefsSortOrder   AT (PrevLeft PrevTop 70 1)
+							VISIBLEITEMS 2 NONUSABLE
+	POPUPLIST				popPrefsSortOrder lstPrefsSortOrder
+	LABEL "Bouger les mémos en haut"		AUTOID				AT (24 30) FONT 0
+	CHECKBOX ""				ID chkPrefsMoveRecordOnTop AT (5  PrevTop AUTO AUTO)
+	LABEL "Afficher lignes"		AUTOID				AT (24 41) FONT 0
+	CHECKBOX ""				ID chkPrefsShowLines AT (5 PrevTop AUTO AUTO)
+	LABEL "Utiliser une seule police"		AUTOID				AT (24 52) FONT 0
+	CHECKBOX ""				ID chkPrefsUseSingleFont AT (5 PrevTop AUTO AUTO)
+	LABEL "Défiler:"		AUTOID				AT (8 63) FONT 0
+	POPUPTRIGGER ""			ID popPrefsRotateOrder AT (40 PrevTop 90 13)
+							LEFTANCHOR
+	LIST "Toutes" "Toutes-Non classé" "Categ.-Non classé"
+							ID lstPrefsRotateOrder   AT (PrevLeft PrevTop PrevWidth 1)
+							VISIBLEITEMS 3  NONUSABLE
+	LABEL "Mot de passe global:"		AUTOID				AT (20 78) FONT 1
+	LABEL "Mot de passe global:"		AUTOID				AT (7 92) FONT 0
+	SELECTORTRIGGER "-Non assigné-"		ID selPrefsGlobalPassword AT (92 PrevTop AUTO AUTO)
+							LEFTANCHOR
+	BUTTON "Mot de passe perdu..."				ID btnPrefsForgotten		AT (25 108 112 AUTO)
+	BUTTON "OK"				ID btnPrefsOK		AT (6 126 38 AUTO)
+	BUTTON "Annuler"			ID btnPrefsCancel	AT (PrevRight+6 PrevTop 40 AUTO)
+END
+
+STRING strPrefsHelpString "• Manuel permet de trier " \
+						"manuellement les mémos en " \
+						"les déplaçant dans la liste.\n" \
+						"Pour faire glisser un mémo, " \
+						"pointez-le avec le stylet, " \
+						"faites-le glisser à la place " \
+						"désirée et relevez le stylet.\n" \
+						"\n" \
+						"• Alphabétique trie les " \
+						"mémos par ordre alphabétique.\n" \
+						"Cet ordre remplace " \
+						"l'ordre de trie en cours.\n" \
+						"\n" \
+						"• Bouger les mémos en haut " \
+						"place en haut de la liste le " \
+						" dernier mémo consulté.\n" \
+						"\n" \
+						"• Afficher lignes permet de " \
+						"masquer ou d'afficher les " \
+						"lignes du formulaire " \
+						"d'édition des mémos.\n" \
+						"\n" \
+						"• Utiliser une seule police permet " \
+						"d'utiliser une police séparée " \
+						"pour chaque enregistrement dans " \
+						"le formulaire d'édition et pour " \
+						"chaque catégorie dans le formulaire " \
+						"principal.\n" \
+						"\n" \
+						"• Défiler permet de choisir " \
+						" les catégories affichées lorsqu'on " \
+						"les fait défiler en appuyant " \
+						"répétivement sur le bouton " \
+						"correspondant à l'application. " \
+						"\"Toutes-Non classé\" passe aussi " \
+						"dans la categorie \"Non classé\" " \
+						"alors que \"Categ.-Non classé\" " \
+						"saute la catégorie \"Toutes\".\n" \
+						"\n" \
+						"• Mot de passe global permet " \
+						"d'assigner un mot de passe " \
+						"global pour tous les nouveaux " \
+						"mémos cryptés."
+
+FORM ID frmDeleteForm AT (2 72 156 86)
+FRAME MODAL
+HELPID strDeleteHelpString
+BEGIN
+	TITLE "Supprimer mémo"
+	FORMBITMAP 	AT (5 20) BITMAP 10005
+	LABEL "Supprimer le mémo ?"		AUTOID		AT (30 20) FONT 1
+	CHECKBOX ""				ID chkDeleteBackup AT (8 45 AUTO AUTO)
+	LABEL "Archiver ce mémo sur PC"		AUTOID		AT (28 45) FONT 1
+	BUTTON "OK"				ID btnDeleteOK		AT (6 68 38 AUTO)
+	BUTTON "Annuler"			ID btnDeleteCancel	AT (PrevRight+6 PrevTop 40 AUTO)
+END
+
+STRING ID strDeleteHelpString	"L'option archiver ce mémo " \
+								"va archiver les mémos supprimés " \
+								"dans un fichier archive sur " \
+								"le PC à la prochaine Hotsynch." \
+								" Certains enregistrements seront cachés " \
+								"mais pas supprimés avant."
+
+
+FORM ID frmAboutForm AT (2 36 156 122)
+FRAME MODAL
+HELPID strAboutHelpString
+BEGIN
+	TITLE "About CryptoPad"
+	FORMBITMAP AT (5 17) BITMAP bmpCryptoPadIcon
+	LABEL "v. 3.65"					AUTOID AT (32 16) FONT 1
+	LABEL "Maxime & JB Labelle"			AUTOID AT (PrevLeft 27) FONT 1
+	LABEL "http://cryptopad.sourceforge.net/"	AUTOID AT (5 50)
+	LABEL "Tous droits réservés par Eric Young"	AUTOID AT (PrevLeft PrevTop+15)
+	LABEL "pour les routines de cryptage."		AUTOID AT (PrevLeft PrevTop+11)
+	BUTTON "OK" AUTOID AT (60 104 40 AUTO)
+END
+
+STRING ID strAboutHelpString	"CryptoPad est une version améliorée " \ 
+								"du Bloc-notes intégré.\n" \
+								"Nous suggérons que vous vérifiez " \
+								"notre page web ou www.palmgear.com " \
+								"de temps en temps pour les "\
+								"nouvelles versions!\n" \
+								"\n" \
+								"Noter que lorsque vous transmettez " \
+								"un mémo par infrarouge, le receveur " \
+								"doit sortir de CryptoPad afin de le " \
+								"recevoir."
+
+
+MENU ID mnuMainMenu
+BEGIN
+	PULLDOWN "Record"
+	BEGIN
+		MENUITEM "Transmettre catégorie"		ID itemRecordBeamCategory
+		MENUITEM SEPARATOR
+		MENUITEM "Crypter catégorie..."			ID itemRecordEncryptCategory
+		MENUITEM "Décrypter catégorie..."		ID itemRecordDecryptCategory
+	END
+
+	PULLDOWN "Options"
+	BEGIN
+		MENUITEM "Police de caractères..."	ID itemOptionsFont "L"
+		MENUITEM "Préférences..."			ID itemOptionsPrefs "P"
+		MENUITEM "A propos: CryptoPad" 		ID itemOptionsAbout
+	END
+END
+
+MENU ID mnuEditMenu
+BEGIN
+	PULLDOWN "Enreg."
+	BEGIN
+		MENUITEM "Nouveau mémo"			ID itemRecordNewMemo	"N"
+		MENUITEM "Supprimer mémo..."	ID itemRecordDeleteMemo	"S"
+		MENUITEM "Transmettre mémo"		ID itemRecordBeamMemo	"M"
+		MENUITEM SEPARATOR
+		MENUITEM "Crypter mémo..."		ID itemRecordEncryptMemo "Y"
+	END
+
+	PULLDOWN "Edition"
+	BEGIN
+		MENUITEM "Annuler"				ID 10000 "Z"
+		MENUITEM "Couper"				ID 10001 "X"
+		MENUITEM "Copier"				ID 10002 "C"
+		MENUITEM "Coller"				ID 10003 "V"
+		MENUITEM "Sélectionner tout"	ID 10004 "T"
+		MENUITEM SEPARATOR
+		MENUITEM "Clavier"				ID 10006 "A"
+		MENUITEM "Graffiti"				ID 10007	"G"
+	END
+
+	PULLDOWN "Options"
+	BEGIN
+		MENUITEM "Police de caractères..."	ID itemOptionsFont "L"
+		MENUITEM "Aller à Début de page" 	ID itemOptionsGoTopOfPage "D"
+		MENUITEM "Aller à Fin de page" 		ID itemOptionsGoBottomOfPage "F"
+		MENUITEM "Recherche n° de tél." 	ID itemOptionsPhoneLookup "R"
+		MENUITEM "A propos: CryptoPad" 		ID itemOptionsAbout
+	END
+END
+
+MENU ID mnuEditMenuNoPwd
+BEGIN
+	PULLDOWN "Enreg."
+	BEGIN
+		MENUITEM "Nouveau mémo"				ID itemRecordNewMemo	"N"
+		MENUITEM "Supprimer mémo..."		ID itemRecordDeleteMemo	"S"
+		MENUITEM "Transmettre mémo"			ID itemRecordBeamMemo	"M"
+		MENUITEM SEPARATOR
+		MENUITEM "Enlever protection"		ID itemRecordRemovePasswd "E"
+	END
+
+	PULLDOWN "Edition"
+	BEGIN
+		MENUITEM "Annuler"				ID 10000 "Z"
+		MENUITEM "Couper"				ID 10001 "X"
+		MENUITEM "Copier"				ID 10002 "C"
+		MENUITEM "Coller"				ID 10003 "V"
+		MENUITEM "Couper"				ID 10004 "T"
+		MENUITEM SEPARATOR
+		MENUITEM "Clavier"				ID 10006 "A"
+		MENUITEM "Graffiti"				ID 10007 "G"
+	END
+
+	PULLDOWN "Options"
+	BEGIN
+		MENUITEM "Police de caractères..."	ID itemOptionsFont "L"
+		MENUITEM "Aller à Début de page" 	ID itemOptionsGoTopOfPage "D"
+		MENUITEM "Aller à Fin de page" 		ID itemOptionsGoBottomOfPage "F"
+		MENUITEM "Recherche n° de tél." 	ID itemOptionsPhoneLookup "R"
+		MENUITEM "A propos: CryptoPad" 		ID itemOptionsAbout
+	END
+END
+
+BITMAP ID bmpCryptoPadIcon "icon.bmp"
+BITMAP ID bmpMainKeyBitmap "key.bmp"
+BITMAP ID bmpBarFontBitmap "font.bmp"
+BITMAP ID bmpBarPhoneBitmap "phone.bmp"
+
+STRING strMenuSecurityItem "Sécurité..."
+STRING strSynchroniseFont "Synchronise les polices"
+
+STRING strCryptoHeader "CryptoPad"
+STRING strBeamDescription "un mémo"
+STRING strBeamFilename "mémo.TXT"
+
+STRING strGlobalPasswordUnassigned "-Non assigné-"
+STRING strGlobalPasswordAssigned "-Assigné-"
+
+STRING strProgressEncryption "Cryptage catégorie"
+STRING strProgressDecryption "Décryptage catégorie"
+
+ALERT ID altConfirmDeleteAlert
+CONFIRMATION
+BEGIN
+	TITLE "Supprimer mémo"
+	MESSAGE "Supprimer ce mémo ?"
+	BUTTONS "OK" "Annuler"
+END
+
+ALERT ID altInvalidPasswordAlert
+ERROR
+BEGIN
+	TITLE "Mot de passe"
+	MESSAGE "Mot de passe incorrect. Réessayer."
+	BUTTONS "OK"
+END
+
+ALERT ID altGlobalPasswordNotMatchAlert
+INFORMATION
+BEGIN
+	TITLE "Mot de passe global"
+	MESSAGE "Le mot de passe entré ne correspond pas.\n" \
+			"Réessayer."
+	BUTTONS "OK"
+END
+
+ALERT ID altConfirmDeleteForgottenPasswordAlert
+INFORMATION
+BEGIN
+	TITLE "Mot de passe global"
+	MESSAGE "Supprimer le mot de passe global oublié supprimera " \
+			"tous les mémos cryptés avec ce mot de passe. " \
+			"Voulez-vous continuer?"
+	BUTTONS "Oui" "Non"
+END
+
+ALERT ID altNoGlobalPasswordToDeleteAlert
+ERROR
+HELPID strDeleteForgottenPassword
+BEGIN
+	TITLE "Supression mot de passe"
+	MESSAGE "Il n'y a pas de mot de passe global à supprimer."
+	BUTTONS "OK"
+END
+
+STRING ID strDeleteForgottenPassword "Cette fonction permet de supprimer le mot" \
+				" de passe global oublié. \n" \
+				"Tous les mémos précédemment cryptés avec ce mot de passe seront supprimés."
+
+ALERT ID altInvalidGlobalPasswordAlert
+ERROR
+BEGIN
+	TITLE "Mot de passe global"
+	MESSAGE "Mot de passe global incorrect. \nRéessayer."
+	BUTTONS "OK"
+END
+
+ALERT ID altUseNoGlobalPasswordAlert
+INFORMATION
+BEGIN
+	TITLE "Password"
+	MESSAGE "This record was not crypted with the global password.\n" \
+			"Please retry with an other password."
+	BUTTONS "OK"
+END
+
+ALERT ID altInvalidFormatAlert
+ERROR
+BEGIN
+	TITLE "Cryptage impossible"
+	MESSAGE "Le mémo doit contenir au moins deux lignes."
+	BUTTONS "OK"
+END
+
+ALERT ID altRemovePasswdAlert
+INFORMATION
+BEGIN
+	TITLE "Mot de passe"
+	MESSAGE "Le mémo n'est plus protégé par mot de passe."
+	BUTTONS "OK"
+END
+
+ALERT ID altAlphabeticSortAlert
+INFORMATION
+BEGIN
+	TITLE "Tri alphabétique"
+	MESSAGE "Le tri actuel sera perdu si les mémos sont triés alphabétiquement.\n" \
+			"Voulez-vous vraiment trier les mémos alphabétiquement ?"
+	BUTTONS "OK" "Annuler"
+END
+
+ALERT ID altEncryptRecordWithGlobalPasswordAlert
+INFORMATION
+BEGIN
+	TITLE "Cryptage du mémo"
+	MESSAGE "Le mémo actuel sera crypté avec le mot de passe global."
+	BUTTONS "OK"
+END
+
+ALERT ID altEncryptCategoryWithGlobalPasswordAlert
+INFORMATION
+BEGIN
+	TITLE "Cryptage du mémo"
+	MESSAGE "La catégorie actuelle sera cryptée avec le mot de passe global."
+	BUTTONS "OK"
+END
+
+ALERT ID altCategoryAlreadyEncryptedAlert
+INFORMATION
+BEGIN
+	TITLE "Cryptage catégorie"
+	MESSAGE "La catégorie actuelle est déjà cryptée."
+	BUTTONS "OK"
+END
+
+ALERT ID altCategoryAlreadyDecryptedAlert
+INFORMATION
+BEGIN
+	TITLE "Décryptage catégorie"
+	MESSAGE "La catégorie actuelle est déjà décryptée."
+	BUTTONS "OK"
+END
+
+ALERT ID altRomIncompatibleAlert
+ERROR
+BEGIN
+	TITLE "ROM Version"
+	MESSAGE "ROM version 3.0 ou supérieur est requise pour utiliser ce programme."
+	BUTTONS "OK"
+END
+
+ALERT ID altUseSingleFontAlert
+INFORMATION
+BEGIN
+	TITLE "Utiliser une seule police"
+	MESSAGE "Les critères de police séparés seront perdus si vous choisissez d'utiliser " \
+			"une seule police. Voulez-vous vraiment utiliser une seule police ?"
+	BUTTONS "OK" "Annuler"
+END
+
+ALERT ID altMoveRecordOnTopImpossibleAlert
+INFORMATION
+BEGIN
+	TITLE "Bouger les mémos en haut"
+	MESSAGE "Vous devez choisir un tri manuel pour utiliser la fonction " \
+			"\"Bouger les mémos en haut\"."
+	BUTTONS "OK"
+END
+
+ALERT ID altChangeTableFontOfCategoryAllAlert
+INFORMATION
+BEGIN
+	TITLE "Police de caractère"
+	MESSAGE "Vous utilisez des polices de caractère séparée pour chaque catégorie donc vous " \
+	"ne pouvez plus choisir une police pour la catégorie Toutes.\n" \
+	"Choisisser une catégorie avant d'utiliser cette commande."
+	BUTTONS "OK"
+END
+
+ALERT ID altBeamCryptoDataAlert
+INFORMATION
+BEGIN
+	TITLE "Transmission IR"
+	MESSAGE "Vous ne pouvez pas transmettre de mémos cryptés."
+	BUTTONS "OK"
+END
+
+
+ALERT ID altDebugAlert
+BEGIN
+	TITLE "Debug Alert"
+	MESSAGE "^1"
+	BUTTONS "OK"
+END

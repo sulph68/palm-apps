@@ -1,0 +1,255 @@
+/* Sec35 — single-pane security manager, laid out in the ROM Security app idiom:
+ * a boxed "Password:" selector (shows state, tap to manage), a setting row, a
+ * session-state line, and a bottom Lock button. A small modal password dialog
+ * handles set / change / delete (Delete button), so the one selector covers all
+ * three like the ROM app's password box. */
+
+/* Positions aligned pixel-for-pixel to the ROM Security app (captured via the
+ * emulator): Password:(8,24)+selector(21,38), Auto Lock Handheld:(8,56)+control
+ * row(21,70), a third label row at (8,104)+(21,119), and the two bottom buttons
+ * at (1,145) / (91,145). The auto-lock control is our value+unit (vs ROM's single
+ * "Never" selector) and the third row is Session status (vs ROM "Current Privacy"). */
+FORM ID 1000 AT (0 0 160 160)
+USABLE
+MENUID 1600
+BEGIN
+  TITLE "Security"
+
+  LABEL "Password:" ID 1009 AT (8 24) FONT 1
+  SELECTORTRIGGER "-Unassigned-" ID 1001 AT (21 38 60 13)
+
+  LABEL "Auto Lock Handheld:" ID 1005 AT (8 56) FONT 1
+  FIELD ID 1006 AT (25 68 20 12) MAXCHARS 6 UNDERLINED
+  POPUPTRIGGER "Minutes" ID 1007 AT (49 68 56 13)
+  LIST "Minutes" "Hours" "Days" ID 1008 AT (49 57 56 33) VISIBLEITEMS 3 NONUSABLE
+  POPUPLIST ID 1007 1008
+
+  LABEL "                              " ID 1013 AT (27 82)
+  CHECKBOX "Lock on Power-Off" ID 1014 AT (25 95 120 14) FONT 0
+
+  LABEL "Session:" ID 1011 AT (8 110) FONT 1
+  LABEL "No password                   " ID 1010 AT (21 125)
+
+  BUTTON "Lock" ID 1004 AT (1 145 84 14)
+  BUTTON "Help" ID 1012 AT (91 145 38 14)
+  GRAFFITISTATEINDICATOR AT (150 150)
+END
+
+/* Set Password: 2 rows only (no Current), compact + bottom-aligned. */
+FORM ID 1100 AT (2 78 156 80)
+MODAL
+BEGIN
+  TITLE "Set Password"
+  LABEL "New:" ID 1107 AT (6 20) FONT 1
+  FIELD ID 1102 AT (62 19 84 12) MAXCHARS 32 UNDERLINED
+  LABEL "Confirm:" ID 1108 AT (6 40) FONT 1
+  FIELD ID 1103 AT (62 39 84 12) MAXCHARS 32 UNDERLINED
+  BUTTON "OK" ID 1104 AT (4 60 36 12)
+  BUTTON "Cancel" ID 1105 AT (44 60 42 12)
+  GRAFFITISTATEINDICATOR AT (144 62)
+END
+
+/* Change Password: Current + New + Confirm, Delete right-aligned, bottom-aligned. */
+FORM ID 1200 AT (2 58 156 100)
+MODAL
+BEGIN
+  TITLE "Change Password"
+  LABEL "Current:" ID 1106 AT (6 20) FONT 1
+  FIELD ID 1101 AT (62 19 84 12) MAXCHARS 32 UNDERLINED
+  LABEL "New:" ID 1107 AT (6 40) FONT 1
+  FIELD ID 1102 AT (62 39 84 12) MAXCHARS 32 UNDERLINED
+  LABEL "Confirm:" ID 1108 AT (6 60) FONT 1
+  FIELD ID 1103 AT (62 59 84 12) MAXCHARS 32 UNDERLINED
+  BUTTON "OK" ID 1104 AT (4 82 36 12)
+  BUTTON "Cancel" ID 1105 AT (44 82 42 12)
+  BUTTON "Delete" ID 1109 AT (108 82 44 12)
+  GRAFFITISTATEINDICATOR AT (144 66)
+END
+
+/* Resume Re-key: shown automatically at launch when a password CHANGE was cut off
+ * (reset/power-loss) partway through re-encrypting -- some records may still be
+ * under the old password. Old/New only (no Confirm, no Delete); 3/4 of the screen,
+ * bottom-aligned, same visual style as Change Password. The warning text is bold
+ * (FONT 1) and given generous spacing so it's unmistakable, and the button row
+ * sits 2px above the form's own bottom edge. */
+FORM ID 2100 AT (2 38 156 120)
+MODAL
+BEGIN
+  TITLE "Password Re-key"
+  LABEL "Re-key interrupted." ID 2102 AT (6 16) FONT 1
+  LABEL "Corrupted records exist." ID 2103 AT (6 28)
+  LABEL "Recover with old & new passwords." ID 2104 AT (6 40) 
+  LABEL "Old:" ID 2105 AT (6 60) FONT 1
+  FIELD ID 1101 AT (62 59 84 12) MAXCHARS 32 UNDERLINED
+  LABEL "New:" ID 2106 AT (6 78) FONT 1
+  FIELD ID 1102 AT (62 77 84 12) MAXCHARS 32 UNDERLINED
+  BUTTON "OK" ID 2101 AT (4 106 36 12)
+  BUTTON "Cancel" ID 1105 AT (44 106 42 12)
+  GRAFFITISTATEINDICATOR AT (144 108)
+END
+
+/* Unlock: dedicated password-only prompt (from the Lock/Unlock button). */
+FORM ID 1300 AT (2 78 156 80)
+MODAL
+BEGIN
+  TITLE "Unlock"
+  LABEL "Password:" ID 1304 AT (6 24) FONT 1
+  FIELD ID 1301 AT (62 23 84 12) MAXCHARS 32 UNDERLINED
+  BUTTON "OK" ID 1302 AT (4 58 40 13)
+  BUTTON "Cancel" ID 1303 AT (50 58 46 13)
+  GRAFFITISTATEINDICATOR AT (144 60)
+END
+
+/* Menu on the main form: Preferences + the "Forget Password" security wipe. */
+MENU ID 1600
+BEGIN
+  PULLDOWN "Options"
+  BEGIN
+    MENUITEM "Preferences..." ID 1602
+    MENUITEM SEPARATOR
+    MENUITEM "Forget Password..." ID 1601
+  END
+END
+
+/* Preferences: choose how passwords are entered on the Set/Change/Unlock forms.
+ * Bottom-aligned like this app's other dialogs (frmPwSet/frmPwChange/frmUnlock/
+ * frmDelay all end at y=158, 2px above the screen bottom). */
+FORM ID 1800 AT (2 98 156 60)
+MODAL
+BEGIN
+  TITLE "Preferences"
+  LABEL "Type:" ID 1801 AT (6 22) FONT 1
+  POPUPTRIGGER "Text Entry" ID 1802 AT (40 21 108 13)
+  LIST "Text Entry" "Numeric Keypad" ID 1803 AT (40 10 108 24) VISIBLEITEMS 2 NONUSABLE
+  POPUPLIST ID 1802 1803
+  BUTTON "OK" ID 1804 AT (5 42 36 12)
+  BUTTON "Cancel" ID 1805 AT (45 42 42 12)
+END
+
+/* Numeric Keypad: iPhone-style PIN entry, popped up instead of graffiti/keyboard text
+ * entry for password fields when Preferences > Password Type = Numeric Keypad.
+ *
+ * The 10 digit/Del keys are GADGETs, not BUTTONs -- a BUTTON's label is always one
+ * centered line, but each key needs TWO lines (digit + phone-style letters) drawn
+ * INSIDE its own border, so the frame/digit/letters are hand-drawn (KeypadDrawKey)
+ * and press feedback + tap detection are hand-tracked (penDownEvent/penUpEvent hit
+ * testing, KeypadHitTest) instead of ctlSelectEvent. OK/Cancel stay real BUTTONs
+ * (single-line labels, no need for custom drawing).
+ *
+ * Layout (156-wide form, 5px left/right padding, 4px gaps): 3 columns x 46px, 4
+ * rows x 22px high (digit+letters both fit inside); OK/Cancel split the last row
+ * 50/50 with a 4px gap between them and 10px (2x the 5px side padding) below them
+ * to the form's bottom edge. The asterisk row above the grid is a deliberately
+ * short 12px, not needing more since it holds one line of bold text. */
+FORM ID 1900 AT (2 2 156 156)
+MODAL
+BEGIN
+  TITLE "Enter Password"
+  GADGET ID 1901 AT (5 30 46 22) USABLE
+  GADGET ID 1902 AT (55 30 46 22) USABLE
+  GADGET ID 1903 AT (105 30 46 22) USABLE
+  GADGET ID 1904 AT (5 56 46 22) USABLE
+  GADGET ID 1905 AT (55 56 46 22) USABLE
+  GADGET ID 1906 AT (105 56 46 22) USABLE
+  GADGET ID 1907 AT (5 82 46 22) USABLE
+  GADGET ID 1908 AT (55 82 46 22) USABLE
+  GADGET ID 1909 AT (105 82 46 22) USABLE
+  GADGET ID 1910 AT (5 108 46 22) USABLE
+  GADGET ID 1911 AT (55 108 46 22) USABLE
+  BUTTON "OK" ID 1912 AT (5 134 71 16)
+  BUTTON "Cancel" ID 1913 AT (80 134 71 16)
+END
+
+/* Progress: centered modal shown while (de/re)crypting or wiping a whole database.
+ * Drawn as a real form so the window manager saves/restores what's behind it -> no
+ * artifacts. The bar + optional body line are drawn into the form by the C code.
+ * Same 2px-margin/156-wide convention as every other dialog in this app (frmPwSet/
+ * frmPwChange/frmUnlock/frmDelay/frmPrefs) -- this form used to be the odd one out
+ * at 4px/152-wide, which clipped its own title bar frame/shadow against the screen
+ * edge. Same Y and horizontal center as before, just widened to match. */
+FORM ID 1400 AT (2 54 156 52)
+MODAL
+BEGIN
+  TITLE "Working"
+END
+
+/* Countdown dialog: incorrect-password lockout ("Security35") and the active-delay
+ * block ("Unlock Security Delay"). Title + both text lines are set/drawn by the C
+ * code; the [HH:MM:SS] line is redrawn every second. */
+/* Same footprint as the Unlock form (1300) so it covers it exactly. */
+FORM ID 1500 AT (2 78 156 80)
+MODAL
+BEGIN
+  TITLE "Security35"
+  BUTTON "OK" ID 1501 AT (58 60 40 13)
+END
+
+ALERT ID 2001
+INFORMATION
+BEGIN
+  TITLE "Sec35"
+  MESSAGE "The passwords do not match."
+  BUTTONS "OK"
+END
+
+ALERT ID 2002
+INFORMATION
+BEGIN
+  TITLE "Sec35"
+  MESSAGE "Please enter a password."
+  BUTTONS "OK"
+END
+
+ALERT ID 2003
+INFORMATION
+BEGIN
+  TITLE "Sec35"
+  MESSAGE "Incorrect password."
+  BUTTONS "OK"
+END
+
+ALERT ID 2006
+WARNING
+BEGIN
+  TITLE "Not Enough Memory"
+  MESSAGE "There isn't enough free memory to safely re-encrypt your data right " \
+          "now. Close some background applications/hacks and try again."
+  BUTTONS "OK"
+END
+
+ALERT ID 2007
+WARNING
+BEGIN
+  TITLE "Incomplete"
+  MESSAGE "Ran out of memory partway through, even after the earlier check. " \
+          "Some records may not match the current password. Close background " \
+          "applications/hacks and repeat this operation to fix it."
+  BUTTONS "OK"
+END
+
+ALERT ID 2004
+INFORMATION
+BEGIN
+  TITLE "Sec35 Security"
+  MESSAGE "Set a password to unlock the era apps' encryption. It auto-locks " \
+          "after the chosen delay. Lock locks the databases immediately; " \
+          "Delete (in the password box) removes the password."
+  BUTTONS "OK"
+END
+
+ALERT ID 2005
+CONFIRMATION
+BEGIN
+  TITLE "Forget Password"
+  MESSAGE "This would remove the current password, but all encrypted records " \
+          "will be deleted. Confirm?"
+  BUTTONS "No Yet!" "Yes! I really forgot!"
+END
+
+ALERT ID 2008
+INFORMATION
+BEGIN
+  TITLE "Resume Re-key"
+  MESSAGE "Password change completed. ^1"
+  BUTTONS "OK"
+END

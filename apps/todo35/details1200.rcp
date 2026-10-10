@@ -1,0 +1,33 @@
+/* Td35: hand-authored To Do Item Details dialog (form 1200).
+ * Replaces the Constructor-converted 1200 so we can add "Time:" and "Repeat:"
+ * rows (see lib/todoext.h). All original control IDs/behaviour are preserved;
+ * the dialog is taller and rows are re-spaced to fit two new selector rows. */
+FORM ID 1200 AT (2 23 156 135)
+MODAL
+BEGIN
+  TITLE "To Do Item Details"
+  LABEL "Priority:" ID 1202 AT (11 16) FONT 1
+  PUSHBUTTON "1" ID 1203 AT (61 16 11 11) GROUP 1
+  PUSHBUTTON "2" ID 1204 AT (73 16 11 11) GROUP 1
+  PUSHBUTTON "3" ID 1205 AT (85 16 11 11) GROUP 1
+  PUSHBUTTON "4" ID 1206 AT (97 16 11 11) GROUP 1
+  PUSHBUTTON "5" ID 1207 AT (109 16 11 11) GROUP 1
+  LABEL "Category:" ID 1208 AT (4 32) FONT 1
+  POPUPTRIGGER "................                        " ID 1210 AT (57 31 95 13)
+  LIST "" ID 1211 AT (59 32 72 0) VISIBLEITEMS 0 NONUSABLE
+  LABEL "Due Date:" ID 1212 AT (5 48) FONT 1
+  POPUPTRIGGER "19 chars:...........                    " ID 1214 AT (57 47 95 13)
+  LIST "Today" "Tomorrow" "One week later" "No Date" "Choose Date..." ID 1215 AT (59 47 65 1) VISIBLEITEMS 5 NONUSABLE
+  LABEL "Time:" ID 1228 AT (24 64) FONT 1
+  SELECTORTRIGGER "No Time" ID 1230 AT (60 63 60 13)
+  LABEL "Repeat:" ID 1229 AT (14 80) FONT 1
+  SELECTORTRIGGER "None" ID 1231 AT (60 79 95 13)
+  LABEL "Private:" ID 1216 AT (12 96) FONT 1
+  CHECKBOX "" ID 1217 AT (57 95 14 14)
+  BUTTON "OK" ID 1218 AT (5 116 25 12)
+  BUTTON "Cancel" ID 1219 AT (36 116 35 12)
+  BUTTON "Delete..." ID 1220 AT (77 116 40 12)
+  BUTTON "Note" ID 1221 AT (123 116 28 12)
+  POPUPLIST ID 1210 1211
+  POPUPLIST ID 1214 1215
+END

@@ -1,0 +1,6 @@
+application { "CalDAVSync" CDDV backup }
+/* Declared segments must actually have code tagged for them, or build-prc
+ * fails with "unknown code section" - grown incrementally as each piece of
+ * CalDAV Sync lands (see cddv_seg.h). Mirrors lazyFTP's own multi-segment
+ * scaffolding (apps/lazyFTP/lz_seg.h/.def) - same toolchain, same gotchas. */
+multiple code { "sec001" "sec002" "sec003" "sec004" }

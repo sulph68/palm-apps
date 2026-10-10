@@ -1,0 +1,163 @@
+<HTML><TITLE>
+The HackMaster Protocol
+</TITLE>
+<BODY background="grayback.gif">
+<H1>How to Write a Hack</H1>
+The HackMaster protocol is an open standard, and it is my hope that third-party developers will take advantage of its many features in order to code PalmOS system extensions that behave in a standard way and do not conflict with each other.  If everyone installs a patch in their own proprietary manner, not only will users have to learn a new managing method for each one, but extension conflicts will also arise almost inevitably.<P>
+Still, the Hack API is intended to be an evolving structure.  If there is some feature that you would like your extension to be able to rely upon, feel free to email me and I'll see if I can roll it into the next HackMaster revision.<P>
+<A HREF="#Intro">Introduction</A><BR>
+<A HREF="#PRC">The Hack File Format</A><BR>
+<A HREF="#Compiling">Compiling and Linking a Hack</A><BR>
+<A HREF="#Interaction">Trap Patch Interaction Details</A><BR>
+<A HREF="#CDEV">Control Panel Interaction Details</A><BR>
+<A HREF="#Custom">The Custom Procedure</A><BR>
+<A HREF="#Licensing">Licensing Information</A><BR>
+<A HREF="#Conclusion">Conclusion</A><BR>
+<P>
+<A NAME="Intro"><H2>Introduction</H2>
+HackMaster is a program for managing extensions to the Palm OS system software, affectionately known as "Hacks".  Typically, such extensions hook themselves into one of the many system routine traps and thus are called in addition to or in lieu of the standard Palm OS routines.<P>
+For instance, one could code up a Hack to replace the standard Keyboard dialog with a new input method, or insert a procedure into the event-handling code in order to perform special actions at the entry of a certain Graffiti character, or even patch the text field routines to allow hyperlinking between applications.  The potential uses are even wider than the system software itself.<P>
+Unfortunately, there are some problems with implementation.  Where in memory does one put the routine?  How does one install it into the trap?  How do you deal with multiple patches on the same trap, especially if they install and remove themselves in different orders?  How do you gracefully recover from a system reset?<P>
+It is to solve these problems that HackMaster was written.  HackMaster reads in special PalmPilot resource files of type 'HACK', which contain the code for the patch and also whatever user interface routines are necessary.  Then HackMaster presents a standard interface to the user for installing and removing Hacks, and for changing their configurations.  It handles all the dirty work of installing and removing the trap patches and keeping track of multiple Hacks on the same trap.  And it saves the current extension configuration so that they can all be automatically (or optionally) reinstalled on a system reset.<P>
+This document, then, will take you through the process of writing a PalmOS system extension using the HackMaster protocol.  In doing so, you will be bypassing a lot of effort in the details of trap patching, and you will be ensuring that your extensions will automatically coexist peacefully with all other possible extensions.<P>
+I assume a fairly high level of Pilot programming knowledge.  You should definitely be able to code up a standalone PalmOS application before attempting to write a Hack, since the facilities for debugging are much less and the potential for mishaps is much greater.  Some of the techniques employed here are not part of the standard PalmOS documentation, but with any luck Palm may adopt HackMaster for 'official' use in the future.<P>
+
+<A NAME="PRC"><H2>The 'HACK' .PRC File</H2>
+The files read by HackMaster are standard Palm resource files, just like standalone applications.  They contain code resources and UI resources and whatever else you want to stuff into the resource database.  They are installed just like applications, but won't show up as programs to be run, though they can be deleted in the Memory utility in the normal way.<P>
+For more information on compiling and linking the necessary 'code' resources, skip to the <A HREF="#Compiling">next section</A>.  This section outlines the larger structure of the .prc file, specifying the resource IDs and types for the various parts of the Hack to be recognized and function properly.<P>
+The Hack file type is 'HACK', instead of that standard 'appl' for application files.  Note that each Hack, just like each application, requires a unique creator code to identify it.  These creator codes should be registered with Palm Computing just like applications to prevent conflicts.  Anyway, here are the resources to include:<P>
+<H3>The patch routines</H3>
+The actual routines that will be inserted into the system as a trap patch should be placed in 'code' resources with IDs starting with 1000 and increasing sequentially.  Each Hack file can contain several patches that will all be installed and removed at the same time, if a single desired function requires multiple patches.<P>
+The 'code' resources will be called directly by the trap dispatcher, so be sure they are linked in the appropriate way (see the <A HREF="#Compiling">next section</A>).  It is possible to have multiple patches in the same file patching the same trap, but there isn't much purpose to this anyway.  Almost any trap can be patched, with the major exception of the Feature Manager calls.<P>
+<H3>The trap codes</H3>
+Along with each patch 'code' resource, a resource of type 'TRAP' must exist with the same ID containing the 2-byte trap code that the patch should be installed in.  To determine the trap code, have a look at the SysTraps.h PalmOS header file, which declares a large enumerated type for them.  If you don't want to count them yourself, <A HREF="hacktrap.txt">here is an annotated copy</A> of the header file with the trap codes listed directly.<P>
+<H3>Custom routine</H3>
+An optional 'code' resource of ID 1500 can contain a routine which handles custom extension behavior.  It can override or supplement the standard HackMaster installation, removal, and reset recovery behavior.  You can use this to install patches in places besides traps, such as interrupt service routines or application patches.  This can also be used to initialize database structures for the extension, and so forth, or clean up allocated memory after a reset.<P>
+In general, unless you have a very good reason, you should almost always choose to supplement the HackMaster behavior rather than replace it.  For more details on this custom routine, see a <A HREF="#Custom">later section</A> of this file.<P>
+<H3>The Hack name</H3>
+A 'tAIN' resource of ID 3000 contains the name that is listed in the HackMaster directory.  If this is not present, your Hack will still be listed, but with the label 'unknown'.<P>
+<H3>The Hack icon</H3>
+An optional 'ICON' resource of ID 3000 contains an icon for your Hack.  This resource is not presently supported by HackMaster, but I felt I should include this future possibility in the API from the start, just in case.<P>
+<H3>The about box</H3>
+An optional 'tFRM' resource of ID 3000 contains a dialog box that will be displayed when the user presses the question mark icon in the HackMaster list.  This form will just be called with FrmDoDialog, so no user interaction is supported beyond pressing an OK button.  It should describe the function of the extension, and provide whatever author information you like.<P>
+<H3>The control panel forms</H3>
+An optional 'tFRM' resource of ID 2000 contains a form which will be displayed when the user presses the plus icon in the HackMaster list.  This form should be used to support any options that the extension needs to have set.  Some patches require no interaction, but others need a lot of configuration.  This form is allowed to call other forms in the ID range 2000-2999 if necessary, but the ID 2000 form is the only one launched directly by HackMaster.  For more details on the interaction between the control panel forms and HackMaster, see a <A HREF="#CDEV">later section</A> of this document.<P>
+<H3>The control panel handlers</H3>
+For each included control panel form, you must include a 'code' resource with the same ID that contains an event handler for that form.  This routine will be installed with FrmSetEventHandler and called upon to process UI events for that form.  For the specifics of the duties of the handler, see a <A HREF="#CDEV">later section</A> of this document.<P>
+<H3>Other resources</H3>
+Other UI resources, specifically those supporting the 'tFRM's, should also be included.  In general, keeping ID numbers close to those of the 'tFRM' is a good idea.  Resource ID conflicts between HackMaster and an extension are unlikely, due to the way the PalmOS searches for active resources, but just in case HackMaster has kept all of its resources in the range 9000-9999, except for the 'tAIN' and 'ICON' resoures of ID 1000 necessary for HackMaster to show up in the Applications list.<P> 
+
+<A NAME="Compiling"><H2>Compiling and Linking a Hack</H2>
+In several places, you are required to supply a procedure to be executed in a separate 'code' resource.  This is a minor exercise in creative compiling and linking, but once you set it up right, the process is completely automated in MPW.<P>
+The basic idea is that you want to link your code in such a way that HackMaster can call the procedure you want by just jumping to the beginning address of your code resource.  To do this, you will need a separate C source file for each code resource, and a separate compile and link statement for each one.  Only in the building of the resource file do all the parts come together.<P>
+Unfortunately, since you are not compiling a free-standing application, but just a code fragment, you will not be able to use the Pilot Simulator at all.  All of the compiling is done in MPW, and all debugging will be on-Pilot.  In the future, we may be able to figure out a way to write a trap patch shell to run on the simulator, but for now you're living on the bleeding edge.<P>
+<H3>The source code</H3>
+At a minimum, you will need a source code file for your trap patch.  You may need some more separate files for additional patches and for control panel event handlers.  In any case, the source code does not contain a PilotMain routine or even a C main routine.  Just write the procedure you want to be called in the code resource (the routine will be specified in the link stage).  For example, a trap patch source file that will patch SysHandleEvent looks like this:<P>
+<PRE>#include &ltPilot.h&gt
+
+//no global variables allowed!
+
+/*
+    Put procedures called by the main routine here.
+*/
+
+Boolean MySysHandleEventTrap(EventPtr event)
+{
+  // the trap patch routine here
+}</PRE><P>
+Quite simple, actually.  For a control panel event handler, you do the exact same thing, except that the routine to be called should have the functional form of a standard event handler routine (the same as above, but just because we coincidentally picked an event-handler routine to trap).<P>
+<H3>Compiling</H3>
+In MPW, the compile step is exactly the same as for a standard Pilot application.  You should include a compile statement for each source code file in your trap patch project:<P>
+<PRE>"{OBJ_DIR}mypatch1.c.o" Ä MakeFile "{SRC_DIR}mypatch1.c"
+	 {CPP}  -o "{OBJ_DIR}mypatch1.c.o" "{SRC_DIR}mypatch1.c" ¶
+			{C_OPTIONS}</PRE><P>
+In the above sample, the directories and compiler options should already be defined by the makefile in the normal way.  This step will get you the object files you need to link into the code resources.<P>
+<H3>Linking</H3>
+This is the different step, in which you tell MPW that you're not making a Pilot application, but freestanding code fragments instead.  The link options are different for just this case, and you do not include the standard startup code object file like you do for regular Pilot projects.  Here is a sample link statement: <P>
+<PRE>LINK_OPTIONS = -single -coderesource -rt CODE=1
+
+	{LINK} {LINK_OPTIONS} -t rsrc -c RSED -m MyRoutine ¶
+		"{OBJ_DIR}mypatch1.c.o" -o mypatch1.code</PRE><P>
+The first thing different is that the <CODE>-custom</CODE> link type has been replaced with a <CODE>-coderesource</CODE> tag, indicating that the code should be linked into a 'CODE' resource of ID 1 in the Macintosh resource output file.  Secondly, the <CODE>-m</CODE> tag is used in the link statement in order to specify what routine in the file should be put in the beginning of the resource.  This is done in such a  way that this routine will be run by just jumping to the first byte of the CODE resource, which is how HackMaster knows where your routines are.<P>
+<H3>Resource compiling</H3>
+Now we need to tell MPW how to put all these CODE resources together with the patch's UI resources into a single .PRC file.  For this, the important part is the .r resource definition file.  Here is a sample:<P>
+<PRE>#include &ltBuildRules.h&gt
+#include &ltSystemMgr.rh&gt
+
+include "mypatch1.code" 'CODE' 1 as sysResTAppCode 1000;
+
+#if LANGUAGE==LANGUAGE_ENGLISH
+include ":Rsc:mypatch.rsrc";
+#else
+#error "The compiler variable LANGUAGE must be defined"
+#endif</PRE><P>
+Note that in this resource file, no mention is made of the CODE 0 and DATA 0 resources, which contain global variable information in a full Pilot program.  Here, just the one CODE resource is compiled as a 'code' resource of ID 1000, exactly as a trap patch must be.  If you had a control panel event handler, you would need a second include statement:<P>
+<CODE>include "mypatch2.code" 'CODE' 1 as sysResTAppCode 2000;</CODE></P>
+Note that this makes reference to a second output file, which must have been compiled and linked separately.  In your makefile, you can arrange the dependencies such that all of the various compiles and links are performed automatically on a project build.<P>
+The last step is to give MPW the command to build the .PRC file:<P>
+<PRE>	{CC} -d RESOURCE_COMPILER {C_OPTIONS} ¶
+			-e "{SRC_DIR}mypatch.r" &gt mypatch.i
+	PilotRez -v 1 -t HACK -c ???? -it mypatch.i -ot "My Patch"
+	Duplicate -y "MyPatch" "mypatch.prc"</PRE><P>
+Note that the application type for a Hack file is 'HACK', intead of 'appl'.  Other than that, you get a standard .prc file that can be installed and deleted in the usual way.  However, it will not show up in the Applications dialog, but only in the HackMaster list.<P>
+<A NAME="Interaction"><H2>Trap Patch Interaction Details</H2>
+For an extension to successfully interact with the system and with other extensions, a little bit of care is necessary.  The duties of a Hack and restrictions on the actions a Hack can perform are severe, due to the fact that traps can be called from many different states of the Pilot.<P>
+<H3>Calling the original trap routine</H3>
+Upon installation, HackMaster creates a feature keyed by the patch's creator code and resource ID which contains the address of the original trap routine.  The patch should obtain this address from the Feature Manager and use it appropriately.  If multiple patches are installed on the same trap, this address might actually be that of the next patch in line instead of the actual system routine.<P>
+Here is a sample code snippet showing how your trap routine on SysHandleEvent in ID 1000 should call the system routine:
+<PRE>#define mycreator '????'
+#define myresourceID 1000
+
+Boolean MySysHandleEventTrap (EventPtr event)
+{
+   Boolean (*oldtrap)(EventPtr); //procedure pointer to old trap;
+   DWord temp; //for the feature manager call type checking
+   Boolean handled;
+
+   FtrGet(mycreator,myresourceID,&temp); //get old trap address from HackMaster
+   oldtrap=(Boolean (*)(EventPtr))temp; //set procedure pointer
+   handled=false;
+      //do whatever you want to with the event, handle it or not
+   if (!handled) { //if you didn't handle it, call the old routine
+      handled=oldtrap(event);
+   }
+   return handled;
+}</PRE><P>
+Depending on the function of the Hack, the original routine can be used in different ways.  It could be ignored entirely, in order to replace its functionality entirely with that of the Hack.  Actions could be taken by the Hack, and then the original routine called, as for instance an event handler patch.  The parameters of the routine could be altered and then the original called, or the original called and then its results manipulated.  In general, unless you have a reason not to, the original system routine should be called at some point, if for no other reason than to allow other Hacks installed on the same trap to process the event too.<P>
+Hacks can be installed and removed at will, so be sure to get this address new at every function call, since it may have been changed to reflect a new trap patch.<P>
+<H3>Data storage issues</H3>
+Patches are free-floating code snippets, so they do not have global variable data.  They inherit the stack of the currently running procedure, so should not use excessive amounts of stack space.  The dynamic heap may be filled or empty, depending on whether or not the running program is using it extensively (only use this for temporary storage, since dynamic heap space is extremely precious).  Patches may access databases and resource files and features in order to retrieve configuration data stored for them by the control panel routines.<P>
+Upon installation, the patch 'code' resource is locked in memory, and remains so for the duration of its use.  It is in one of the static heaps, though, so memory protection needs to be kept in mind if you have some visions of self-modifying code.<P>
+<H3>Error handling</H3>
+A Hack is in a unique situation.  Since it is installed on an existing system routine, it doesn't <STRONG>have</STRONG> to do anything.  A default behavior is already present in the system routine.  Therefore Hacks have no excuse to crash.  Error check frequently, and if anything goes wrong, just do nothing but call the original system routine and let it deal with the situation.<P>
+
+<A NAME="CDEV"><H2>Control Panel Interaction Details</H2>
+The interaction between HackMaster and the control panel form resources contained in Hack files is very specific.  Failure to follow the details may result in fatal errors, so make sure you are doing what HackMaster expects you to do.<P>
+<H3>Duties of HackMaster</H3>
+At the press of the plus icon, HackMaster executes a FrmGotoForm(2000) command, jumping to the form with ID 2000, if present.  This is the only form directly launched by HackMaster in the control panel interface, although the ID 2000 form may jump to other forms in the ID range 2000-2999 without difficulty.<P>
+HackMaster will trap frmLoadEvents with IDs in the range 2000-2999 and perform the necessary setup for them.  It will open the Hack's resource file and call FrmInitForm for the form in question.  It will also install the 'code' resource with the same ID as the event handler for that form using FrmSetEventHandler.<P>
+HackMaster will also trap frmCloseEvents.  Upon doing so, it will immediately pass the event on to the Hack's event handler and/or the standard form event handler using FrmDispatchEvent.  After this call returns, HackMaster will close the Hack's resource file again.<P>
+<H3>Duties of the control panel</H3>
+The control panel must handle frmOpenEvents in order to draw the form and initialize any structures it needs.  It can rely upon its resource file being opened and accessible for reading in other resources.<P>
+If other forms need to be brought up by the control panel, this can be done with FrmGotoForm commands.  FrmPopupForm is not recommended because this will probably result in the resource file being opened twice by HackMaster.<P>
+The control panel must provide a means for the user to exit it, such as a 'Done' button.  At such a close, the control panel should execute a FrmGotoForm(9000) command to jump back to the HackMaster main list.<P>
+The control panel event handler, just like any other 'code' resource discussed above, cannot rely on global variables.  Feature manager calls possibly in combination with database or dynamic heap allocation should be used to save whatever state information is necessary between event handler calls.<P>
+Note that since the control panel handler is called by the form event dispatcher, system events will already have been handled at an earlier stage, so it is not currently possible for the control panel to respond to system-level events, such as hardware app button presses, for instance, without serious workarounds.<P>
+The control panel must be able to gracefully handle the case of being brought up when the extension is installed or not.  If configuring of the extension is not possible while it is running, the control panel should detect this situation (with Feature Manager calls) and display a "sorry, can't do that" dialog.<P>
+
+<A NAME="Custom"><H2>The Custom Procedure</H2>
+The API for the custom install/remove procedure in ID 1500 is still being developed.  Further details will be forthcoming when available.<P>
+
+<A NAME="Licensing"><H2>Licensing Information</H2>
+Ah, finance.  If you are a commercial company and you would like to write and sell your own Hacks using this protocol, you are free and clear to do so, and in fact I encourage you to adopt this standard to prevent extension conflicts.  However, the HackMaster program itself is copyrighted shareware, and thus <STRONG>cannot</STRONG> be freely distributed with the extensions you sell.  It's not fair for you to get the profit for giving customers my program, now is it?<P>
+Anyway, if you do want to distribute copies of HackMaster with other software you have written, we'll have to arrange some sort of license.  Specifics vary on a case-by-case basis, but generally I would expect a licensing fee per copy of 25 cents or one percent of the cost of the product, whichever is less.  This entitles you to distribute copies of HackMaster, but does not mean that your customers are automatically registered users with all the rights and privileges thereof (like technical support, email updates, etc.)<P>
+Anyway, just email me and we'll talk specifics if this applies to you.  If, on the other hand, you are a shareware/freeware author and want to distribute copies of HackMaster with your Hacks, go right ahead.  Just be somewhat obvious in mentioning the fact that HackMaster is indeed shareware are should be registered with DaggerWare; the appropriate URL is in the program itself.<P>
+
+<A NAME="Conclusion"><H2>Conclusion</H2>
+Well, now that I've totally bored you with technical details and infuriated you with inane comments, I can wish you good luck in coding up your own Hacks.  It's definitely a powerful tool, with the potential to do things on and to the Pilot that can't be done any other way.<P>
+So have fun!<P>
+<P>
+<HR><P>
+<A HREF="dagger.htm"><IMG  Align=Top SRC="dagsmall.jpg"><BR>
+Back to the DaggerWare home page</A>
+</BODY></HTML>

@@ -1,0 +1,195 @@
+///////////////////////////////////////////////////////////////////////////////
+//                                                                           //
+//        Program Name:  McPhling.rch                                        //
+//              Author:  Mike McCollister (© 2000-2009)                      //
+//     Original Author:  Mitch Blevins <mblevin@debian.org> (© 1997-2000)    //
+//            Language:  PRC-Tools 2.3                                       //
+//                       Palm OS 5 SDK R3                                    //
+//                       PilRC 3.2                                           //
+//                       HandEra Header Files from SDK 1.04                  //
+//                       palmOne Header Files from SDK version 5.1           //
+//                       Sony Header Files from SDK 5.0 version 1.2          //
+//               Notes:  Distributed under the GNU GPL.                      //
+//                       Based on LinkHistoryHack by Ben Darnell             //
+//                       <bgdarnel@unity.ncsu.edu> which was based on        //
+//                       SampleHack by Roger Chaplin                         //
+//                       <foursquaredev@att.net>.                            //
+//         Description:  McPhling Resource Header File                       //
+//                                                                           //
+///////////////////////////////////////////////////////////////////////////////
+
+#ifndef MCPHLING_RCH
+#define	MCPHLING_RCH 1
+
+////////////////////////
+// Navigation Defines //
+////////////////////////
+
+#define	kFrmNavHeaderFlagsObjectFocusStartState  0x00000001
+#define	kFrmNavHeaderFlagsAppFocusStartState     0x00000002
+
+/////////////
+// Defines //
+/////////////
+
+#define MIN_X			0
+#define MIN_Y			0
+#define MAX_WIDTH		160
+#define MAX_HEIGHT		160
+#define MAX_HEIGHT2		240
+#define MIN_X_MOD		2
+#define MIN_Y_MOD		2
+#define MAX_WIDTH_MOD		156
+#define MAX_HEIGHT_MOD		156
+#define NUM_CHARS_NUM_ITEMS	5
+#define REG_LEFT                5
+#define REG_BULLET_SPACE        7
+#define LINE_SPACING            14
+#define LINE_SPACING2           18
+#define ABOUT_LINE_SPACING	12
+#define ABOUT_LINE_SPACING2	18
+#define FORM_LEFT               5
+#define FORM_LEFT2              15
+#define APPLIST_HEIGHT_NOMINAL  88
+
+////////////////
+// Prefs Form //
+////////////////
+
+#define PrefsForm               	2000
+#define PrefsMenu               	2001
+#define AppList                 	2002
+#define PrefsCancelButton       	2003
+#define PrefsActivationButton   	2004
+#define PrefsCacheButton        	2005
+#define PrefsEnabled            	2006
+#define PrefsShowIcons          	2007
+#define PrefsClick              	2008
+#define PrefsShowCurrentApp     	2009
+#define PrefsVFSSupport         	2010
+#define PrefsSelectLast         	2011
+#define PrefsLabelSort          	2012
+#define PrefsPopupTriggerSort   	2013
+#define PrefsListSort           	2014
+#define PrefsLabelAppListPos		2015
+#define PrefsPopupTriggerAppListPos	2016
+#define PrefsListAppListPos		2017
+#define PrefsFieldNumItems      	2018
+#define PrefsNumItemsUp         	2019
+#define PrefsNumItemsDown       	2020
+#define CacheAlert              	2021
+#define TooManyFavorites        	2022
+#define VFSAlert                	2023
+#define OutOfMemory             	2024
+#define OutOfMemoryForVFSList   	2025
+#define IgnoreBitmap            	2026
+#define FavoriteBitmap          	2027
+#define LineBitmap              	2028
+#define ListNumLabel            	2029
+#define NumberBox               	2030
+#define DaBitmap                	2031
+#define DaSelectBitmap          	2032
+#define DaIcon                  	2033
+
+#define menuitemID_beam         	2033
+#define menuitemID_send         	2034
+#define menuitemID_info         	2035
+#define menuitemID_about        	2036
+
+//////////////////////////////////////////
+// Common To Prefs and Activation Forms //
+//////////////////////////////////////////
+
+#define OKButton                2900
+#define CancelButton            2901
+
+////////////////
+// About Form //
+////////////////
+
+#define AboutForm             3000
+#define AboutFormBitmap       3001
+
+/////////////////////
+// Activation Form //
+/////////////////////
+
+#define ActForm                       4000
+#define ActCheckboxSwipeActivation    4001
+#define ActCheckboxCmdBarActivation   4002
+#define ActLabelSwipeApps             4003
+#define ActLabelAppsSwipeFrom         4004
+#define ActPopupTriggerAppsSwipeFrom  4005
+#define ActLabelSwipeBack             4006
+#define ActListAppsSwipeFrom          4007
+#define ActLabelAppsSwipeTo           4008
+#define ActPopupTriggerAppsSwipeTo    4009
+#define ActListAppsSwipeTo            4010
+#define ActLabelBackSwipeFrom         4011
+#define ActPopupTriggerBackSwipeFrom  4012
+#define ActListBackSwipeFrom          4013
+#define ActLabelBackSwipeTo           4014
+#define ActPopupTriggerBackSwipeTo    4015
+#define ActListBackSwipeTo            4016
+#define ActCheckboxKeyboardActivation 4017
+#define ActLabelKeyboardHold          4018
+#define ActCheckboxKeyboardHoldApps   4019
+#define ActCheckboxKeyboardHoldBack   4020
+#define ActLabelKeyboardApps          4021
+#define ActPopupTriggerKeyboardApps   4022
+#define ActListKeyboardApps           4023
+#define ActLabelKeyboardBack          4024
+#define ActPopupTriggerKeyboardBack   4025
+#define ActListKeyboardBack           4026
+#define ActDefaultButton              4027
+#define DefaultAlert                  4028
+#define CustomButtonDetailsAlert      4029
+#define VersionAlert                  4030
+#define MemoryCardAlert               4031
+#define ActLabelKeyboardSel           4032
+#define ActListKeyboardSel            4033
+#define ActPopupTriggerKeyboardSel    4034
+
+////////////////////////
+// Custom Button Form //
+////////////////////////
+
+#define CustomButtonForm              4100
+#define CustomButtonDetailsCheckbox   4110
+
+////////////////
+// Help Forms //
+////////////////
+
+#define Help                  5000
+#define ActHelp               5001
+#define CustomButtonHelp      5002
+#define VFSAlertHelp          5003
+
+//////////////////////
+// Please Wait Form //
+//////////////////////
+
+#define PleaseWaitForm        6000
+
+///////////////
+// List Form //
+///////////////
+
+#define ListForm              7000
+#define PopupAppList          7001
+
+///////////////////////
+// McPhlingVFS Stuff //
+///////////////////////
+
+#define MCPHLING_VFS_ID       1
+
+/////////////////////
+// Cmd Bar Bitmaps //
+/////////////////////
+
+#define CmdBarAppsBitmap	9000
+#define CmdBarBackBitmap	9001
+
+#endif

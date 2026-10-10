@@ -1,0 +1,5 @@
+// prc-tools build only (CodeWarrior took the version from the project settings).
+// 1.2   = the original release
+// 1.2.1 = restore fixes: deleted/archived records (Src/ExgDB.c), skip + report, no VFSFileDBInfo
+// 1.3   = selective restore: choose what goes back, grouped by owner (Src/choose.c)
+VERSION "1.3"
