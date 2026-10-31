@@ -35,6 +35,7 @@
 #include "AddressDB35.h"
 #include "enccore.h"
 #include "a35lookup.h"
+#include "DavView.h"
 
 #define lkMaxContacts	800			/* 800 x 28 bytes = ~22 KB at most */
 #define lkNameLen		24			/* list row text (incl. NUL)       */
@@ -51,6 +52,7 @@ typedef struct {
 /* Cached contact table (feature a35Creator/lkCacheFtr, storage heap): this
  * header, then `total` LkContacts. Valid while the stamp matches the DB. */
 #define lkCacheFtr		3501
+#define lkCacheFtrDav	3502		/* the last CardDAV book's table (any slot; the stamp tells which) */
 typedef struct {
 	LocalID	dbID;
 	UInt32	crDate;
@@ -86,6 +88,12 @@ static void LkValue(const UInt8 *r, UInt8 fieldIdx, EncKeySchedule *sched, UInt3
 static MemHandle LkPick(DmOpenRef db, UInt32 uid, FormPtr frm, UInt32 *uidOut) SEC002;
 static void LkStamp(DmOpenRef db, LkCacheHdr *h) SEC002;
 static UInt16 LkBuild(DmOpenRef db, LkContact *out, UInt16 cap) SEC002;
+static void LkNameFromDav(const UInt8 *r, UInt32 size, char *out, UInt16 outLen) SEC002;
+static UInt16 LkBuildDav(DmOpenRef db, LkContact *out, UInt16 cap) SEC002;
+static UInt16 LkLoad(UInt8 src, DmOpenRef localDb, MemHandle *hOut) SEC002;
+static MemHandle LkPickDav(UInt8 src, UInt32 wantUid, FormPtr frm) SEC002;
+static void LkToast(const char *text) SEC002;
+static void LkToastEnd(void) SEC002;
 
 SEC002 static UInt16 LkRd16(const UInt8 *p)
 {
@@ -387,31 +395,120 @@ SEC002 static UInt16 LkBuild(DmOpenRef db, LkContact *out, UInt16 cap)
 	return total;
 }
 
-SEC002 UInt32 A35PhoneLookup(AddrLookupParamsPtr params)
+/* "Loading..." box while a table is built: this file's own copy of the text-only toast (the
+ * shared one, A35BusyBegin, is in another segment, which a lookup sublaunch must not call -
+ * the jump goes wild). Drawn straight on the display, the pixels under it saved and
+ * restored by LkToastEnd, so no form or window outlives this sublaunch. */
+static WinHandle gLkToast;
+static RectangleType gLkToastR;
+
+SEC002 static void LkToast(const char *text)
 {
-	DmOpenRef db;
-	MemHandle contactsH = NULL, shownH;
-	UInt16 total = 0, shown, cap;
+	RectangleType r;
+	WinHandle prevDraw = WinGetDrawWindow();
+	Int16 w, len = (Int16) StrLen(text);
+	Err err;
+	FontID prev;
+
+	WinSetDrawWindow(WinGetDisplayWindow());
+	prev = FntSetFont(boldFont);
+	w = FntCharsWidth((Char *) text, len);
+	r.extent.x = (Int16) (w + 20);
+	r.extent.y = 24;
+	r.topLeft.x = (Int16) ((160 - r.extent.x) / 2);
+	r.topLeft.y = 68;
+	gLkToastR.topLeft.x = (Int16) (r.topLeft.x - 4);
+	gLkToastR.topLeft.y = (Int16) (r.topLeft.y - 4);
+	gLkToastR.extent.x = (Int16) (r.extent.x + 8);
+	gLkToastR.extent.y = (Int16) (r.extent.y + 8);
+	gLkToast = WinSaveBits(&gLkToastR, &err);
+	WinEraseRectangle(&r, 3);
+	WinDrawRectangleFrame(dialogFrame, &r);
+	WinDrawChars((Char *) text, len, (Int16) (r.topLeft.x + 10), (Int16) (r.topLeft.y + 6));
+	FntSetFont(prev);
+	WinSetDrawWindow(prevDraw);
+}
+
+SEC002 static void LkToastEnd(void)
+{
+	if (gLkToast) {
+		WinHandle prevDraw = WinGetDrawWindow();
+		WinSetDrawWindow(WinGetDisplayWindow());
+		WinRestoreBits(gLkToast, gLkToastR.topLeft.x, gLkToastR.topLeft.y);
+		WinSetDrawWindow(prevDraw);
+		gLkToast = NULL;
+	}
+}
+
+/* CardDAV record (DavView.c layout): version, flags, listLen, list value, then three
+ * readable sort names (u8 length + bytes): last, first, company. */
+SEC002 static void LkNameFromDav(const UInt8 *r, UInt32 size, char *out, UInt16 outLen)
+{
+	char nm[3][40];
+	UInt32 pos;
+	UInt16 f, n;
+
+	nm[0][0] = nm[1][0] = nm[2][0] = '\0';
+	pos = (size >= 3) ? (UInt32) 3 + r[2] : size;
+	for (f = 0; f < 3 && pos < size; f++) {
+		n = r[pos];
+		if (pos + 1 + n > size) break;
+		if (n > 39) n = 39;
+		MemMove(nm[f], r + pos + 1, n);
+		nm[f][n] = '\0';
+		pos += 1 + r[pos];
+	}
+	out[0] = '\0';
+	if (nm[1][0] || nm[0][0]) {
+		StrNCat(out, nm[1], (Int16) outLen);
+		if (nm[1][0] && nm[0][0]) StrNCat(out, " ", (Int16) outLen);
+		StrNCat(out, nm[0], (Int16) outLen);
+	} else
+		StrNCat(out, nm[2][0] ? nm[2] : "-Unnamed-", (Int16) outLen);
+}
+
+/* One entry per CardDAV contact with a phone or email (the record header's list value is
+ * the first phone, else the first email, so a non-empty one says there is something to
+ * paste), in the book's order. Names are clear: no decryption, no parsing. */
+SEC002 static UInt16 LkBuildDav(DmOpenRef db, LkContact *out, UInt16 cap)
+{
+	UInt16 i, nrec = DmNumRecords(db), total = 0;
+
+	for (i = 0; i < nrec && total < cap; i++) {
+		MemHandle h = DmQueryRecord(db, i);
+		const UInt8 *r;
+		UInt32 size;
+		UInt16 attr;
+		if (h == NULL) continue;
+		if (DmRecordInfo(db, i, &attr, &out[total].uid, NULL) != errNone || (attr & dmRecAttrDelete)) continue;
+		r = (const UInt8 *) MemHandleLock(h);
+		size = MemHandleSize(h);
+		if (size >= 3 && r[0] == 2 && (r[2] > 0 || (r[1] & davFlagSocial))) {
+			LkNameFromDav(r, size, out[total].name, lkNameLen);
+			total++;
+		}
+		MemHandleUnlock(h);
+	}
+	return total;
+}
+
+/* gLkContacts for source src (0 = Local, else CardDAV slot 1..8): the cached table if that
+ * book hasn't changed, else built now (behind a "Loading..." box) and cached. *hOut gets
+ * the heap block backing a freshly built table (caller frees), NULL for a cached one. */
+SEC002 static UInt16 LkLoad(UInt8 src, DmOpenRef localDb, MemHandle *hOut)
+{
+	DmOpenRef db = localDb;
 	LkCacheHdr stamp, *cache = NULL;
 	UInt32 ftrVal;
 	void *ftrP;
-	FormPtr frm;
-	ListPtr lst;
-	FieldPtr find;
-	Boolean done = false;
+	UInt16 ftr = src ? lkCacheFtrDav : lkCacheFtr, total = 0, cap;
 
-	if (params == NULL || A35GetDatabase(&db, dmModeReadOnly) != errNone)
+	*hOut = NULL;
+	gLkContacts = NULL;
+	if (src && (db = DavOpen((UInt8) (src - 1))) == NULL)
 		return 0;
-	if (LkLocked(db)) {
-		DmCloseDatabase(db);
-		params->uniqueID = a35LookupLockedID;	/* the caller hands off to Sec35's unlock screen */
-		return 0;
-	}
-
-	/* The contact table: the cached one if Address35DB hasn't changed since
-	 * it was built, else build it now and cache it for next time. */
 	LkStamp(db, &stamp);
-	if (FtrGet(a35Creator, lkCacheFtr, &ftrVal) == errNone) {
+	if (FtrGet(a35Creator, ftr, &ftrVal) == errNone) {
 		cache = (LkCacheHdr *) ftrVal;
 		if (cache->dbID != stamp.dbID || cache->crDate != stamp.crDate ||
 			cache->modNum != stamp.modNum || cache->nrec != stamp.nrec)
@@ -422,32 +519,156 @@ SEC002 UInt32 A35PhoneLookup(AddrLookupParamsPtr params)
 		total = cache->total;
 	} else {
 		cap = (stamp.nrec < lkMaxContacts) ? stamp.nrec : lkMaxContacts;
-		contactsH = MemHandleNew((UInt32) (cap ? cap : 1) * sizeof(LkContact));
-		if (contactsH == NULL) {
-			DmCloseDatabase(db);
-			return 0;
-		}
-		gLkContacts = (LkContact *) MemHandleLock(contactsH);
-		total = LkBuild(db, gLkContacts, cap);
-		stamp.total = total;
-		if (FtrGet(a35Creator, lkCacheFtr, &ftrVal) == errNone)
-			FtrPtrFree(a35Creator, lkCacheFtr);
-		if (FtrPtrNew(a35Creator, lkCacheFtr,
-				(UInt32) sizeof(LkCacheHdr) + (UInt32) total * sizeof(LkContact), &ftrP) == errNone) {
-			DmWrite(ftrP, 0, &stamp, sizeof(stamp));
-			if (total)
-				DmWrite(ftrP, sizeof(stamp), gLkContacts, (UInt32) total * sizeof(LkContact));
+		*hOut = MemHandleNew((UInt32) (cap ? cap : 1) * sizeof(LkContact));
+		if (*hOut != NULL) {
+			LkToast("Loading...");
+			gLkContacts = (LkContact *) MemHandleLock(*hOut);
+			total = src ? LkBuildDav(db, gLkContacts, cap) : LkBuild(db, gLkContacts, cap);
+			stamp.total = total;
+			if (FtrGet(a35Creator, ftr, &ftrVal) == errNone)
+				FtrPtrFree(a35Creator, ftr);
+			if (FtrPtrNew(a35Creator, ftr,
+					(UInt32) sizeof(LkCacheHdr) + (UInt32) total * sizeof(LkContact), &ftrP) == errNone) {
+				DmWrite(ftrP, 0, &stamp, sizeof(stamp));
+				if (total)
+					DmWrite(ftrP, sizeof(stamp), gLkContacts, (UInt32) total * sizeof(LkContact));
+			}
+			LkToastEnd();
 		}
 	}
-	shownH = MemHandleNew((UInt32) (total ? total : 1) * sizeof(UInt16));
-	if (shownH == NULL) {
-		if (contactsH) { MemHandleUnlock(contactsH); MemHandleFree(contactsH); }
+	if (src) DmCloseDatabase(db);
+	return total;
+}
+
+/* LkPick for a CardDAV contact: the phones and emails come from its (decrypted) vCard text
+ * (DavItems), the name from the record header. */
+SEC002 static MemHandle LkPickDav(UInt8 src, UInt32 wantUid, FormPtr frm)
+{
+	DmOpenRef db = DavOpen((UInt8) (src - 1));
+	MemHandle h, outH = NULL, textH = NULL, ptrsH = NULL;
+	DavItem *it;
+	char name[40];
+	UInt16 ri;
+	UInt8 n = 0, i;
+	Int16 pick = 0, res;
+	char *rows = NULL, **ptrs = NULL;
+
+	if (db == NULL) return NULL;
+	if (DmFindRecordByID(db, wantUid, &ri) != errNone || (h = DmQueryRecord(db, ri)) == NULL) {
+		DmCloseDatabase(db);
+		return NULL;					/* gone since the table was built */
+	}
+	{
+		const UInt8 *r = (const UInt8 *) MemHandleLock(h);
+		LkNameFromDav(r, MemHandleSize(h), name, sizeof(name));
+		MemHandleUnlock(h);
+	}
+	DmCloseDatabase(db);
+	it = (DavItem *) MemPtrNew(lkMaxItems * sizeof(DavItem));
+	if (it == NULL) return NULL;
+	res = DavItems((UInt8) (src - 1), ri, it, lkMaxItems, &n);
+	if (res == 1) {
+		FrmAlert(altDavLocked);
+	} else if (res != 0 || n == 0) {
+		FrmCustomAlert(altDavInfo, "No phone number or email.", "", "");
+	} else {
+		if (n > 1) {
+			ListPtr lst = (ListPtr) LkObj(frm, lstLookupItems);
+			textH = MemHandleNew((UInt32) n * lkItemLen);
+			ptrsH = MemHandleNew((UInt32) n * sizeof(char *));
+			if (textH == NULL || ptrsH == NULL) {
+				pick = -1;
+			} else {
+				rows = (char *) MemHandleLock(textH);
+				ptrs = (char **) MemHandleLock(ptrsH);
+				for (i = 0; i < n; i++) {
+					ptrs[i] = rows + (UInt32) i * lkItemLen;
+					StrNCopy(ptrs[i], it[i].label, lkItemLen - 1);
+					ptrs[i][lkItemLen - 1] = '\0';
+					if (it[i].label[0]) StrNCat(ptrs[i], "  ", lkItemLen);
+					StrNCat(ptrs[i], it[i].value, lkItemLen);
+				}
+				LstSetListChoices(lst, ptrs, n);
+				LstSetHeight(lst, (Int16) (n < 8 ? n : 8));
+				LstSetSelection(lst, 0);
+				pick = LstPopupList(lst);
+				LstSetListChoices(lst, NULL, 0);
+			}
+		}
+		if (pick >= 0) {
+			/* a social handle keeps its network: "Name - Instagram @handle" (as for local contacts) */
+			const char *lbl = (it[pick].kind == 1) ? it[pick].label : "";
+			outH = MemHandleNew((UInt32) (StrLen(name) + 3 + StrLen(lbl) + 1 + StrLen(it[pick].value) + 1));
+			if (outH) {
+				char *s = (char *) MemHandleLock(outH);
+				StrCopy(s, name);
+				StrCat(s, " - ");
+				if (lbl[0]) { StrCat(s, lbl); StrCat(s, " "); }
+				StrCat(s, it[pick].value);
+				MemHandleUnlock(outH);
+				MemHandleSetOwner(outH, 0);		/* survives this sublaunch, as in LkPick */
+			}
+		}
+	}
+	if (rows) { MemSet(rows, (Int32) n * lkItemLen, 0); MemHandleUnlock(textH); }
+	if (textH) MemHandleFree(textH);
+	if (ptrs) MemHandleUnlock(ptrsH);
+	if (ptrsH) MemHandleFree(ptrsH);
+	MemSet(it, lkMaxItems * sizeof(DavItem), 0);
+	MemPtrFree(it);
+	return outH;
+}
+
+SEC002 UInt32 A35PhoneLookup(AddrLookupParamsPtr params)
+{
+	DmOpenRef db;
+	MemHandle contactsH = NULL, shownH;
+	UInt16 total = 0, shown;
+	FormPtr frm;
+	ListPtr lst;
+	FieldPtr find;
+	char *srcText;
+	char *srcPtrs[9];
+	UInt8 srcSlot[9], v = 0;
+	Int16 nsrc = 1, cur = 0, i;
+	UInt16 vsz = sizeof(v);
+	Boolean done = false;
+
+	if (params == NULL || A35GetDatabase(&db, dmModeReadOnly) != errNone)
+		return 0;
+	if (LkLocked(db)) {
+		DmCloseDatabase(db);
+		params->uniqueID = a35LookupLockedID;	/* the caller hands off to Sec35's unlock screen */
+		return 0;
+	}
+
+	/* Sources: Local, then every CardDAV / iCloud book (the popup next to Cancel). The last
+	 * pick is remembered. */
+	srcText = (char *) MemPtrNew(9 * 36);
+	shownH = MemHandleNew((UInt32) lkMaxContacts * sizeof(UInt16));
+	if (srcText == NULL || shownH == NULL) {
+		if (srcText) MemPtrFree(srcText);
+		if (shownH) MemHandleFree(shownH);
 		DmCloseDatabase(db);
 		return 0;
 	}
 	gLkShown = (UInt16 *) MemHandleLock(shownH);
+	StrCopy(srcText, "Local");
+	srcPtrs[0] = srcText;
+	srcSlot[0] = 0;
+	if (PrefGetAppPreferences(a35PrefCreator, a35LookupPrefID, &v, &vsz, true) == noPreferenceFound)
+		v = 0;
+	for (i = 0; i < davMaxSlots; i++) {
+		char *q = srcText + nsrc * 36;
+		if (DavSlotLabel((UInt8) i, q) != davSlotOk) continue;
+		srcPtrs[nsrc] = q;
+		srcSlot[nsrc] = (UInt8) (i + 1);
+		if (v == i + 1) cur = nsrc;
+		nsrc++;
+	}
 
-	if (total == 0) {
+	total = LkLoad(srcSlot[cur], db, &contactsH);
+	if (total == 0 && nsrc == 1) {
 		FrmAlert(altLookupNone);
 	} else {
 		frm = FrmInitForm(frmLookup);
@@ -455,6 +676,15 @@ SEC002 UInt32 A35PhoneLookup(AddrLookupParamsPtr params)
 		find = (FieldPtr) LkObj(frm, fldLookupFind);
 		if (params->title)
 			FrmSetTitle(frm, params->title);
+		if (nsrc > 1) {
+			ListPtr sl = (ListPtr) LkObj(frm, lstLookupSrc);
+			LstSetListChoices(sl, srcPtrs, nsrc);
+			LstSetHeight(sl, nsrc);
+			LstSetSelection(sl, cur);
+			CtlSetLabel((ControlPtr) LkObj(frm, popLookupSrc), srcPtrs[cur]);
+		} else {
+			FrmHideObject(frm, FrmGetObjectIndex(frm, popLookupSrc));
+		}
 		FrmSetActiveForm(frm);
 		StrNCopy(gLkFind, params->lookupString, sizeof(gLkFind) - 1);
 		gLkFind[sizeof(gLkFind) - 1] = '\0';
@@ -468,6 +698,13 @@ SEC002 UInt32 A35PhoneLookup(AddrLookupParamsPtr params)
 		LstSetListChoices(lst, NULL, shown);
 		LstSetSelection(lst, shown ? 0 : -1);
 		FrmDrawForm(frm);
+		/* the full-screen form's border: a 2-pixel line around the screen edge */
+		WinDrawLine(0, 0, 0, 159);
+		WinDrawLine(1, 0, 1, 159);
+		WinDrawLine(158, 0, 158, 159);
+		WinDrawLine(159, 0, 159, 159);
+		WinDrawLine(0, 158, 159, 158);
+		WinDrawLine(0, 159, 159, 159);
 
 		while (!done) {
 			EventType ev;
@@ -477,6 +714,21 @@ SEC002 UInt32 A35PhoneLookup(AddrLookupParamsPtr params)
 			if (ev.eType == appStopEvent) {
 				EvtAddEventToQueue(&ev);
 				break;
+			}
+			if (ev.eType == popSelectEvent && ev.data.popSelect.listID == lstLookupSrc) {
+				Int16 ns = ev.data.popSelect.selection;
+				if (ns >= 0 && ns < nsrc && ns != cur) {
+					cur = ns;
+					CtlSetLabel((ControlPtr) LkObj(frm, popLookupSrc), srcPtrs[cur]);
+					if (contactsH) { MemHandleUnlock(contactsH); MemHandleFree(contactsH); contactsH = NULL; }
+					total = LkLoad(srcSlot[cur], db, &contactsH);
+					PrefSetAppPreferences(a35PrefCreator, a35LookupPrefID, 1, &srcSlot[cur], 1, true);
+					shown = LkFilter(total);
+					LstSetListChoices(lst, NULL, shown);
+					LstSetSelection(lst, shown ? 0 : -1);
+					LstDrawList(lst);
+				}
+				continue;
 			}
 			if (ev.eType == lstSelectEvent && ev.data.lstSelect.listID == lstLookup)
 				sel = ev.data.lstSelect.selection;		/* tapping a contact picks it */
@@ -489,7 +741,9 @@ SEC002 UInt32 A35PhoneLookup(AddrLookupParamsPtr params)
 				}
 			}
 			if (sel >= 0 && sel < (Int16) shown) {
-				MemHandle h = LkPick(db, gLkContacts[gLkShown[sel]].uid, frm, &params->uniqueID);
+				UInt32 wantUid = gLkContacts[gLkShown[sel]].uid;
+				MemHandle h = srcSlot[cur] ? LkPickDav(srcSlot[cur], wantUid, frm) :
+					LkPick(db, wantUid, frm, &params->uniqueID);
 				if (h) { params->resultStringH = h; done = true; }
 				continue;		/* popup dismissed: stay on the contact list */
 			}
@@ -535,6 +789,7 @@ SEC002 UInt32 A35PhoneLookup(AddrLookupParamsPtr params)
 	if (contactsH) { MemHandleUnlock(contactsH); MemHandleFree(contactsH); }
 	MemHandleUnlock(shownH);
 	MemHandleFree(shownH);
+	MemPtrFree(srcText);
 	gLkContacts = NULL;
 	gLkShown = NULL;
 	DmCloseDatabase(db);

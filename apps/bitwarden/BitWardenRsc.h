@@ -84,6 +84,7 @@
 								 * serial-speed menu setting currently is; see
 								 * Serial.c's own comment on why this isn't
 								 * hardcoded */
+#define chkPrefsScreenless	1218	/* Screenless Mode */
 #define lstPrefsBaud		1217	/* 1215 reserved for this row's own decorative LABEL */
 
 /* Full-screen fingerprint viewer, reached from Preferences' "Show" button -

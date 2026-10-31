@@ -38,6 +38,7 @@ BEGIN
 		MENUITEM SEPARATOR
 		MENUITEM "Beam Category"		ID mniMainBeam		"B"
 		MENUITEM "Browse Card"			ID mniMainBrowseCard
+		MENUITEM "Import CardDAV..."	ID mniMainDavImport
 		MENUITEM "Import from Card"		ID mniMainImport
 		MENUITEM "Export to Card"		ID mniMainExport
 	END
@@ -58,6 +59,7 @@ BEGIN
 	BEGIN
 		MENUITEM "Font..."				ID mniMainFont		"F"
 		MENUITEM "Preferences..."		ID mniMainPrefs		"R"
+		MENUITEM "CardDAV..."			ID mniMainDav
 		MENUITEM "About Address35"		ID mniMainAbout
 	END
 END
@@ -169,6 +171,31 @@ BEGIN
 		MENUITEM "Delete Contact..."	ID mniRecordDelete	"D"
 		MENUITEM "Beam Contact"			ID mniRecordBeam	"B"
 	END
+	PULLDOWN "Edit"
+	BEGIN
+		MENUITEM "Copy Field"			ID mniRecordCopy	"C"
+		MENUITEM "Copy Contact"			ID mniRecordCopyAll	"A"
+	END
+END
+
+/* Full-field popup of the record view (RecField.c): the field's complete text, read-only and
+ * scrolling, with Copy (button or Edit > Copy). */
+FORM ID frmRecField AT (0 0 160 160)
+	MENUID mnuRecField
+BEGIN
+	TITLE "Field"
+	FIELD ID fldRecField AT (4 17 142 118) NONEDITABLE MULTIPLELINES
+	SCROLLBAR ID sclRecField AT (149 17 7 118) VALUE 0 MIN 0 MAX 0 PAGESIZE 8
+	BUTTON "Done" ID btnRecFieldDone AT (4 143 36 12)
+	BUTTON "Copy" ID btnRecFieldCopy AT (46 143 40 12)
+END
+
+MENU ID mnuRecField
+BEGIN
+	PULLDOWN "Edit"
+	BEGIN
+		MENUITEM "Copy"					ID mniRecFieldCopy	"C"
+	END
 END
 
 /* Edit-only menu shared by the modal field dialogs (Email/Address/Social/Date/Rel/Pick)
@@ -233,14 +260,19 @@ END
  * insertion point keeps a saved-bits window, which would be freed under the
  * caller ("MemoryMgr.c, Invalid chunk ptr" on its next cursor blink). Lookup.c
  * handles the keystrokes itself and redraws Find. */
-FORM ID frmLookup AT (2 30 156 128) MODAL SAVEBEHIND
+FORM ID frmLookup AT (0 0 160 160)
+FRAME MODAL SAVEBEHIND
 BEGIN
 	TITLE "Phone Number Lookup"
-	LIST ""				ID lstLookup		AT (2 15 152 77) VISIBLEITEMS 7
-	LABEL "Find:"		ID lblLookupFind	AT (2 97) FONT 1
-	FIELD	ID fldLookupFind	AT (26 96 84 12) NONEDITABLE UNDERLINED SINGLELINE MAXCHARS 24
-	BUTTON "Paste"		ID btnLookupPaste	AT (2 112 36 12)
-	BUTTON "Cancel"		ID btnLookupCancel	AT (42 112 36 12)
+	LIST ""				ID lstLookup		AT (4 15 150 110) VISIBLEITEMS 10
+	LABEL "Find:"		ID lblLookupFind	AT (5 128) FONT 1
+	FIELD	ID fldLookupFind	AT (31 127 84 12) NONEDITABLE UNDERLINED SINGLELINE MAXCHARS 24
+	BUTTON "Paste"		ID btnLookupPaste	AT (5 143 36 12)
+	BUTTON "Cancel"		ID btnLookupCancel	AT (45 143 38 12)
+	/* which address book: Local or one CardDAV / iCloud book (same row and height as Cancel) */
+	POPUPTRIGGER ""		ID popLookupSrc		AT (87 143 69 12) LEFTANCHOR
+	LIST "1" "2" "3" "4" "5" "6" "7" "8" "9" ID lstLookupSrc AT (87 143 69 99) VISIBLEITEMS 9 NONUSABLE
+	POPUPLIST ID popLookupSrc lstLookupSrc
 	/* step 2: the picked contact's phones/emails/social handles (LstPopupList) */
 	LIST ""				ID lstLookupItems	AT (2 15 152 11) VISIBLEITEMS 1 NONUSABLE
 END
@@ -532,6 +564,74 @@ BEGIN
 	TITLE "No Card"
 	MESSAGE "Insert an SD card to import or export vCards."
 	BUTTONS "OK"
+END
+
+ALERT ID altDavLocked
+INFORMATION
+BEGIN
+	TITLE "Sec35 Locked"
+	MESSAGE "Unlock Sec35 to read these contacts."
+	BUTTONS "OK"
+END
+
+ALERT ID altDavInfo
+INFORMATION
+BEGIN
+	TITLE "CardDAV"
+	MESSAGE "^1"
+	BUTTONS "OK"
+END
+
+ALERT ID altDavImportAsk
+CONFIRMATION
+BEGIN
+	TITLE "Import CardDAV"
+	MESSAGE "Import the ^1 contacts in this list into Address35? Import copies all of them; Skip Duplicates leaves out contacts whose last name, first name and company are already in Address35."
+	BUTTONS "Import" "Skip Duplicates" "Cancel"
+END
+
+ALERT ID altDavImportDone
+INFORMATION
+BEGIN
+	TITLE "Import CardDAV"
+	MESSAGE "^1 contacts imported into Address35.^2"
+	BUTTONS "OK"
+END
+
+ALERT ID altDavReadOnly
+INFORMATION
+BEGIN
+	TITLE "Read-only"
+	MESSAGE "CardDAV contacts are read-only. Choose Local in Options > CardDAV to add or beam contacts."
+	BUTTONS "OK"
+END
+
+ALERT ID altDavNoSync
+INFORMATION
+BEGIN
+	TITLE "CalDAV Sync"
+	MESSAGE "CalDAV Sync is not installed."
+	BUTTONS "OK"
+END
+
+/* Options > CardDAV...: which book the list shows, and a way to CalDAV Sync.
+ * The list gets "Local" and each contacts slot's "iCloud - Alias" at run time. */
+FORM ID frmDav AT (2 62 156 96)
+FRAME MODAL SAVEBEHIND
+BEGIN
+	TITLE "CardDAV"
+
+	LABEL "Show:" AUTOID AT (RIGHT@36 20) FONT 1
+	POPUPTRIGGER "" ID popDavShow AT (38 20 114 12) LEFTANCHOR
+	LIST "1" "2" "3" "4" "5" "6" "7" "8" "9" ID lstDavShow AT (42 16 110 99) VISIBLEITEMS 9 NONUSABLE
+	POPUPLIST ID popDavShow lstDavShow
+
+	LABEL "Synced contacts are read-only here." AUTOID AT (4 42) FONT 0
+	LABEL "Use Import to copy one to Address35." AUTOID AT (4 53) FONT 0
+
+	BUTTON "OK"		ID btnDavOK		AT (4 78 36 14)
+	BUTTON "Cancel"	ID btnDavCancel	AT (44 78 44 14)
+	BUTTON "Sync..."	ID btnDavSync	AT (116 78 36 14)
 END
 
 ALERT ID altCardEmpty

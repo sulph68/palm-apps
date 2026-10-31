@@ -76,6 +76,7 @@ static void PrefsOpen(void)
 		LstSetSelection(lst, idx);
 		CtlSetLabel((ControlType *) GetObjectPtr(popPrefsBaud), LstGetSelectionText(lst, idx));
 	}
+	BwScreenlessFormLoad();
 
 	FrmDrawForm(frm);
 }
@@ -104,6 +105,7 @@ static void PrefsSave(void)
 		UInt16 idx = LstGetSelection((ListType *) GetObjectPtr(lstPrefsBaud));
 		BwSetBaudIndex((UInt8) idx);
 	}
+	BwScreenlessFormSave();
 }
 
 /* Wraps BwSyncRun with its start/end chime - SEC001 so this doesn't grow
@@ -120,7 +122,7 @@ static Boolean SyncNowWithChime(void)
 {
 	Boolean ok;
 	BwPlaySyncChime(true);
-	ok = BwSyncRun();
+	ok = BwSyncScreenless();
 	BwPlaySyncChime(false);
 	gBwSyncOkPending = ok;
 	return ok;

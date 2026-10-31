@@ -19,4 +19,10 @@ UInt8  CDDVGetBaudIndex(void) SEC002;
 void   CDDVSetBaudIndex(UInt8 idx) SEC002;
 UInt32 CDDVGetBaud(void) SEC002;
 
+/* Screenless Mode (WiRSa without a screen): before a sync the app puts
+ * WiRSa into CalDAV Relay itself, and back to its main menu afterwards.
+ * Separate pref, default off. */
+Boolean CDDVGetScreenless(void) SEC002;
+void    CDDVSetScreenless(Boolean on) SEC002;
+
 #endif

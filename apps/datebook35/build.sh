@@ -34,8 +34,9 @@ mkdir -p "$B"
 #   sec001 : DateDay
 #   sec002 : DateWeek ToDoDB + Preferences/DisplayOptions dialogs + ApptGetAppointments
 #   sec003 : DateAgenda DateMonth + DateTransfer SEND/export path
+#   sec004 : AddrBdayDav (CardDAV birthdays from Address35DAVBDA)
 SOURCES="Datebook DateGlobals DatePref DateDisplay DateDB \
-         DateDay DateWeek ToDoDB DateAgenda DateMonth DateTransfer AddrBday DateDAV DateLocation DateSpan"
+         DateDay DateWeek ToDoDB DateAgenda DateMonth DateTransfer AddrBday AddrBdayDav DateDAV DateLocation DateSpan"
 
 echo ">> compiling sources (section attributes place code into segments)"
 for base in $SOURCES; do

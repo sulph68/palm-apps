@@ -277,6 +277,10 @@ Boolean KeypadFormHandleEvent(EventPtr eventP)
 			if (key != kKeyNone) {
 				gKeyPressed = key;
 				KeypadInvertKey(frm, key);
+				/* GADGETs get no automatic Control Manager tap click, so play
+				 * it by hand like Sec35's keypad (SndPlaySystemSound honours
+				 * the System Sound preference itself). */
+				SndPlaySystemSound(sndClick);
 				handled = true;
 			}
 			}

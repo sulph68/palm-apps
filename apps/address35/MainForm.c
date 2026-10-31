@@ -15,6 +15,7 @@
 #include "Main.h"
 #include "CardIO.h"
 #include "AddrCard.h"
+#include "DavView.h"
 
 #define kRecordColumn	0
 
@@ -327,6 +328,20 @@ static char      gCardFindTerm[32];
 static UInt16    *gCardMatch;				/* heap: gCardEnt[] indices that match, kCardMax entries */
 static UInt16    gCardMatchCount = 0;
 
+/* CardDAV view (CalDAV Sync's Address35DAV_<n>): a variant of card mode, so
+ * every card-mode hook (rows, count, scroll, find, tap) is shared. gDavSlot
+ * is the slot number 1..8 (0 = the SD card). gDavIdx lists the records of
+ * gDavCat (and matching the Find term) in database order. */
+static UInt8     gDavSlot = 0;
+static Boolean   gDavRestored = false;
+static UInt16    gDavCat = dmAllCategories;
+static UInt16    *gDavIdx;
+static UInt16     gDavMe = 0xFFFF;		/* record index of this book's Me contact, shown first and bold */
+static UInt16    gDavCount = 0;
+static char      gDavLabel[36];
+static char      gDavTrig[dmCategoryLength];
+#define DAVMODE (gCardMode && gDavSlot)
+
 /* The SD-card browse UI lives in sec002 (per the segment map) to keep main under
  * the 32KB code cap. Forward-declared with SEC002 so main-segment callers emit
  * far calls and the definitions land in sec002. */
@@ -341,9 +356,25 @@ static void MainDrawCardRow(void *table, Int16 row, RectangleType *bounds) SEC00
 static void MainCardTap(UInt16 di) SEC002;
 static CardEntry *MainCardEntryAt(UInt16 di, Boolean *isParent) SEC002;
 static void MainBuildCardFind(void) SEC002;
+static void MainSelectCategory(void) SEC002;
+static void MainDavRebuild(void) SEC002;
+static void MainDavTrigger(void) SEC002;
+static void MainDavEnter(UInt8 slot) SEC002;
+static void MainDavDrawRow(void *table, Int16 row, RectangleType *bounds) SEC002;
+static void MainDavTap(UInt16 di) SEC002;
+static void MainDavDialog(void) SEC002;
+static void MainDavApply(void) SEC002;
+static Boolean MainDavBlocked(void) SEC002;
+static void MainDavNextCat(void) SEC002;
+static void MainDavImportAll(void) SEC002;
+static UInt32 MainNameHash(const char *last, const char *first, const char *company) SEC002;
+static Int16 MainHashCmp(void *a, void *b, Int32 other) SEC002;
+static UInt32 *MainLocalNameHashes(UInt16 *n) SEC002;
+static Boolean MainHashFound(const UInt32 *h, UInt16 n, UInt32 v) SEC002;
 
 static UInt16 MainCardDisplayCount(void)
 {
+	if (DAVMODE) return gDavCount;
 	if (gCardFindActive) return gCardMatchCount;
 	return (UInt16) (gCardCount + (gCardHasParent ? 1 : 0));
 }
@@ -422,6 +453,11 @@ static void MainSortCardEntries(void)
 static void MainLoadCardDir(void)
 {
 	UInt16 i, k;
+	if (DAVMODE) {
+		MainDavRebuild();
+		gCardDirValid = true;
+		return;
+	}
 	if (gCardEnt == NULL) {			/* first time in card mode this session */
 		gCardEnt = (CardEntry *) MemPtrNew((UInt32) sizeof(CardEntry) * kCardMax);
 		gCardMatch = (UInt16 *) MemPtrNew((UInt32) sizeof(UInt16) * kCardMax);
@@ -465,6 +501,7 @@ static Boolean MainEnterCard(void)
 	if (!CardHasVolume(&gCardVol)) { FrmAlert(altNoCard); return false; }
 	StrCopy(gCardPath, a35CardRoot);
 	A35CardInit(gCardVol);
+	gDavSlot = 0;
 	gCardMode = true;
 	MainLoadCardDir();
 	return true;
@@ -604,6 +641,7 @@ static void MainDrawCardRow(void *table, Int16 row, RectangleType *bounds)
 	Int16 x = bounds->topLeft.x + 1, y = bounds->topLeft.y;
 	Int16 tx = x + 13, w = bounds->extent.x - 14, iconY;
 
+	if (DAVMODE) { MainDavDrawRow(table, row, bounds); return; }
 	FntSetFont(stdFont);
 	iconY = y + ((Int16) FntLineHeight() - 11) / 2;
 	if (iconY < y) iconY = y;
@@ -855,6 +893,7 @@ static void MainBuildCardFind(void)
 	char lower[sizeof(gCardFindTerm)];
 	UInt16 tl, k, i;
 
+	if (DAVMODE) { MainDavRebuild(); return; }
 	tl = (UInt16) StrLen(gCardFindTerm);
 	if (tl > sizeof(lower) - 1) tl = sizeof(lower) - 1;
 	for (k = 0; k < tl; k++) {
@@ -901,6 +940,7 @@ static void MainFindFieldChanged(void)
 		} else {
 			gCardFindActive = false;
 			gCardFindTerm[0] = '\0';
+			MainBuildCardFind();
 		}
 		MainDraw();
 		return;
@@ -1039,9 +1079,10 @@ static void MainInit(void)
 	FormPtr formP = FrmGetActiveForm();
 	TableType *tableP = MainTable();
 
+	MainDavApply();
 	CategoryGetName(gAddrDB, gCurrentCategory, gCategoryName);
 	CategorySetTriggerLabel((ControlType *) GetObjectPtr(popMainCategory),
-		gCardMode ? "Card" : (gShowAllCategories ? "All" : gCategoryName));
+		gCardMode ? (gDavSlot ? gDavTrig : "Card") : (gShowAllCategories ? "All" : gCategoryName));
 	/* gCardDirValid re-enabled: the original list-mismatch bug this was
 	 * disabled to troubleshoot was confirmed caused by the unchecked
 	 * CardWriteFile return value + whole-file-read memory pressure (both
@@ -1079,9 +1120,12 @@ static void MainInit(void)
 static void MainCardTap(UInt16 di)
 {
 	Boolean isParent;
-	CardEntry *e = MainCardEntryAt(di, &isParent);
+	CardEntry *e;
 	char full[cardMaxPath];
 
+	gDavTitle[0] = '\0';
+	if (DAVMODE) { MainDavTap(di); return; }
+	e = MainCardEntryAt(di, &isParent);
 	if (isParent) {						/* [..] -> ascend, floored at root */
 		CardParentPath(gCardPath);
 		if (StrLen(gCardPath) < StrLen(a35CardRoot))
@@ -1134,6 +1178,370 @@ static void MainCardTap(UInt16 di)
 	}
 }
 
+/* ---- CardDAV view ---- */
+static void MainDavRebuild(void)
+{
+	UInt16 n = DavCount((UInt8) (gDavSlot - 1));
+
+	if (gDavIdx) { MemPtrFree(gDavIdx); gDavIdx = NULL; }
+	gDavCount = 0;
+	gCardTop = 0;
+	if (n == 0) return;
+	gDavIdx = (UInt16 *) MemPtrNew((UInt32) (n + n));
+	if (gDavIdx == NULL) return;
+	gDavCount = DavBuild((UInt8) (gDavSlot - 1), gDavCat,
+		gCardFindActive ? gCardFindTerm : "", gDavIdx, n);
+	/* this book's Me contact (independent of Local's) goes first, if it is in this list */
+	gDavMe = DavMeFind((UInt8) (gDavSlot - 1));
+	if (gDavMe != 0xFFFF) {
+		UInt16 k;
+		for (k = 0; k < gDavCount && gDavIdx[k] != gDavMe; k++) ;
+		if (k < gDavCount) {
+			for (; k > 0; k--) gDavIdx[k] = gDavIdx[k - 1];
+			gDavIdx[0] = gDavMe;
+		}
+	}
+}
+
+/* trigger label: the CardDAV book's current category ("All" or its name) */
+static void MainDavTrigger(void)
+{
+	StrCopy(gDavTrig, "All");
+	if (gDavCat != dmAllCategories) {
+		DmOpenRef db = DavOpen((UInt8) (gDavSlot - 1));
+		if (db) {
+			CategoryGetName(db, gDavCat, gDavTrig);
+			DmCloseDatabase(db);
+		}
+	}
+	CategorySetTriggerLabel((ControlType *) GetObjectPtr(popMainCategory), gDavTrig);
+}
+
+static void MainDavEnter(UInt8 slot)
+{
+	Int16 st = DavSlotLabel(slot, gDavLabel);
+
+	if (st == davSlotNone) return;
+	if (st == davSlotLocked) { FrmAlert(altDavLocked); return; }
+	gFindActive = false;
+	gFindPendingUntilTicks = 0;
+	gFindTerm[0] = '\0';
+	MainClearFindFieldText();
+	gDavSlot = (UInt8) (slot + 1);
+	gDavCat = dmAllCategories;
+	gCardFindActive = false;
+	gCardFindTerm[0] = '\0';
+	gCardMode = true;
+	MainDavRebuild();
+	gCardDirValid = true;
+	FrmSetTitle(FrmGetActiveForm(), gDavLabel);
+	MainDavTrigger();
+	MainDraw();
+}
+
+/* Options > CardDAV...: pick the book to show, or go to CalDAV Sync */
+static void MainDavDialog(void)
+{
+	char *labels = (char *) MemPtrNew(9 * 36), *ptrs[9];
+	UInt8 slotOf[9];
+	Int16 n = 1, sel = 0, i, pick;
+	FormPtr frm;
+	ListPtr lst;
+	UInt16 btn;
+
+	if (labels == NULL) return;
+	StrCopy(labels, "Local");
+	ptrs[0] = labels;
+	slotOf[0] = 0;
+	for (i = 0; i < davMaxSlots; i++) {
+		char *q = labels + n * 36;
+		if (DavSlotLabel((UInt8) i, q) == davSlotNone) continue;
+		ptrs[n] = q;
+		slotOf[n] = (UInt8) (i + 1);
+		if (DAVMODE && gDavSlot == i + 1) sel = n;
+		n++;
+	}
+	frm = FrmInitForm(frmDav);
+	lst = (ListPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, lstDavShow));
+	LstSetListChoices(lst, ptrs, n);
+	LstSetHeight(lst, n);
+	LstSetSelection(lst, sel);
+	CtlSetLabel((ControlPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, popDavShow)), ptrs[sel]);
+	btn = FrmDoDialog(frm);
+	pick = LstGetSelection(lst);
+	FrmDeleteForm(frm);
+
+	if (btn == btnDavSync) {
+		DmSearchStateType st;
+		UInt16 cardNo;
+		LocalID dbID;
+		if (DmGetNextDatabaseByTypeCreator(true, &st, sysFileTApplication, 'CDDV',
+				true, &cardNo, &dbID) == errNone)
+			SysUIAppSwitch(cardNo, dbID, sysAppLaunchCmdNormalLaunch, NULL);
+		else
+			FrmAlert(altDavNoSync);
+	} else if (btn == btnDavOK && pick >= 0 && pick != sel) {
+		UInt8 v = slotOf[pick];
+		if (v) {
+			MainDavEnter((UInt8) (v - 1));
+		} else if (DAVMODE) {					/* back to the local book */
+			gFindActive = false;
+			gFindPendingUntilTicks = 0;
+			gFindTerm[0] = '\0';
+			MainClearFindFieldText();
+			gCardMode = false;
+			gDavSlot = 0;
+			gTopVisibleRecord = 0;
+			FrmSetTitle(FrmGetActiveForm(), "Address35");
+			CategorySetTriggerLabel((ControlType *) GetObjectPtr(popMainCategory),
+				gShowAllCategories ? "All" : gCategoryName);
+			MainDraw();
+		}
+		if (v == 0 || DAVMODE)
+			PrefSetAppPreferences(a35PrefCreator, a35DavPrefID, 1, &v, 1, true);
+	}
+	MemPtrFree(labels);
+}
+
+/* hardware category button inside the CardDAV view: next category of that book */
+static void MainDavNextCat(void)
+{
+	DmOpenRef db = DavOpen((UInt8) (gDavSlot - 1));
+
+	if (db == NULL) return;
+	gDavCat = CategoryGetNext(db, gDavCat);
+	DmCloseDatabase(db);
+	gCardFindActive = false;
+	gCardFindTerm[0] = '\0';
+	MainClearFindFieldText();
+	MainDavRebuild();
+	MainDavTrigger();
+	MainDraw();
+}
+
+/* Record > Import CardDAV...: every contact in the list now showing (so a
+ * category or a Find narrows it) goes into Address35DB, as the Import button
+ * does for one */
+/* Duplicate check for Import CardDAV: a contact is a duplicate when its last name, first name
+ * and company (caseless) are the same as a local contact's. Those three are clear in both books
+ * (the packed record header's sort keys, the CardDAV record's sort names), so each local contact
+ * becomes one 32-bit hash (shifts and adds only - no 32-bit multiply in a secondary segment),
+ * the hashes are sorted once, and each CardDAV contact is a binary search. */
+SEC002 static UInt32 MainNameHash(const char *last, const char *first, const char *company)
+{
+	const char *part[3];
+	UInt32 h = 0;
+	UInt16 k;
+
+	part[0] = last; part[1] = first; part[2] = company;
+	for (k = 0; k < 3; k++) {
+		const char *p = part[k];
+		for (; *p; p++) {
+			UInt32 c = (UInt8) *p;
+			if (c >= 'A' && c <= 'Z') c += 32;
+			h = c + (h << 6) + (h << 16) - h;		/* sdbm */
+		}
+		h = 1 + (h << 6) + (h << 16) - h;			/* field separator */
+	}
+	return h;
+}
+
+SEC002 static Int16 MainHashCmp(void *a, void *b, Int32 other)
+{
+	UInt32 x = *(UInt32 *) a, y = *(UInt32 *) b;
+	(void) other;
+	return (Int16) (x < y ? -1 : (x > y ? 1 : 0));
+}
+
+/* sorted hashes of the named local contacts; NULL (and *n = 0) if none or out of memory */
+SEC002 static UInt32 *MainLocalNameHashes(UInt16 *n)
+{
+	UInt16 i, nrec = DmNumRecords(gAddrDB), k = 0;
+	UInt32 *h;
+
+	*n = 0;
+	if (nrec == 0) return NULL;
+	h = (UInt32 *) MemPtrNew((UInt32) nrec * sizeof(UInt32));
+	if (h == NULL) return NULL;
+	for (i = 0; i < nrec; i++) {
+		MemHandle rh = DmQueryRecord(gAddrDB, i);
+		const UInt8 *r;
+		UInt32 size;
+		UInt16 oL, oF, oC;
+		if (rh == NULL) continue;
+		r = (const UInt8 *) MemHandleLock(rh);
+		size = MemHandleSize(rh);
+		if (size >= 10) {
+			oL = (UInt16) (((UInt16) r[4] << 8) | r[5]);
+			oF = (UInt16) (((UInt16) r[6] << 8) | r[7]);
+			oC = (UInt16) (((UInt16) r[8] << 8) | r[9]);
+			if (oL || oF || oC)
+				h[k++] = MainNameHash((oL && oL < size) ? (const char *) r + oL : "",
+					(oF && oF < size) ? (const char *) r + oF : "",
+					(oC && oC < size) ? (const char *) r + oC : "");
+		}
+		MemHandleUnlock(rh);
+	}
+	SysQSort(h, k, sizeof(UInt32), MainHashCmp, 0);
+	*n = k;
+	return h;
+}
+
+SEC002 static Boolean MainHashFound(const UInt32 *h, UInt16 n, UInt32 v)
+{
+	UInt16 lo = 0, hi = n;
+
+	while (lo < hi) {
+		UInt16 mid = (UInt16) ((lo + hi) >> 1);
+		if (h[mid] == v) return true;
+		if (h[mid] < v) lo = (UInt16) (mid + 1); else hi = mid;
+	}
+	return false;
+}
+
+static void MainDavImportAll(void)
+{
+	char num[12], tail[40];
+	UInt16 i, idx, done = 0, skipped = 0, nh = 0;
+	Boolean locked = false;
+	UInt32 *hashes = NULL;
+	Int16 ask;
+
+	if (!DAVMODE) {
+		FrmCustomAlert(altDavInfo, "Show a CardDAV book first: Options > CardDAV.", "", "");
+		return;
+	}
+	if (gDavCount == 0) {
+		FrmCustomAlert(altDavInfo, "Nothing in this list to import.", "", "");
+		return;
+	}
+	StrIToA(num, gDavCount);
+	ask = FrmCustomAlert(altDavImportAsk, num, "", "");		/* 0 Import, 1 Skip Duplicates, 2 Cancel */
+	if (ask != 0 && ask != 1) return;
+	A35BusyBegin(ask == 1 ? "Checking..." : "Importing...");
+	if (ask == 1) hashes = MainLocalNameHashes(&nh);
+	for (i = 0; i < gDavCount; i++) {
+		Int16 r;
+		if (hashes) {
+			char last[davNameMax], first[davNameMax], company[davNameMax], side[davSideMax];
+			Boolean lk;
+			if (DavRow((UInt8) (gDavSlot - 1), gDavIdx[i], last, first, company, side, &lk) &&
+				(last[0] || first[0] || company[0]) &&
+				MainHashFound(hashes, nh, MainNameHash(last, first, company))) {
+				skipped++;
+				continue;
+			}
+		}
+		r = DavLoad((UInt8) (gDavSlot - 1), gDavIdx[i], &gCardRecord, &gCardArena);
+		if (r == 1) { locked = true; break; }
+		if (r != 0) continue;
+		if (A35NewRecord(gAddrDB, &gCardRecord, &idx) == errNone) {
+			A35EncryptRecordInPlace(gAddrDB, idx);
+			done++;
+		}
+		EvtResetAutoOffTimer();
+	}
+	A35BusyEnd();
+	if (hashes) MemPtrFree(hashes);
+	StrIToA(num, done);
+	tail[0] = '\0';
+	if (ask == 1) {
+		char sk[12];
+		StrIToA(sk, skipped);
+		StrCopy(tail, " ");
+		StrCat(tail, sk);
+		StrCat(tail, " already there, skipped.");
+	}
+	if (locked) FrmAlert(altDavLocked);
+	FrmCustomAlert(altDavImportDone, num, tail, "");
+}
+
+/* New / Beam act on the local book: not from the read-only CardDAV view */
+static Boolean MainDavBlocked(void)
+{
+	if (!DAVMODE) return false;
+	FrmAlert(altDavReadOnly);
+	return true;
+}
+
+/* start of MainInit: restore the remembered book once per launch, and put the
+ * CardDAV title/label on the (re)built form */
+static void MainDavApply(void)
+{
+	if (!gDavRestored) {
+		UInt8 v = 0;
+		UInt16 sz = 1;
+		gDavRestored = true;
+		if (PrefGetAppPreferences(a35PrefCreator, a35DavPrefID, &v, &sz, true) != noPreferenceFound &&
+				sz == 1 && v >= 1 && v <= davMaxSlots &&
+				DavSlotLabel((UInt8) (v - 1), gDavLabel) == davSlotOk) {
+			gDavSlot = v;
+			gDavCat = dmAllCategories;
+			gCardMode = true;
+			gCardFindActive = false;
+			MainDavRebuild();
+			gCardDirValid = true;
+		}
+	}
+	if (DAVMODE) {
+		FrmSetTitle(FrmGetActiveForm(), gDavLabel);
+		MainDavTrigger();
+	}
+}
+
+static void MainDavDrawRow(void *table, Int16 row, RectangleType *bounds)
+{
+	UInt16 di = TblGetRowID((TableType *) table, row);
+	char last[davNameMax], first[davNameMax], company[davNameMax], side[davSideMax];
+	char nameBuf[2 * davNameMax + 4];
+	Boolean locked;
+	Int16 x = bounds->topLeft.x, y = bounds->topLeft.y, maxW = bounds->extent.x, pw, nameW, nl;
+
+	if (di >= gDavCount) return;
+	if (!DavRow((UInt8) (gDavSlot - 1), gDavIdx[di], last, first, company, side, &locked))
+		return;
+	if (locked) StrCopy(side, "*****");
+	FntSetFont(gDavIdx[di] == gDavMe ? boldFont : gListFont);
+	pw = side[0] ? FntCharsWidth(side, StrLen(side)) : 0;
+	nameW = maxW - (pw ? pw + 6 : 0);
+	if (first[0] || last[0]) {
+		nameBuf[0] = '\0';
+		if (first[0]) { StrNCat(nameBuf, first, sizeof(nameBuf)); if (last[0]) StrNCat(nameBuf, ", ", sizeof(nameBuf)); }
+		if (last[0]) StrNCat(nameBuf, last, sizeof(nameBuf));
+		nl = (Int16) StrLen(nameBuf);
+		if (FntCharsWidth(nameBuf, nl) <= nameW) {
+			WinDrawChars(nameBuf, nl, x, y);
+			if (last[0]) {			/* underline the last (sort) name */
+				Int16 lw = FntCharsWidth(last, StrLen(last));
+				Int16 off = FntCharsWidth(nameBuf, (Int16) (nl - StrLen(last)));
+				WinDrawLine(x + off, y + FntBaseLine() + 1, x + off + lw - 1, y + FntBaseLine() + 1);
+			}
+		} else {
+			WinDrawTruncChars(nameBuf, nl, x, y, nameW);
+		}
+	} else if (company[0]) {
+		WinDrawTruncChars(company, (Int16) StrLen(company), x, y, nameW);
+	} else {
+		WinDrawChars("-Unnamed-", 9, x, y);
+	}
+	if (side[0]) WinDrawChars(side, StrLen(side), x + maxW - pw, y);
+}
+
+/* tap: the contact in the read-only Record form (with Import) */
+static void MainDavTap(UInt16 di)
+{
+	Int16 r;
+
+	if (di >= gDavCount) return;
+	r = DavLoad((UInt8) (gDavSlot - 1), gDavIdx[di], &gCardRecord, &gCardArena);
+	if (r == 1) { FrmAlert(altDavLocked); return; }
+	if (r != 0) return;
+	StrCopy(gDavTitle, gDavLabel);
+	DavSetViewed((UInt8) (gDavSlot - 1), gDavIdx[di]);
+	gViewingCard = true;
+	FrmGotoForm(frmRecord);
+}
+
 /* Fold in any beam-received contacts parked (raw) in the Address35DBPlain inbox, then seal
  * them if unlocked.  Called on every category switch so a beam that arrived while the app is
  * running becomes visible by just switching category -- no quit+relaunch needed.  Cheap
@@ -1150,23 +1558,30 @@ static void MainSelectCategory(void)
 	ListPtr lst;
 	static char  names[20][24];		/* >dmCategoryLength: fits "Edit Categories..." */
 	static char *choices[20];
-	Int16   meaning[20];			/* >=0 category index; -101 Edit Categories */
+	Int16   meaning[20];			/* >=0 category index; -101 Edit Categories; -102 Card */
 	Int16   n = 0, i, sel, m;
+	Boolean dav = DAVMODE;
+	DmOpenRef cdb = dav ? DavOpen((UInt8) (gDavSlot - 1)) : gAddrDB;
 
+	if (cdb == NULL) cdb = gAddrDB;
 	A35RefreshInbox();			/* Address35: fold in freshly-beamed contacts before redisplay */
 
 	StrCopy(names[n], "All"); choices[n] = names[n]; meaning[n] = dmAllCategories; n++;
 	for (i = 1; i < dmRecNumCategories && n < 16; i++) {
-		CategoryGetName(gAddrDB, i, names[n]);
+		CategoryGetName(cdb, i, names[n]);
 		if (names[n][0]) { choices[n] = names[n]; meaning[n] = i; n++; }
 	}
-	CategoryGetName(gAddrDB, dmUnfiledCategory, names[n]);
+	CategoryGetName(cdb, dmUnfiledCategory, names[n]);
 	if (names[n][0]) { choices[n] = names[n]; meaning[n] = dmUnfiledCategory; n++; }
-	StrCopy(names[n], "Edit Categories\205"); choices[n] = names[n]; meaning[n] = -101; n++;
+	if (dav) {
+		DmCloseDatabase(cdb);		/* a CardDAV book's categories are edited by CalDAV Sync */
+	} else {
+		StrCopy(names[n], "Edit Categories\205"); choices[n] = names[n]; meaning[n] = -101; n++;
+	}
 	gCatCardRow = -1;
 	{	/* SD "Card" source row LAST, with a divider above it (CryptoNote-style) */
 		UInt16 volRef;
-		if (CardHasVolume(&volRef)) {
+		if (!dav && CardHasVolume(&volRef)) {
 			gCatCardRow = n;
 			StrCopy(names[n], "Card"); choices[n] = names[n]; meaning[n] = -102; n++;
 		}
@@ -1198,8 +1613,18 @@ static void MainSelectCategory(void)
 		}
 		return;
 	}
+	if (dav && m >= 0) {			/* a category of the CardDAV book */
+		gDavCat = (UInt16) m;
+		gCardFindActive = false;
+		gCardFindTerm[0] = '\0';
+		MainClearFindFieldText();
+		MainDavRebuild();
+		MainDavTrigger();
+		MainDraw();
+		return;
+	}
 	gCardMode = false;				/* any real choice leaves card-browse mode */
-	if (m == -101) {				/* Edit Categories -> straight to the editor
+	if (m == -101) {			/* Edit Categories -> straight to the editor
 									 * (CategoryEdit, NOT CategorySelect, which would
 									 * re-pop the list and force a 2nd "Edit Categories"
 									 * tap - matches ToDo35's one-popup behaviour). */
@@ -1228,6 +1653,8 @@ static void MainSelectCategory(void)
 static void MainNextCategory(void)
 {
 	UInt16 next;
+
+	if (DAVMODE) { MainDavNextCat(); return; }
 
 	A35RefreshInbox();			/* Address35: fold in freshly-beamed contacts before redisplay */
 
@@ -1328,7 +1755,7 @@ Boolean MainFormHandleEvent(EventPtr eventP)
 			handled = true;
 			break;
 		case btnMainNew:
-			if (!A35LaunchGate()) { handled = true; break; }	/* locked -> Sec35 */
+			if (MainDavBlocked() || !A35LaunchGate()) { handled = true; break; }	/* locked -> Sec35 */
 			gEditIndex = a35NoRecord;
 			FrmGotoForm(frmEdit);
 			handled = true;
@@ -1367,7 +1794,7 @@ Boolean MainFormHandleEvent(EventPtr eventP)
 	case menuEvent:
 		switch (eventP->data.menu.itemID) {
 		case mniMainNew:
-			if (!A35LaunchGate()) { handled = true; break; }	/* locked -> Sec35 */
+			if (MainDavBlocked() || !A35LaunchGate()) { handled = true; break; }	/* locked -> Sec35 */
 			gEditIndex = a35NoRecord;
 			FrmGotoForm(frmEdit);
 			handled = true;
@@ -1382,11 +1809,20 @@ Boolean MainFormHandleEvent(EventPtr eventP)
 			FrmPopupForm(frmPrefs);
 			handled = true;
 			break;
+		case mniMainDavImport:
+			MainDavImportAll();
+			handled = true;
+			break;
+		case mniMainDav:
+			MainDavDialog();
+			handled = true;
+			break;
 		case mniMainAbout:
 			FrmPopupForm(frmAbout);
 			handled = true;
 			break;
 		case mniMainBeam:
+			if (MainDavBlocked()) { handled = true; break; }
 			A35BeamCategory(gAddrDB, CurrentCat());
 			handled = true;
 			break;

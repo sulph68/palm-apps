@@ -5,6 +5,7 @@
 
 
 static const char mStrLaunchDbName[] = "psysLaunchDB";
+static const char mStrSettingsDbName[] = BKP_SETTINGS_DB_NAME;	//never backed up (see backupPrvSkipDb)
 static const char mStrBkpPath[] = "/PALM/PROGRAMS/BKP1";	//trailing slash NOT allowed
 static const char mStrReset[] = "Restore completed. Device must now reset";
 static const char mStrSpace[] = " ";
@@ -46,6 +47,13 @@ static Err backupPrvCreateDirs(UInt16 vrn)
 	MemPtrFree(path);
 	
 	return e;
+}
+
+//databases a backup leaves out: the launch DB (PalmOs below 4.1 does not like it touched), and our own settings,
+//which hold this device's name and so must stay on the device across a restore of another device's backup
+static Boolean backupPrvSkipDb(const char *name)
+{
+	return !StrCompare(name, mStrLaunchDbName) || !StrCompare(name, mStrSettingsDbName);
 }
 
 //assumes some pre-setup
@@ -143,8 +151,7 @@ Err backupDo(UInt16 vrn, const char *bkpName, BackupProgressF progressF, BackupF
 		if (selfCard == 0 && selfLID == LID)	//skip self
 			continue;
 		
-		//PalmOs below 4.1 does not like LaunchDB touched
-		if (errNone == DmDatabaseInfo(0, LID, name, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL) && !StrCompare(name, mStrLaunchDbName))
+		if (errNone == DmDatabaseInfo(0, LID, name, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL) && backupPrvSkipDb(name))
 			continue;
 		
 		numRamFiles++;
@@ -155,8 +162,15 @@ Err backupDo(UInt16 vrn, const char *bkpName, BackupProgressF progressF, BackupF
 		sizeTotal += now;
 	}
 	
-	//create dir in preparation for backup
+	//create dir in preparation for backup, and the device folder above it first if the name has one ("Name/date")
 	filePathPart[-1] = 0;	//remove slash and terminate for now
+	for (i = sizeof(mStrBkpPath); filePath[i]; i++) {
+		if (filePath[i] == '/') {
+			filePath[i] = 0;
+			(void)VFSDirCreate(vrn, filePath);	//usually exists already
+			filePath[i] = '/';
+		}
+	}
 	e = VFSDirCreate(vrn, filePath);
 	if (e != errNone)
 		goto out_free;
@@ -185,8 +199,7 @@ Err backupDo(UInt16 vrn, const char *bkpName, BackupProgressF progressF, BackupF
 		if (e != errNone)
 			break;
 		
-		//PalmOs below 4.1 does not like LaunchDB touched
-		if (!StrCompare(name, mStrLaunchDbName))
+		if (backupPrvSkipDb(name))
 			continue;
 		
 		//form name
@@ -852,82 +865,123 @@ Err backupRename(UInt16 vrn, const char *bkpName, const char *newName)
 	return e;
 }
 
-Err backupEnumerate(UInt16 vrn, BackupEnumF enumF, void *enumD)
+//what a folder under the backup dir is: a device folder holds backup folders, a backup holds only files.
+//An empty folder counts as a device folder (one whose backups were all deleted).
+static Boolean backupPrvIsDeviceDir(UInt16 vrn, const char *path, FileInfoType *fit)
 {
 	UInt32 iter = vfsIteratorStart;
-	FileInfoType fit;
-	FileRef f, setF;
+	Boolean isDev = true;
+	FileRef f;
+
+	if (errNone != VFSFileOpen(vrn, path, vfsModeRead, &f))
+		return false;
+	if (errNone == VFSDirEntryEnumerate(f, &iter, fit))
+		isDev = !!(fit->attributes & vfsFileAttrDirectory);
+	(void)VFSFileClose(f);
+
+	return isDev;
+}
+
+//backups are reported as "date" (top level, made with no device name set) or "Device/date";
+//with devices set, only the device folder names are reported instead
+static Err backupPrvEnumerate(UInt16 vrn, BackupEnumF enumF, void *enumD, Boolean devices)
+{
+	UInt32 iter = vfsIteratorStart;
+	FileInfoType fit, sub;
+	char *path;
+	UInt16 baseLen;
+	FileRef f;
 	Err e;
-	
+
 	//ignore the error here, but create the dir so the user knows about it...
 	(void)backupPrvCreateDirs(vrn);
-	
-	fit.nameP = MemPtrNew((fit.nameBufLen = 255) + 1);
-	if (!fit.nameP) {
-	
+
+	//path = base dir + "/" + device name + "/" + backup name, each name up to 255 chars
+	path = MemPtrNew(sizeof(mStrBkpPath) + 1 + 255 + 1 + 255 + 1);
+	sub.nameP = MemPtrNew((sub.nameBufLen = 255) + 1);
+	if (!path || !sub.nameP) {
+
 		e = memErrNotEnoughSpace;
-		goto out;
+		goto out_free;
 	}
-	
-	e = VFSFileOpen(vrn, mStrBkpPath, vfsModeRead, &f);
+	StrCopy(path, mStrBkpPath);
+	StrCat(path, mStrSlash);
+	baseLen = StrLen(path);
+	fit.nameP = path + baseLen;		//top level names land right after "BKP1/"
+	fit.nameBufLen = 255;
+
+	path[baseLen - 1] = 0;
+	e = VFSFileOpen(vrn, path, vfsModeRead, &f);
+	path[baseLen - 1] = '/';
 	if (e != errNone) {
 		if (e == vfsErrFileNotFound)	//no backup dir == no backups (but not an error)
 			e = errNone;
 		goto out_free;
 	}
-	
+
 	do {
-		
+
+		UInt16 nameLen;
+
 		e = VFSDirEntryEnumerate(f, &iter, &fit);
 		if (e == expErrEnumerationEmpty) {
-		
+
 			e = errNone;
 			break;
 		}
-	
-		e = enumF(enumD, fit.nameP);
 		if (e != errNone)
 			break;
-	
+		if (!(fit.attributes & vfsFileAttrDirectory))
+			continue;
+
+		if (!backupPrvIsDeviceDir(vrn, path, &sub)) {		//a backup made with no device name set
+			if (!devices)
+				e = enumF(enumD, fit.nameP);
+		}
+		else if (devices)
+			e = enumF(enumD, fit.nameP);
+		else {												//a device folder: report each backup in it
+			UInt32 subIter = vfsIteratorStart;
+			FileRef subF;
+
+			if (errNone != VFSFileOpen(vrn, path, vfsModeRead, &subF))
+				continue;
+			nameLen = StrLen(fit.nameP);
+			while (subIter != vfsIteratorStop && errNone == VFSDirEntryEnumerate(subF, &subIter, &sub)) {
+
+				if (!(sub.attributes & vfsFileAttrDirectory))
+					continue;
+				StrCopy(fit.nameP + nameLen, mStrSlash);
+				StrCat(fit.nameP + nameLen, sub.nameP);
+				e = enumF(enumD, fit.nameP);
+				fit.nameP[nameLen] = 0;
+				if (e != errNone)
+					break;
+			}
+			(void)VFSFileClose(subF);
+		}
+		if (e != errNone)
+			break;
+
 	} while (iter != vfsIteratorStop);
-	
+
 	(void)VFSFileClose(f);
 
 out_free:
-	MemPtrFree(fit.nameP);
-	
-out:
+	if (sub.nameP)
+		MemPtrFree(sub.nameP);
+	if (path)
+		MemPtrFree(path);
+
 	return e;
 }
 
-	
+Err backupEnumerate(UInt16 vrn, BackupEnumF enumF, void *enumD)
+{
+	return backupPrvEnumerate(vrn, enumF, enumD, false);
+}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+Err backupEnumerateDevices(UInt16 vrn, BackupEnumF enumF, void *enumD)
+{
+	return backupPrvEnumerate(vrn, enumF, enumD, true);
+}

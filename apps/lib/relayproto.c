@@ -19,6 +19,9 @@ static Boolean gOpen = false;
 Err gRpLastRecvErr = 0;
 UInt16 gRpLastLineErrs = 0;
 UInt32 gRpIdleOverrideTicks = 0;
+UInt8 gRpLeadByte = 0;
+Boolean gRpAllowPlain = false;
+Err gRpOpenErr = 0;
 
 /* Explicit receive buffer - the Serial Manager default overruns on a burst. */
 static UInt8 gSerialRecvBuf[RP_RECV_BUF_SIZE];
@@ -26,7 +29,8 @@ static UInt8 gSerialRecvBuf[RP_RECV_BUF_SIZE];
 Boolean RpOpen(void)
 {
 	if (gOpen) return true;
-	if (SrmOpen(serPortCradlePort, rpBaudIdle, &gPortId) != errNone) return false;
+	gRpOpenErr = SrmOpen(serPortCradlePort, rpBaudIdle, &gPortId);
+	if (gRpOpenErr != errNone) return false;
 	SrmSetReceiveBuffer(gPortId, gSerialRecvBuf, sizeof(gSerialRecvBuf));
 	SrmReceiveFlush(gPortId, 0);
 	gOpen = true;
@@ -56,6 +60,18 @@ void RpClose(void)
 	RpSecWipe();
 }
 
+#ifdef RP_WITH_PENDING
+/* Bytes already waiting in the serial buffer (a look at the local buffer, nothing is sent). */
+RP_SECTION UInt32 RpPending(void)
+{
+	UInt32 n = 0;
+
+	if (!gOpen) return 0;
+	if (SrmReceiveCheck(gPortId, &n) != errNone) return 0;
+	return n;
+}
+#endif
+
 RP_SECTION void RpFlushInput(void)
 {
 	if (gOpen) SrmReceiveFlush(gPortId, 0);
@@ -79,7 +95,10 @@ static Boolean ReadExact(UInt8 *buf, UInt32 len, Int32 timeoutTicks)
 		n = SrmReceive(gPortId, buf + got, len - got, pollTimeout, &err);
 		got += n;
 		RP_APP_POLL();
-		if (got < len && RP_APP_CANCELLED()) return false;
+		/* Checked after EVERY pass, not only while the read is incomplete: with
+		 * data always waiting (WiRSa streams from a queue) a read finishes in
+		 * one pass, and a Cancel tap used to go unseen until the sync ended. */
+		if (RP_APP_CANCELLED()) return false;
 		if (n > 0) deadline = TimGetTicks() + timeoutTicks;
 		if (got < len && err != errNone && err != serErrTimeOut) {
 			gRpLastRecvErr = err;
@@ -106,12 +125,16 @@ RP_SECTION Boolean RpSendFrame(UInt8 type, const UInt8 *body, UInt16 bodyLen)
 	UInt8 chk;
 	UInt16 i, p, wireLen;
 	Err err;
-	Boolean enc = !RP_IS_KEX(type);
+	Boolean enc = !RP_IS_KEX(type) && !(gRpAllowPlain && !gRpSecured);
 	UInt32 seq = 0;
 
 	if (!gOpen) return false;
 	if (enc && !gRpSecured) return false;
 	if (bodyLen > RP_SEND_BODY_MAX) return false;
+	if (gRpLeadByte) {
+		SrmSend(gPortId, &gRpLeadByte, 1, &err);
+		if (err != errNone) return false;
+	}
 
 	wireLen = enc ? (UInt16) (bodyLen + 4) : bodyLen;
 	gSendBuf[0] = enc ? (UInt8) (type | RP_ENC_FLAG) : type;
@@ -149,11 +172,15 @@ RP_SECTION Boolean RpSendFrame(UInt8 type, const UInt8 *body, UInt16 bodyLen)
 	UInt8 chk;
 	UInt16 i, hdrLen, off, n, wireLen;
 	Err err;
-	Boolean enc = !RP_IS_KEX(type);
+	Boolean enc = !RP_IS_KEX(type) && !(gRpAllowPlain && !gRpSecured);
 	UInt32 seq = 0;
 
 	if (!gOpen) return false;
 	if (enc && !gRpSecured) return false;
+	if (gRpLeadByte) {
+		SrmSend(gPortId, &gRpLeadByte, 1, &err);
+		if (err != errNone) return false;
+	}
 
 	wireLen = enc ? (UInt16) (bodyLen + 4) : bodyLen;
 	hdr[0] = enc ? (UInt8) (type | RP_ENC_FLAG) : type;
@@ -208,7 +235,13 @@ Boolean RpRecvFrame(UInt8 *typeOut, UInt8 *body, UInt16 bodyCap, UInt16 *bodyLen
 	Boolean enc;
 
 	if (!gOpen) return false;
-	if (!ReadExact(hdr, 1, gRpIdleOverrideTicks ? (Int32) gRpIdleOverrideTicks : rpIdleTimeoutTicks)) return false;
+	if (gRpLeadByte) {
+		/* Skip menu text and anything else up to the lead byte. */
+		do {
+			if (!ReadExact(hdr, 1, gRpIdleOverrideTicks ? (Int32) gRpIdleOverrideTicks : rpIdleTimeoutTicks)) return false;
+		} while (hdr[0] != gRpLeadByte);
+		if (!ReadExact(hdr, 1, rpByteTimeoutTicks)) return false;
+	} else if (!ReadExact(hdr, 1, gRpIdleOverrideTicks ? (Int32) gRpIdleOverrideTicks : rpIdleTimeoutTicks)) return false;
 	if (!ReadExact(hdr + 1, 2, rpByteTimeoutTicks)) return false;
 	len = (UInt16) (((UInt16) hdr[1] << 8) | hdr[2]);
 	chk = hdr[0] ^ hdr[1] ^ hdr[2];
@@ -243,7 +276,7 @@ Boolean RpRecvFrame(UInt8 *typeOut, UInt8 *body, UInt16 bodyCap, UInt16 *bodyLen
 		if (!gRpSecured) return false;
 		if (len) RpSecXcrypt(body, len, rpDirWirsa,
 			((UInt32) seqb[0] << 24) | ((UInt32) seqb[1] << 16) | ((UInt32) seqb[2] << 8) | seqb[3], 0);
-	} else if (!RP_IS_KEX(hdr[0])) {
+	} else if (!RP_IS_KEX(hdr[0]) && !gRpAllowPlain) {
 		return false;
 	}
 

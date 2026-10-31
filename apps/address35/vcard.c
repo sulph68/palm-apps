@@ -282,11 +282,13 @@ static UInt8 vcAddrLabel(const char *ty)
 
 static UInt8 vcRelFromToken(const char *ty)
 {
-	if (StrStr(ty, "spouse")) return a35relSpouse;
+	/* ty is lower case: a TYPE= token (firmware-normalised) or an Apple label
+	 * (Mother, Father, Sister, Brother, Son, Husband...) */
+	if (StrStr(ty, "spouse") || StrStr(ty, "husband") || StrStr(ty, "wife")) return a35relSpouse;
 	if (StrStr(ty, "partner") || StrStr(ty, "sweetheart")) return a35relPartner;
-	if (StrStr(ty, "child")) return a35relChild;
-	if (StrStr(ty, "parent")) return a35relParent;
-	if (StrStr(ty, "sibling")) return a35relSibling;
+	if (StrStr(ty, "child") || StrStr(ty, "son") || StrStr(ty, "daughter")) return a35relChild;
+	if (StrStr(ty, "parent") || StrStr(ty, "mother") || StrStr(ty, "father")) return a35relParent;
+	if (StrStr(ty, "sibling") || StrStr(ty, "sister") || StrStr(ty, "brother")) return a35relSibling;
 	if (StrStr(ty, "assistant") || StrStr(ty, "agent")) return a35relAssistant;
 	if (StrStr(ty, "manager")) return a35relManager;
 	if (StrStr(ty, "friend")) return a35relFriend;

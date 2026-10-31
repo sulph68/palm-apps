@@ -22,7 +22,11 @@ typedef enum {
 	CDDV_OAUTH_START = 0x08,
 	CDDV_OAUTH_INFO = 0x09,
 	CDDV_OAUTH_TOKEN = 0x0A,
-	CDDV_BYE = 0x0B
+	CDDV_BYE = 0x0B,
+	/* contacts slots (caldav_relay.cpp WIRSA_FEATURE_CARDDAV), each acked
+	 * with CDDV_ITEM_ACK; body layouts in ContactDb.h / carddav_sync.md §2.4 */
+	CDDV_CONTACT_ITEM = 0x0C,
+	CDDV_GROUP_ITEM = 0x0D
 } CDDVFrameType;
 
 /* Framing lives in ../lib/relayproto.c (shared with BitWarden); these keep

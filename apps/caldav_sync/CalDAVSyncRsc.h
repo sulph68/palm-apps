@@ -33,6 +33,8 @@
 #define mniMainDeleteDB		103
 #define mniMainRecompute	104
 #define mniMainHelp			105
+#define mniMainDuplicate	106
+#define mniMainResort		107
 
 /* ---- frmPrefs (global Preferences) ------------------------------------ */
 #define frmPrefs			1100
@@ -44,6 +46,7 @@
 #define popPrefsBaud		1107	/* WiRSa serial baud */
 #define lstPrefsBaud		1108
 #define btnPrefsOK			1106
+#define chkPrefsScreenless	1109	/* Screenless Mode */
 
 /* ---- frmSlotEdit: focused modal, one slot at a time ------------------- */
 #define frmSlotEdit			1300
@@ -135,12 +138,24 @@
 #define btnSyncCancel		1461
 
 #define altGoogleProductionWarning	1703
+/* ---- frmDupSlot: Record > Duplicate Slot... (DupSlot.c) ---------------- */
+#define frmDupSlot			1480
+#define popDupFrom			1481
+#define lstDupFrom			1482
+#define popDupTo			1483
+#define lstDupTo			1484
+#define btnDupOK			1485
+#define btnDupCancel		1486
+#define altInfo				1709	/* ^1 - plain information */
+#define altConfirmDupOverwrite	1708	/* ^1 = target slot's alias, ^2 = source alias */
+
 #define altGoogleOAuthInstructions	1707	/* IP/PIN + google_auth.py invocation, OAuthRelay.c */
 
 /* ---- shared alerts ----------------------------------------------------- */
 #define altErr				1700
 #define altConfirmDeleteDB	1701
 #define altConfirmRecompute	1702
+#define altConfirmResort	1710
 #define altSyncOk			1704
 #define altConfirmClearSlotDB	1705
 #define altConfirmDeleteSlot	1706	/* notes event details are also deleted */

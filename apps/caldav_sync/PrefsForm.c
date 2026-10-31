@@ -14,7 +14,7 @@
 static const char *gPastLabels[] = { "None", "1 week", "2 weeks", "1 month", "2 months", "3 months" };
 static const char *gFutureLabels[] = { "2 weeks", "1 month", "3 months", "6 months", "1 year" };
 /* Same order as WiRSa's own bauds[] (main.cpp) and CDDVPrefs.c's kCddvBauds. */
-static const char *gBaudLabels[] = { "300", "1200", "2400", "4800", "9600", "19200", "38400", "57600", "115200" };
+static const char *gBaudLabels[] = { "9600", "14400", "19200", "28800", "38400", "57600", "115200" };
 
 static CDDVPrefsType *gEditPrefs;
 static FormPtr gFrm;
@@ -81,6 +81,8 @@ SEC001 void PrefsFormEdit(CDDVPrefsType *p)
 	gEditBaudIndex = CDDVGetBaudIndex();
 	LstSetSelection((ListType *) FrmGetObjectPtr(gFrm, FrmGetObjectIndex(gFrm, lstPrefsBaud)),
 		(Int16) gEditBaudIndex);
+	CtlSetValue((ControlType *) FrmGetObjectPtr(gFrm, FrmGetObjectIndex(gFrm, chkPrefsScreenless)),
+		CDDVGetScreenless());
 
 	FrmDrawForm(gFrm);
 
@@ -101,6 +103,8 @@ SEC001 void PrefsFormEdit(CDDVPrefsType *p)
 
 		if (event.eType == ctlSelectEvent && event.data.ctlSelect.controlID == btnPrefsOK) {
 			CDDVSetBaudIndex(gEditBaudIndex);
+			CDDVSetScreenless((Boolean) CtlGetValue((ControlType *) FrmGetObjectPtr(gFrm,
+				FrmGetObjectIndex(gFrm, chkPrefsScreenless))));
 			done = true;
 			continue;
 		}

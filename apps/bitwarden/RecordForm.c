@@ -24,7 +24,8 @@
 #include "BitWarden.h"
 #include "totp.h"
 
-static BwItemFull gCurrentItem;
+extern BwItemFull gBwItemShared;	/* Sync.c - shared with the sync's item buffer, see there */
+#define gCurrentItem gBwItemShared
 /* Shared by whichever single "sensitive" field the active form has
  * (Login's password / Card's number / Identity's SSN) - only one is ever
  * masked at a time since only one form is ever open. */

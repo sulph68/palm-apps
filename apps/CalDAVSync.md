@@ -50,26 +50,26 @@ sec001 : app/UI - MainForm/SlotEditForm/PrefsForm/LongTextDialog/HelpForm/SyncPr
          event handlers, dialogs, menu handling.
 sec002 : prefs database - CDDVPrefs.c (CalDAVRelayDB) + CDDVSec35.c (Sec35 password/
          token encrypt/decrypt wiring, enccore).
-sec003 : DateBook35DAV.pdb read/write - DAVDb.c (record CRUD, full-rebuild-then-atomic-
-         rename sync, Recompute Times).
+sec003 : DateBook35DAV.pdb read/write - DAVDb.c (record CRUD, per-slot staged rebuild
+         committed after the connection closes, Recompute Times).
 sec004 : communication - relayproto.c/relaywire.c/relaysec.c (shared wire framing + link
          encryption, via RP_SECTION) + Serial.c (CDDVSerialPoll) + SyncEngine.c (per-slot
          sync orchestration) + OAuthRelay.c (Google sign-in flow).
 (enccore.c/aes.c, the Sec35 crypto, are in sec002 via ENCCORE_SECTION/AES_SECTION.)
 ```
 
-**Real build, current state** (2026-10, after link encryption and the all-day fix;
+**Real build, current state** (2026-10-14, after the Sync All staged commit, §7 item 10;
 confirmed via `make` + `m68k-palmos-objdump -h`, not estimated):
 ```
    text    data     bss     dec     hex filename
-  30788    1280   31404   63472    f7f0 CalDAVSync
+  31516    1284   31404   64204    facc CalDAVSync
 ```
 Per-segment breakdown:
-- `sec001`: 3836 / 32768 bytes — **28932 free**
-- `.text` (main): 11324 / 32768 bytes — **21444 free**
+- `sec001`: 3848 / 32768 bytes — **28920 free**
+- `.text` (main): 11448 / 32768 bytes — **21320 free**
 - `sec002`: 6676 / 32768 bytes — **26092 free**
-- `sec003`: 1436 / 32768 bytes — **31332 free**
-- `sec004`: 7516 / 32768 bytes — **25252 free**
+- `sec003`: 2008 / 32768 bytes — **30760 free**
+- `sec004`: 7536 / 32768 bytes — **25232 free**
 
 Unlike BitWarden/Sec35/Datebook35 (all of which have hit single-digit-byte segment
 margins at some point), **every CalDAV Sync segment currently has 20KB+ of headroom** —
@@ -164,14 +164,15 @@ protocol framing, uICAL extensions, and its own real-device bug-fix history.
   freshly-typed secret via `CDDVSec35.c`), Cancel discards it. Hand-rolled modal loop (not
   `FrmDoDialog` — same "doesn't reliably dispatch `frmOpenEvent`" finding as every other
   hand-rolled loop in this suite).
-- **`PrefsForm.c`** — global past/future sync-window defaults and serial baud rate.
+- **`PrefsForm.c`** — global past/future sync-window defaults, serial baud rate and Screenless Mode (§10).
 - **`SyncEngine.c`** — `SyncEngineRunOne(prefs, slotIdx, silent, keepOpen)`: negotiates
   baud, sends `SYNC_REQUEST` (with this slot's decrypted fields — server/path/uuid/user/
   alias/googleClientId/googleClientSecret/secret, plus the resolved past/future window and
   the Palm's own clock), receives+ACKs `EVENT_ITEM` frames into `DAVDb.c`, until
   `SYNC_DONE`/`SYNC_ERROR`/timeout. `keepOpen` lets a Sync All batch reuse one negotiated
   connection across slots instead of renegotiating per calendar (`gCddvConnNegotiated`
-  latch). `silent` suppresses the modal failure alert and the Sec35-locked bounce, so one
+  latch). A successful slot is only *staged*; every staged slot is committed after the
+  connection is closed, i.e. when a call with `keepOpen=false` finishes (§7 item 10). `silent` suppresses the modal failure alert and the Sec35-locked bounce, so one
   failed slot doesn't stall the rest of a batch.
 - **Serial framing — shared `../lib/relayproto.c`/`relaywire.c`** (merged with BitWarden
   2026-09-30). Open/close/receive stay in main (tagging them `SEC0xx` crashed on a real
@@ -404,6 +405,23 @@ example of why memory files carry a "point-in-time, verify against current code"
    Only shows with more than 16 events (the first progress redraw), so the small POSE test
    sets missed it. Fix: the box has one fixed width, sized for the longest progress text, with
    the text centred; the font is also restored afterwards. Built clean; not yet re-tested.
+10. **Sync All hung after a large calendar (real device, fixed 2026-10-14).** After each
+   calendar the Palm committed it at once - deleted the slot's old records, copied in the new
+   ones encrypting five fields each, and `DmQuickSort`ed the whole database - while the
+   connection was held open for the next slot. WiRSa waits only `CDDV_NEGOTIATE_TIMEOUT_MS`
+   (15 s) for the next `SYNC_REQUEST`, then reverts to 9600 baud and drops the secure link;
+   the Palm still had `gCddvConnNegotiated` set and sent the next request at the negotiated
+   rate, so the batch hung. Fix (Palm side only; firmware unchanged): each slot downloads into
+   its own staging DB (`DateBook35DAV_t0`..`_t7`) and `DAVDbStageSlotRebuild` keeps it;
+   `DAVDbCommitStaged` runs once after BYE - from `SyncEngineRunOne` when `keepOpen` is false,
+   and again (a no-op normally) after the Sync All loop in `MainForm.c` in case the last slot
+   returned early. It removes the staged slots' old records in one pass, copies and encrypts the
+   new ones behind a "Saving n/total" box, sorts once ("Sorting..."), and deletes every staging
+   DB, including stale ones from a crash and the single `DateBook35DAV_tmp` older builds used.
+   If Sec35 has locked by then nothing is committed and the old records stay (previously the
+   fields would have been written blank); the slots still show as synced in that case. Sync
+   Now and Clear DB use the same path (`DAVDbCommitSlotRebuild` = stage + commit). User-tested
+   on hardware, working (2026-10-15).
 
 ## 8. Cross-app integration (→ Datebook35)
 
@@ -420,10 +438,11 @@ Sync's own build).
 whole-DB temp-then-atomic-rename (BitWarden's `Store.c` pattern) would be wrong here, since
 "Sync Now" only re-fetches *one* slot — swapping in a temp DB containing just that slot's
 events would wipe every other slot's already-synced ones. `DAVDbBeginSlotRebuild`/
-`DAVDbAddEvent` stage into a separate temp database; only `DAVDbCommitSlotRebuild` (full
-success only) deletes that slot's old records and copies in the staged new ones as one unit.
-"Sync All" is just this same per-slot primitive called once per slot, not a separate
-whole-DB code path.
+`DAVDbAddEvent` stage into a per-slot temp database (`DateBook35DAV_t<slot>`);
+`DAVDbStageSlotRebuild` keeps it on full success, and `DAVDbCommitStaged` later deletes each
+staged slot's old records and copies in its new ones, then sorts once. "Sync All" is this same
+per-slot primitive called once per slot, committing every staged slot together after the last
+one (§7 item 10). Datebook35 opens `DateBook35DAV` by name, so the staging DBs never show there.
 
 **Datebook35's own DAV-row rendering** uses a sentinel `CurrentRecord` range
 (`kDayDavBase`/`IsDayDav`, `Datebook35.md` §17) to mark a table row as "this is a read-only
@@ -479,3 +498,162 @@ Be honest about what's actually been exercised vs. assumed:
   iCloud, ICS Feed, Google OAuth handshake+Calendar API fetch, chunked streaming, a long
   real-device HTTP/TLS/timeout bug-fix tail) but explicitly out of this doc's scope (§3) —
   see `caldav_relay.cpp` directly, or `WiRSa-Palm.md` §13 for the write-up.
+
+## 10. Screenless Mode (2026-10-16)
+
+For a WiRSa with no screen (or just to skip picking the mode on WiRSa): Preferences >
+**Screenless Mode:** (default off, its own pref ID 2 like the baud rate, so the slots blob is
+never touched). Preferences is now full screen (`AT (2 2 156 156)`).
+
+When on, `SyncScreenlessBegin()` (SyncEngine.c, sec004) runs before Sync Now, once before a whole
+Sync All batch, and before Google sign-in; `SyncScreenlessEnd()` runs after each of them:
+- Begin: `WCtlEnsureMode('A', CDDVGetBaud())` (`../lib/wirsactl.c`, main segment) pings WiRSa at
+  9600 and at the Baud setting (a guess at WiRSa's menu rate), leaves any other mode, starts CalDAV Relay,
+  then pings at 9600 once a second (up to 20 s) until the mode itself answers. A refusal (e.g. no
+  WiFi) shows WiRSa's message and the sync is skipped. If WiRSa can't be reached, or the mode never
+  comes up, the app says so and skips the sync (see Hardening below). ENTER also carries a flags
+  byte, which current firmware ignores.
+- End ("Returning WiRSa..."): `WCtlLeaveMode()` sends WiRSa back to its main menu, only if Begin
+  reached WiRSa. It retries for ~12 s at 9600 and the menu rate: right after the BYE, WiRSa is
+  still showing "Completed!" (1.5 s) and restarting its UART at 9600, which can drop a single
+  PING. Found on hardware: with one PING, a sync that had switched WiRSa from its menu often left
+  it in CalDAV Relay. WiRSa's own Exit Timers (firmware 2026-10-16+; default 15 s after the
+  session, 45 s if no session starts) bring it back too, so this EXIT is now a fallback.
+- Cancelling shows no alert, and Sync Now shows a result only when a sync
+  actually ran.
+
+Off = exactly the previous behaviour. Tested in POSE against a stand-in for WiRSa's control link
+and on real hardware.
+
+**With firmware 2026-10-18+** (menu at 9600 after boot, `WiRSaControl.md` §2.10): the first PING
+at 9600 finds the menu right after a boot, or brings it down to 9600 if another Palm's WiRSaCtl
+had raised it (WiRSa's second receiver). The sync itself still negotiates up to the lower of
+this Baud setting and WiRSa's configured maximum, so set Baud to this Palm's fastest rate. Spec: `apps/WiRSaControl.md`.
+
+**Baud list (2026-10-24):** Preferences > Baud offers 9600, 14400, 19200, 28800, 38400, 57600 and 115200 (WiRSa's own
+list, `kCddvBauds` in `CDDVPrefs.c`, default 57600). Pref version 3 stores the index and maps the older lists on load.
+
+**Hardening (2026-10-16, after hardware testing):**
+- WiRSa is looked for at 9600 and the Baud setting, then at every rate: the Baud setting is the
+  fastest rate offered for the sync, not necessarily WiRSa's menu rate. The menu rate WiRSa
+  reports is used to send it back afterwards.
+- If WiRSa can't be found, or answers but the mode never comes up, the app says so and skips the
+  sync instead of syncing blind (which hung at "Connecting..." for 3 minutes).
+- The key exchange right after the switch waits 5 s per attempt for WiRSa's first reply
+  (`gRpKexReplyTicks`, relaysec.h; default 0 = the usual 180 s) and retries even on silence, so a
+  lost first KEX_REQ costs seconds, not 3 minutes. Seen on hardware: the first sync after a switch
+  from the menu sometimes stuck at "Connecting...", a second try worked. Root cause of the lost
+  request not yet pinned down (a USB debug log of a failing first attempt would show it).
+
+## 11. Duplicate Slot (2026-10-19)
+
+Record → **Duplicate Slot...** copies one slot's settings and login to another slot - e.g. to
+make a second calendar on the same account, or (later) a contacts slot from a calendar slot
+(`carddav_sync.md` §3.3).
+
+- **Dialog** (`frmDupSlot`, `DupSlot.c`): "From:" (preselected: the current slot) and "To:"
+  (preselected: the first empty slot after it) popups listing "N: alias" / "N: (empty)". Runs on
+  `FrmDoDialog` - the popups need no event handler of ours; the label buffer is heap, freed
+  after (globals are ~800 bytes from full).
+- **Checks:** same slot → "Pick two different slots."; empty source → "nothing to copy"; a
+  target in use → `altConfirmDupOverwrite` ("Replace 'X' with a copy of 'Y'?"). Its synced
+  entries stay until its next sync, which replaces them.
+- **Re-encryption:** every field's nonce is (field, slot number), the secret's (0, slot number)
+  (§5), so each field is decrypted with the source slot's number and encrypted with the
+  target's (`CDDVCryptBytes` twice). The copy is built in a heap buffer and stored only when
+  every field went through, so a Sec35 lock half way leaves both slots unchanged ("Couldn't
+  copy the slot: unlock Sec35 and try again.").
+- **What is copied:** everything but the sync history (last sync time/result/count/error);
+  " copy" is added to the alias when it fits. The main screen then shows the new slot.
+- **Segments:** all of `DupSlot.c` is SEC001, like `MainForm.c` (cddv_seg.h's same-file rule);
+  sec001 5,716 bytes, no new globals.
+- **Tested in POSE** (Palm III, OS 4.1, Sec35 unlocked): popups keep the dialog open and
+  update; a CalDAV slot copied to slot 3 shows alias, server, path, user and password correct
+  in Edit; same-slot error; overwrite confirmation, Cancel leaves the target unchanged.
+- Fixed alongside: after Edit → Save the main screen's slot popup kept its old label (e.g.
+  "1: (empty)") until another slot was picked - it now reloads the slot (`LoadSlot`).
+
+## 12. Contacts slots (CardDAV, 2026-10-19, build step 5a)
+
+Design: `carddav_sync.md`. Two more slot types; the type popup list order is `CDDVServerType`:
+
+| Type (enum) | List / closed label | Fields | Sent as |
+|---|---|---|---|
+| `cddvTypeICloudContacts` (4) | "Contacts (iCloud)" / "Contacts" | iCloud's: Apple ID, Passwd, Host (`pNN-contacts.icloud.com`), DSID - no "Cal UUID" row; path cleared on Save | server = host, uuid = DSID; WiRSa fetches `/{DSID}/carddavhome/card/` |
+| `cddvTypeCardDAV` (5) | "CardDAV" / "CardDAV" | CalDAV's: Server, Path (address book), User, Passwd | `joinUrl(server, path)` |
+
+(`cddvTypeGroup()` in `SlotEditForm.c` maps each to the field group it reuses; the closed label
+stays short because the Skip button sits at x=108.) Main screen "Type:" shows "iCloud
+Contacts" / "CardDAV Contacts"; status "OK - N contact(s) synced".
+
+- **Sync** (`SyncEngine.c`): same link, HELLO and SYNC_REQUEST; `CDDV_CONTACT_ITEM` frames go to
+  `ContactDbAdd`, `CDDV_GROUP_ITEM` is only acknowledged for now (categories: step 5b).
+- **Storage** (`ContactDb.c`, sec003; layout in `ContactDb.h`): one database per contacts slot,
+  `Address35DAV_<slot 1..8>`, creator CalDAV Sync's (never `'Ad35'` - CatSync). Built as
+  `Address35DAV_t<n>`; on success `ContactDbStage` writes the info block (standard categories,
+  then version / slot type / stale / Sec35-encrypted alias) and closes it; `ContactDbCommitStaged`
+  sorts by sort name and swaps it in once the link to WiRSa is closed (same reason as
+  `DAVDbCommitStaged`: sorting a big book outlasts WiRSa's wait between Sync All slots). A
+  failed sync deletes the temp database and leaves the old one.
+- **Records:** version, flags, then the CONTACT_ITEM body as sent; names and dates readable (like
+  Address35's own), the vCard text Sec35-encrypted per record (nonce `'CARD'`, uniqueID). A
+  record whose text can't be encrypted (Sec35 locked mid-sync) is not kept.
+- **Clear DB** on a contacts slot deletes its contacts database; **Delete** slot removes both its
+  calendar entries and contacts database.
+- **Tested in POSE** (Palm III 4.1): type list, field groups and hidden row, save/reopen,
+  main-screen type, Clear DB with no database yet. The sync itself needs WiRSa (firmware
+  `56a0c2e`+): not run in POSE (no stand-in for the encrypted relay link).
+
+- **Host swap** (build step 5c): switching the type iCloud → Contacts (iCloud) in the editor
+  rewrites the host's `-caldav.` to `-contacts.` (`pNN-caldav.icloud.com` →
+  `pNN-contacts.icloud.com`), and back the other way; shown in the field before Save, still
+  editable. So Duplicate an iCloud calendar slot, switch the copy's type, Save. Tested in POSE.
+
+### 12.1 Categories, birthday index, stale data (2026-10-19, build step 5b)
+
+- **Categories** (`ContactApplyCategories`, at commit): `CDDV_GROUP_ITEM` bodies are kept in the
+  temp database (marker byte 0xFE) during the sync. At commit, the group names and every
+  contact's own `CATEGORIES` values become up to 15 category names, alphabetical, in that slot's
+  own `Address35DAV_<n>` (index 0 = Unfiled). Each contact gets the alphabetically first one it
+  belongs to (its own CATEGORIES, or a group listing its UID), else Unfiled; then the group
+  records are removed. Never touches Address35's local categories, and CatSync never sees these
+  databases (creator CalDAV Sync's).
+- **`Address35DAVBDA`** (`ContactRebuildBda`, layout in `ContactDb.h`): 12 month records of
+  birthdays and anniversaries from every non-stale `Address35DAV_<n>` - day, kind, year, slot,
+  record index, display name, Other-anniversary name; unencrypted (names and dates only). Rebuilt
+  after every contacts commit, `ContactDbDelete` and `ContactDbMarkStale`. For Datebook35 (build
+  step 7).
+- **Stale data:** Save of a contacts slot that becomes another type (or is deleted), and Duplicate
+  over a contacts slot, set its database's stale flag (`ContactDbMarkStale`) - readers hide it,
+  and it drops out of `Address35DAVBDA`. **At the start of every Sync Now / Sync All**,
+  `ContactDbCleanup` deletes the contacts database of every slot that is empty or no longer a
+  contacts slot, and the `DateBook35DAV` rows of every slot that is empty or now a contacts slot
+  (`DAVDbSlotHasRows` first, so nothing is rewritten when there is nothing to remove) - even if
+  the sync itself then fails.
+- **Tested in POSE:** contacts slot → CalDAV → deleted runs the stale/delete paths cleanly with no
+  database present. Categories and the index need a real sync (hardware).
+
+### 12.2 Record version 2: list value, Address35's sort order (2026-10-19)
+
+For Address35's CardDAV list (`carddav_sync.md` §4), which reads `Address35DAV_<n>` directly - no
+copy, no second database:
+
+- **Record version 2** (`ContactDb.h`): after version and flags, the **list value** (first phone,
+  else first email, max 32, Sec35 with nonce (`'LIST'`, uniqueID) - the one value the list shows
+  right of the name, so drawing a row decrypts 1-2 AES blocks, not the whole card), then
+  **last, first and company** readable (from the card's `N` and `ORG` while CalDAV Sync still has
+  the plain text), then the CONTACT_ITEM body as before. Version-1 records (step 5a/5b) are
+  ignored by the index and categories; the next sync rewrites the database. Flags bit 2
+  (`cddvContactFlagSocial`, 2026-10-21): the list value is empty but the text has IM / social lines, so
+  Address35's Phone Lookup still lists the contact.
+- **Sort order = Address35's own**: `primarySort`/`secondarySort` read from `Address35DB`'s
+  AppInfo (offsets 276/277, after the standard category block; Last/First if Address35 isn't
+  there); `ContactCompare` mirrors `A35ComparePackedRecords` (keys in preference order, a missing
+  key first, caseless then exact; ties by uniqueID). Applied after every contacts sync.
+- **Record → Re-Sort Contacts** (below Recompute Times): re-sorts every `Address35DAV_<n>` by the
+  current preference and rebuilds `Address35DAVBDA` (its record indexes move); "Contacts sorted
+  in Address35's order." Like Recompute Times it asks OK/Cancel first and shows the busy toast
+  ("Sorting 2/3", "Updating index") while it works.
+- After a contacts sync (once the link to WiRSa is closed) the commit shows "Saving contacts...", "Sorting contacts..." and "Updating index..." in the same box, so the pause after the BYE is never silent (2026-10-21).
+- Tested in POSE: menu item and Re-Sort with Address35 installed and no contacts databases.
+  Sorting and the list value need a real sync.

@@ -55,6 +55,14 @@ Boolean backupItemIsPrefsDb(const struct BackupItem *item);
 
 
 //enumeration of sets (do not call other backsup funcs in callback. error returned from callback terminates enumeration and is returned)
+//a set made with a device name set is reported as "Device/date", one made without as "date"
 Err backupEnumerate(UInt16 vrn, BackupEnumF enumF, void *enumD);
+//the device folders on the volume (same callback rules)
+Err backupEnumerateDevices(UInt16 vrn, BackupEnumF enumF, void *enumD);
+
+//name of the database holding this device's Bkp1 settings; backups leave it out, so a restore never changes it.
+//A #define, not a shared const: each .c keeps its own copy, since one file cannot reach another's code-resident
+//constants (no relocation of code resources)
+#define BKP_SETTINGS_DB_NAME	"Bkp1 Settings"
 
 #endif

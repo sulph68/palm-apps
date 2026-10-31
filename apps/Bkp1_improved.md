@@ -11,15 +11,16 @@ backup tool", © 2022 palmpowerups.com, creator `PpB1`). This document lists eve
 it in `hackmaster_y2035/apps/Bkp1/` on 2026-10-10, measured against the pristine source in the
 SASD release (`SASD_release/software/Bkp1/`). It is the single reference for this copy of Bkp1.
 
-**What it does.** Bkp1 backs up every RAM database on card 0 (except itself and `psysLaunchDB`)
-to `/PALM/PROGRAMS/BKP1/<backup name>/` on an expansion card, one file per database
+**What it does.** Bkp1 backs up every RAM database on card 0 (except itself, `psysLaunchDB` and
+its own `Bkp1 Settings`) to `/PALM/PROGRAMS/BKP1/<backup name>/` on an expansion card - or to
+`/PALM/PROGRAMS/BKP1/<device name>/<backup name>/` once a device name is set (§10) - one file per database
 (`<index>.PDB` / `.PRC`, 8-hex-digit index, standard PDB/PRC format), and restores a set followed
 by a reset. Paths below are relative to `hackmaster_y2035/apps/Bkp1/`.
 
 **Files.**
 
 ```
-Src/bkp1.c              UI (backup list, progress form), startup, end-of-restore report
+Src/bkp1.c              UI (backup list, progress form, Settings form), startup, end-of-restore report
 Src/ops.c               backup / restore / delete / rename / enumerate over VFS; scan + selective restore
 Src/choose.c, choose.h  selective restore: grouping by owner, presets, the chooser screens (§4)
 Src/VfsExportImport.c   one database <-> one file (thin wrapper, progress callbacks)
@@ -36,11 +37,12 @@ tools/                  host scripts that inspect a backup folder (§7)
 | | Original | Improved |
 |---|---|---|
 | Version | 1.2 | **1.3** |
-| File | `Bkp1_orig.prc`, 16,917 bytes | `Bkp1.prc`, 26,600 bytes |
+| File | `Bkp1_orig.prc`, 16,917 bytes | `Bkp1.prc`, 29,564 bytes |
 | Built with | CodeWarrior (`bkp1.mcp`) | prc-tools (`make`) |
-| Code size | 13,010 bytes | 21,656 bytes (one segment, limit 32,768) |
+| Code size | 13,010 bytes | 24,256 bytes (one segment, limit 32,768) |
 
-Backup, Delete and Rename behave as before, and **the backup file format is unchanged**:
+Backup, Delete and Rename behave as before until a device name is set (§10), and **the backup
+file format is unchanged**:
 backups made by either version restore with either, except that the original crashes or stops
 on the cases in §1 and §3.
 
@@ -201,6 +203,8 @@ sources still compile with CodeWarrior.
 | Alert 1003 | *Everything* / *Choose...* / *Cancel* |
 | Form 1100 | "Choose what to restore": group list, summary field, "Tick:" preset popup, *Restore* / *Files...* / *Cancel* |
 | Form 1110 | one group's files, *Done* |
+| Form 1003 | Backup > Settings: "Device Name:" popup (*Not Set*, device folders, *Other*), name field, *OK* / *Cancel* (§10) |
+| Menu item 1004 | Backup > Settings... (§10) |
 
 ## 7. Test and support files added
 
@@ -233,6 +237,8 @@ sources still compile with CodeWarrior.
 | §4 selective restore | "Apps and data" (48 of 71): resets, boots; apps, data and their settings present (Sec35, Datebook35, Address35, CryptoNote entries); hacks, drivers, panels and device-level settings (AfterBurner, battery panel, driver speed) absent |
 | §4 "Everything" | 71 of 71 restored, resets, boots |
 | Real hardware | restore of a previously crashing backup completed (user, 2026-10-10); after the 1.3 build the user reported it "seems to work well" - which flows were run on the device is not recorded |
+| §10 Settings form | POSE64 with the embedded-backup build: form bottom-aligned, popup lists *Not Set* / device folder / saved name / *Other*; *Other* with an empty name is refused with the alert and keeps the form open; a typed name is saved and comes back selected (read-only field); picking a folder fills the field; *Cancel*; *Not Set* saves; hardware up/down on the main list cause no error |
+| §10 on a card | real hardware (user, 2026-10-15): "tested and acceptable" - which flows were run is not recorded. POSE64 here has no writable card (its HostFS driver is not in this tree), so nothing in §10 that writes to a card was run in the emulator |
 
 Not exercised anywhere: the three-failures-in-a-row stop (§2), and a report with more than four
 skipped files.
@@ -254,3 +260,49 @@ skipped files.
 - **The suite's apps never purge deleted or archived entries** (no HotSync conduit). Harmless
   with the fixed reader; they take space indefinitely.
 - `Src/choose.c` and `Src/choose.h` use Unix line endings; the original sources use Windows ones.
+
+## 10. Device name and per-device folders (2026-10-14)
+
+So that backups of several devices on one card can be told apart.
+
+- **Backup > Settings...** opens a bottom-aligned form: label `Device Name: `, a popup listing
+  *Not Set*, the device folders on the selected card (sorted; plus the saved name if it has no
+  folder yet), and *Other*, with a text field below. Picking a folder shows its name, read-only.
+  *Other* clears the field and makes it editable; *OK* is refused until it holds a usable folder
+  name (not empty, none of `\ / : * ? " < > |`, no leading or trailing space or dot; up to 31
+  characters). *Not Set* clears the name.
+- **Backup** with a name set creates `BKP1/<name>/<date time>` (the device folder is created on the
+  first one). With no name set it behaves exactly as before: `BKP1/<date time>`.
+- **The main list** walks two levels: a folder holding folders is a device folder and each backup
+  in it is listed as `<name>/<date time>`; a folder holding files is a backup made without a name
+  and is listed as before. An empty folder counts as a device folder and is not listed (it still
+  appears in the Settings popup). Sorting is unchanged (alphabetical, so grouped by device).
+- **Rename** edits only the backup's own name (the part after the `/`); the backup stays in its
+  device folder. Names are checked with the same rule as above.
+- **Delete** removes the backup; its device folder stays, even when empty.
+- **The hardware up/down buttons** (and the 5-way up/down on later devices, key codes
+  `0x0132`/`0x0133`) scroll the main backup list a page at a time; the selection is unchanged.
+- **Where the name is kept:** record 0 of a database `Bkp1 Settings` (creator `PpB1`, type
+  `sett`), which every backup leaves out (`backupPrvSkipDb`, `ops.c`). A restore only replaces
+  databases that are in the backup, so restoring another device's backup never changes this
+  device's name. A hard reset clears it. The name is a `#define` (`BKP_SETTINGS_DB_NAME`, `ops.h`)
+  with a `static const` copy in each `.c`: a constant in one file's code cannot be read from
+  another file (code resources are not relocated) - sharing one `const` global made
+  `DmCreateDatabase` fail with `dmErrInvalidDatabaseName`.
+- Code: `ops.c` `backupPrvSkipDb`, the device-folder creation in `backupDo`,
+  `backupPrvIsDeviceDir`, `backupPrvEnumerate` (`backupEnumerate` / new `backupEnumerateDevices`);
+  `bkp1.c` `settingsPrvGetDeviceName` / `settingsPrvSetDeviceName`, `uiPrvNameValid`,
+  `uiPrvOpSettings` and its handlers, the key handler in `uiPrvMainFormEventHandler`.
+
+## 11. Backing up to the WiRSa virtual card (2026-10-23)
+
+With WiRSa's SASD mode serving its internal 12 MB card (WiRSaCtl Setup -> Disk = Virtual, or Auto with no SD
+card), Bkp1 sees it as any other expansion card, named `ESP32` (from the volume label). Backups go to
+`/PALM/PROGRAMS/BKP1/<name>/` on it as usual and are on the ESP32's flash once each file is closed. Notes:
+
+- Size: the card is 12 MB with 2 KB clusters, so a full backup of a large Palm may not fit; the SD card
+  (Disk = SD card) has no such limit. Only one of the two is visible to the Palm at a time.
+- WiRSa's HotSync does not restore Bkp1 backups: it installs `.PRC`/`.PDB` files from
+  `/PALM/PROGRAMS/INSTALL` and `SASD`. Restore with Bkp1 itself.
+- No change to Bkp1 was needed for any of this.
+

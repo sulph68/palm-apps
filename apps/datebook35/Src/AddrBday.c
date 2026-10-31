@@ -37,7 +37,7 @@ static void AddrCopyVal(char *out, UInt16 outLen, const UInt8 *v, UInt16 len) SE
 static UInt16 AddrBdayYear(const UInt8 *v) SEC003;
 static void AddrBdayName(char *nm, UInt16 nmLen,
 	const char *first, const char *last, const char *company) SEC003;
-static void AddrBdayLine(char *L, const char *nm, UInt16 age, const char *label) SEC003;
+void AddrBdayLine(char *L, const char *nm, UInt16 age, const char *label) SEC003;	/* also used by sec004 */
 
 static UInt16 rd16(const UInt8 *p) { return (UInt16) (((UInt16) p[0] << 8) | p[1]); }
 
@@ -64,7 +64,7 @@ static void AddrBdayName(char *nm, UInt16 nmLen,
 /* "<name> - [<age><ord> ]<label>", truncated to fit a line. Ordinal is derived
  * from the printed digits (NOT % / -- 32-bit division from a secondary segment
  * hits an unreachable libgcc and crashes; see [[multiseg-libgcc-gotcha]]). */
-static void AddrBdayLine(char *L, const char *nm, UInt16 age, const char *label)
+void AddrBdayLine(char *L, const char *nm, UInt16 age, const char *label)
 {
 	char suffix[28];
 	UInt16 nmMax;
@@ -125,9 +125,7 @@ SEC003 UInt16 AddrBdayGet(UInt16 year, UInt8 month, UInt8 day,
 	UInt16 total, i, out = 0;
 
 	db = DmOpenDatabaseByTypeCreator(kAd35Type, kAd35Creator, dmModeReadOnly);
-	if (db == NULL)
-		return 0;
-	total = DmNumRecords(db);
+	total = (db == NULL) ? 0 : DmNumRecords(db);
 	for (i = 0; i < total && out < maxLines; i++) {
 		MemHandle h = DmQueryRecord(db, i);
 		const UInt8 *rec;
@@ -195,8 +193,9 @@ SEC003 UInt16 AddrBdayGet(UInt16 year, UInt8 month, UInt8 day,
 		}
 		MemHandleUnlock(h);
 	}
-	DmCloseDatabase(db);
-	return out;
+	if (db != NULL)
+		DmCloseDatabase(db);
+	return AddrBdayDav(year, month, day, lines, recIndex, out, maxLines);	/* CardDAV books */
 }
 
 /* Switch to Address35, opening it on record index recIndex. Address35's
@@ -219,5 +218,9 @@ SEC003 void AddrBdayGoTo(UInt16 recIndex)
 	MemSet(gp, sizeof(GoToParamsType), 0);
 	MemPtrSetOwner(gp, 0);			/* survive the app switch */
 	gp->recordNum = recIndex;		/* Address35 GoTo reads this as its record index */
+	if (recIndex & kDavRecFlag) {		/* CardDAV contact: slot + record, see AddrBday.h */
+		gp->matchCustom = kDavGoToMagic | ((recIndex >> 12) & 7);
+		gp->recordNum = recIndex & 0x0FFF;
+	}
 	SysUIAppSwitch(cardNo, dbID, sysAppLaunchCmdGoTo, gp);
 }

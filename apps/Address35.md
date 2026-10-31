@@ -406,6 +406,106 @@ Segments after this (32,768-byte limit): Address35 main 0x7FAC (84 free, +32), s
 (21,936 free); Datebook35 main 0x7A74 (1,420 free; helper + beam guard), sec001 0x7FA4 (92
 free); ToDo35 main 0x7BD0 (1,072 free, +8), sec002 0x4878 (helper; 14,216 free).
 
+**Relation labels from Apple vCards (2026-10-21):** `vcRelFromToken` (`vcard.c`) now maps Apple's family words as
+well as the normalised tokens: mother/father -> Parent, sister/brother -> Sibling, son/daughter -> Child,
+husband/wife -> Spouse (before, `_$!<Mother>!$_` in an SD-card vCard became Other; CardDAV contacts were
+unaffected, the firmware converts those). Host test `test/vcard`: 17 labels, "RELATION LABELS: ALL OK"
+(4 failed before the fix). Main segment 32,420 of 32,768.
+
+**Record view wraps instead of clipping (2026-10-21).** `RecBuild` (`RecordForm.c`, sec001) ends with a pass that splits
+every display line wider than its column (148 px; the value column for field lines) onto continuation lines with
+`FntWordWrap`: the bold name wraps in bold, company/title lines wrap, and field values (long emails, addresses, URLs)
+continue at the value column. Continuation lines keep the source field, so tapping one still marks it for Edit.
+Address parts are no longer cut at 72 characters (they are read into a heap buffer, 129 per part), and the line list has
+24 extra lines for the continuations. Same code for Local and CardDAV; the main list rows are still one clipped line.
+POSE: a CardDAV contact with a three-line name, a wrapped email and a full address.
+
+**Tap a line for the whole field, and Edit > Copy (2026-10-21).** `RecField.c` (sec002, `frmRecField`, `RecField.h`).
+Tapping any line of the record view (Local or CardDAV) opens a read-only box with that field's complete text (the
+label as the title; an address one part per line; "Name" for the name/company/title block), with a scrollbar and
+page keys for long ones, a **Done** and a **Copy** button (the button then reads "Copied"), and its own Edit > Copy.
+The record view's menu gained an **Edit** pulldown: **Copy Field** (/C, the last tapped field, or the name block if
+none) and **Copy Contact** (/A, every line as "Label: value", wrapped name lines joined). Text comes from the record
+itself, not the wrapped display lines, so it is complete (up to 3,500 characters). Cut, Paste and Undo are not in the
+view's menu: the view is read-only (the Edit screens have them). In Local mode a tap still marks the field for
+**Edit** (`gEditFocusOrigin`), the popup just opens first. The popup is in `RecField.c`, not `RecordForm.c`: sec001 is
+near its limit and one more line in `RecordFormHandleEvent` made the linker fail with "relocation truncated to fit:
+DISP16 A35BeamRecord". POSE: popup on an address and on the name block, Copied label, Edit > Copy Field and Copy
+Contact checked on the clipboard with a small test app.
+
+**"Me" per CardDAV book (2026-10-21).** Record > Set as me... works in a CardDAV contact's record view and marks that contact as
+**its own book's** Me, independent of Local's (`gMeUniqueID`) and of every other book. The contact is remembered by a
+hash of its vCard UID (sdbm, clear in the record body), not its record number, because a sync replaces the database and
+renumbers everything; the UID survives. One hash per slot in a 32-byte pref (`a35DavMePrefID` 4, 'Ad35'). In that
+book's list (`MainDavRebuild`: `DavMeFind`, then rotated to the front) the Me contact is first and bold whenever it is
+in the current category / search, as Local's is. Code: `DavView.c` (`DavMeFind`, `DavSetViewed`, `DavMeSetViewed`),
+`RecSetMe` in `RecField.c` (Local's Set as Me moved there too, which also freed sec001). If the contact is deleted on
+the server there is simply no Me until another is set; there is no "clear", as for Local. POSE: set on one contact,
+pinned bold, still there after restarting Address35.
+
+## 10.2 Phone Lookup over CardDAV books (2026-10)
+
+The same Phone Lookup, answered by Address35 for **Datebook35 and ToDo35 alike** (both call the shared
+`a35lookup.c`, so ToDo35 needed no change), now has a source choice and a full-screen form.
+
+- **Form** (`frmLookup`, `Address35En.rcp`): full screen (0 0 160 160) with a 2-pixel border drawn by
+  `A35PhoneLookup` (a `FRAME` form at the screen edge shows none), 9 visible rows, Find row, and on the bottom
+  row Paste, Cancel and a **source popup** (`popLookupSrc`/`lstLookupSrc`) at the same y and height as Cancel.
+  The popup lists Local and every CardDAV / iCloud book ("iCloud - Alias"); with no CardDAV book it is hidden.
+  The choice is remembered (`a35LookupPrefID` 3, 'Ad35' pref).
+- **Name first, entry second** (as before): the list is a compact table of names (uniqueID + 24 characters)
+  held in feature memory and reused until the book changes. For a CardDAV book the names come from the
+  clear sort names in each record header and only contacts whose header list value (first phone, else first
+  email) is non-empty are listed: no decryption, no parsing. Only the picked contact's vCard text is
+  decrypted (`DavItems` in `DavView.c`: TEL lines with the TYPE as Mob/Hom/Wrk/Fax/Main/Pgr/Oth, EMAIL lines)
+  and the usual "Name - value" comes back, a small popup first when there are several. Social and IM handles
+  are read too (2026-10-21): `IMPP`, `X-SOCIALPROFILE`, `X-WHATSAPP`, `X-TELEGRAM`, `X-SIGNAL`, with the
+  same network matching as `vcard.c` (Instagram, Facebook, WhatsApp, X/Twitter, Telegram, Signal -> "Name -
+  Instagram @handle"; any other network -> "Name - Network: handle"). `vcard.c` itself is not used here: it
+  would write tags into the local book, which Lookup opens read-only. A contact with only such handles
+  has no list value, so CalDAV Sync sets header flag bit 2 (`cddvContactFlagSocial`) and the names table
+  lists records with that flag too; **databases synced before this have no flag, so social-only contacts
+  show up after the next contacts sync.** POSE: a contact with Skype, Twitter and Mastodon handles listed
+  and picked ("Dee Davis - X @deed"); Instagram beside a phone and an email.
+- **Caches:** Local in feature 3501, the last CardDAV book in 3502 (stamped with the database's ID,
+  creation date, modification number and record count; a sync replaces the database, so it rebuilds).
+- **"Loading..." box** whenever a table has to be built (opening, or switching to a book not cached):
+  `LkToast`, this file's own copy of the text-only toast. Calling `A35BusyBegin` (sec001) from the lookup
+  sublaunch jumped to garbage in POSE ("illegal instruction", PC in an unloaded segment), the same family
+  as the other sublaunch segment rules in §14: keep a lookup sublaunch inside sec002/sec003.
+- **POSE** (a small test app calling the lookup directly): popup switches Local / iCloud with the label
+  following; the CardDAV list, then Ann Adams' two items, then "Ann Adams - ann@example.com" returned; the
+  remembered book on the next launch; Local with imported contacts.
+
+## 10.1 CardDAV view (2026-10)
+
+**Options > CardDAV...** opens a small dialog: *Show:* a popup with "Local" and one entry per
+contacts slot of CalDAV Sync ("iCloud - Alias" / "CardDAV - Alias", read from the database's
+info block; stale databases left out), and **Sync...**, which switches to CalDAV Sync (same
+`SysUIAppSwitch` as Datebook35's menu item; "CalDAV Sync is not installed." if absent). The
+choice is remembered (app preference id 2, restored at launch when Sec35 is unlocked).
+
+In the CardDAV view the form title is "iCloud - Alias" and the book is `Address35DAV_<n>`
+(layout: `caldav_sync/ContactDb.h`) read in place, as a variant of card mode (`gCardMode` +
+`gDavSlot`), so rows, scrolling and Find reuse the card hooks. Rows: the readable sort names
+("First, Last", last underlined) and the decrypted list value (`*****` while Sec35 is
+locked); Find matches names; the category popup lists that book's own categories (no Edit
+Categories, no Card row) and the hardware category button cycles them. Tap a contact ->
+read-only Record form (same title) built by feeding the decrypted trimmed text to
+`A35VCardToRecord`; the button is "Import" (copies into Address35DB). New and Beam Category
+say "CardDAV contacts are read-only"; Sec35 locked on tap: "Unlock Sec35 to read these
+contacts." (the dialog then lists the slot by type name only, its alias being encrypted).
+
+**Record > Import CardDAV...** imports every contact in the list now showing (a category or a Find narrows it) into Address35DB after a three-button question - **Import** (everything, no check), **Skip Duplicates**, Cancel - with the busy toast and an "N contacts imported" message (Skip Duplicates adds "M already there, skipped."). The duplicate check is optional by design: a contact is a duplicate when its last name, first name and company (caseless) equal a local contact's; each local contact's clear header names become one 32-bit hash (sdbm: shifts and adds only, no 32-bit multiply in a secondary segment), the hashes are sorted once (`SysQSort`) and each CardDAV contact is a binary search (`MainNameHash`/`MainLocalNameHashes`/`MainHashFound`, `MainForm.c`, sec002). Order-independent, so no dependence on the sort preference. POSE: with the 4 contacts already local, Skip Duplicates imported 0 and skipped 4; Sec35 locked stops it with the unlock message.
+
+Code: `DavView.c` (SEC003: slot label, record scan, row values, record -> `A35Record`) and the
+`MainDav*` functions in `MainForm.c` (SEC002; `MainSelectCategory` moved to SEC002 to make
+room in main). POSE-verified with a real Sec35 (password set, lock/unlock) and a database
+written by an on-device generator using the shared key. GoTo from Datebook35 birthdays: `GoToRecord` (main) checks `matchCustom & 0xFFFFFF00 == 'DAV'<<8`
+and calls `DavGoTo` (SEC003): slot = low byte, record = `recordNum`; opens the contact in the
+read-only Record form (title from the slot's label), or says Sec35 is locked / the contact is
+gone and shows the main list. Datebook35 side: `Datebook35.md` §21.
+
 ## 11. File map
 
 ```

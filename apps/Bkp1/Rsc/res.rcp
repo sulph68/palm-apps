@@ -44,6 +44,8 @@ BEGIN
           MENUITEM "Rename" ID 1003
           MENUITEM "Delete" ID 1001 "D"
           MENUITEM "Restore" ID 1002 "R"
+          MENUITEM SEPARATOR
+          MENUITEM "Settings..." ID 1004
      END
      PULLDOWN "Help"
      BEGIN
@@ -73,6 +75,22 @@ BEGIN
 	BUTTON "OK" ID 2000  AT (114 29 40 12)
 	BUTTON "Cancel" ID 2001   AT (2 29 40 12)
 	GRAFFITISTATEINDICATOR AT (78 30)
+END
+
+//Backup > Settings, bottom aligned like the Rename form. The popup list (filled in at run time) opens
+//upwards over the title so it stays on screen.
+FORM ID 1003  AT ( 2 88 156 70 )
+MODAL DEFAULTBTNID 2001
+BEGIN
+        TITLE "Settings"
+	LABEL "Device Name: " AUTOID AT (3 16)
+	POPUPTRIGGER "" ID 1001  AT (66 16 88 12) LEFTANCHOR
+	LIST  ID 1002  AT (68 2 86 66) VISIBLEITEMS 6 NONUSABLE
+	POPUPLIST ID 1001  1002
+	FIELD ID 1003  AT (3 33 150 13) MAXCHARS 31 EDITABLE UNDERLINED SINGLELINE
+	BUTTON "OK" ID 2000  AT (114 54 40 12)
+	BUTTON "Cancel" ID 2001   AT (2 54 40 12)
+	GRAFFITISTATEINDICATOR AT (78 55)
 END
 
 ALERT ID 1002

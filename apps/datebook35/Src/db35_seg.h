@@ -35,6 +35,7 @@
 #define SEC001 __attribute__ ((section ("sec001")))
 #define SEC002 __attribute__ ((section ("sec002")))
 #define SEC003 __attribute__ ((section ("sec003")))
+#define SEC004 __attribute__ ((section ("sec004")))	/* CardDAV birthdays (AddrBdayDav) */
 #define SEC_RECV	/* beam RECEIVE path: MUST be in main (no-globals sublaunch) */
 
 /* Db35: at-rest encryption (Sec35 shared key). The crypto core (lib/enccore.c + aes.c)

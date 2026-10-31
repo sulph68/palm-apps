@@ -11,7 +11,8 @@
 # code here (bw_seg.h deliberately does NOT override AES_SECTION/
 # ENCCORE_SECTION - see its own comment).
       OBJS = BitWarden.o MainForm.o RecordForm.o PrefsForm.o Dialogs.o Sync.o \
-             Serial.o Store.o BitwardenSec35.o relayproto.o relaywire.o relaysec.o enccore.o aes.o totp.o $(EXE)-sections.o
+             Serial.o Store.o BitwardenSec35.o relayproto.o relaywire.o relaysec.o wirsactl.o Screenless.o \
+             enccore.o aes.o totp.o $(EXE)-sections.o
 
    DEFINES = -DPALMOS4
 
@@ -59,6 +60,10 @@ relaywire.o: ../lib/relaywire.c ../lib/relaywire.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 relaysec.o: ../lib/relaysec.c ../lib/relaysec.h ../lib/relayproto.h relay_cfg.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# WiRSa control link - Screenless Mode (WCTL_SECTION = SEC001, bw_seg.h).
+wirsactl.o: ../lib/wirsactl.c ../lib/wirsactl.h ../lib/relayproto.h ../lib/relaywire.h ../lib/relaysec.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(EXE): $(OBJS) $(EXE)-sections.ld

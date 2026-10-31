@@ -20,6 +20,23 @@
 UInt16 AddrBdayGet(UInt16 year, UInt8 month, UInt8 day,
 	char lines[][kAddrBdayLineLen], UInt16 recIndex[], UInt16 maxLines) SEC003;
 
+/* CardDAV / iCloud contacts (Address35DAVBDA, written by CalDAV Sync): their
+ * entries are appended after Address35's own. Their recIndex[] value is
+ * kDavRecFlag | slot (0..7) << 12 | record index (0..4095) in Address35DAV_<slot+1>;
+ * AddrBdayGoTo turns that into the GoTo Address35's DavGoTo expects. Returns the
+ * new line count; sec004. */
+#define kDavRecFlag		0x8000u
+#define kDavGoToMagic	0x44415600UL	/* matches address35 davGoToMagic */
+UInt16 AddrBdayDav(UInt16 year, UInt8 month, UInt8 day,
+	char lines[][kAddrBdayLineLen], UInt16 recIndex[], UInt16 out, UInt16 maxLines) SEC004;
+void AddrBdayLine(char *L, const char *nm, UInt16 age, const char *label) SEC003;
+
+/* Day view birthday rows: height (a multiple of the line height, capped at maxHeight) and
+ * drawing of text wrapped to the column width. sec004. */
+Int16 DayBdayHeight(const char *d, Int16 width, Int16 maxHeight) SEC004;
+void DayBdayDraw(const char *d, const RectangleType *b) SEC004;
+UInt16 DayBdayHit(TablePtr table, Int16 x, Int16 y) SEC004;
+
 /* Switch to Address35, opening it on record index recIndex (via GoTo). */
 void AddrBdayGoTo(UInt16 recIndex) SEC003;
 

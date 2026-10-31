@@ -3,12 +3,17 @@
  * writes it). Per-SLOT rebuild, not a whole-DB swap - see DAVDb.h for why
  * a whole-DB swap is wrong for a per-slot sync model.
  *
- * New events are staged into a separate temp database (cddvDavDbTmpName)
- * for the whole sync: the real database is never opened for writing until
- * DAVDbCommitSlotRebuild, which only runs on full success - it deletes the
- * slot's old records and copies in the staged new ones as one unit, then
- * discards the temp DB. Abort just deletes the temp DB, so a failed or
+ * New events are staged into a per-slot temp database (DAVDbTmpName) for
+ * the whole sync: the real database is never opened for writing until
+ * DAVDbCommitStaged, which only runs for slots that synced in full - it
+ * deletes each staged slot's old records and copies in its new ones, then
+ * discards the temp DBs. Abort just deletes the temp DB, so a failed or
  * interrupted sync leaves every existing record untouched.
+ *
+ * Staging and committing are separate steps so Sync All can download every
+ * calendar first and only then do the slow part (encrypting each record,
+ * sorting the database) after it has said BYE to WiRSa. Done between
+ * calendars, that work could outlast WiRSa's wait for the next request.
  *
  * One record per event occurrence (not one big blob) - lets Datebook35's
  * own reader use ordinary DmQueryRecord/per-record iteration.
@@ -40,12 +45,19 @@ static void DAVDbEncryptField(UInt32 uid, UInt8 fieldIdx, char *buf, UInt16 bufC
 	}
 }
 
-/* Staging area only - always deleted by the end of Commit or Abort; a
- * stale one left behind by a crash mid-sync self-heals via
- * DAVDbBeginSlotRebuild's own delete-if-exists below. */
-#define cddvDavDbTmpName "DateBook35DAV_tmp"
+/* Staging areas only, one per slot ("DateBook35DAV_t0".."_t7") - always
+ * deleted by DAVDbCommitStaged or DAVDbAbortSlotRebuild. Stale ones left
+ * behind by a crash mid-sync are deleted by the next DAVDbCommitStaged.
+ * cddvDavDbOldTmpName is the single staging DB older builds used. */
+#define cddvDavDbOldTmpName "DateBook35DAV_tmp"
 
 static DmOpenRef gRebuildDB = NULL;
+static UInt16 gStagedMask = 0;	/* bit n: slot n has a staged rebuild to commit */
+
+static void DAVDbTmpName(UInt8 slotIdx, char *name)
+{
+	StrPrintF(name, "%s_t%d", cddvDavDbName, (Int16) slotIdx);
+}
 
 /* ---- lightweight busy "toast" for Recompute Times - text-only, no form
  * resource, updates in place as the count changes. Same screen-direct-draw
@@ -107,6 +119,16 @@ static void ToastEnd(void)
 	}
 }
 
+SEC003 void DAVDbToast(const char *text)
+{
+	ToastDraw(text);
+}
+
+SEC003 void DAVDbToastEnd(void)
+{
+	ToastEnd();
+}
+
 /* ---- per-slot rebuild path (see DAVDb.h for why this is per-slot, not a
  * whole-database temp-then-rename swap) ---- */
 
@@ -115,17 +137,21 @@ static UInt8 gRebuildSlot;
 SEC003 Err DAVDbBeginSlotRebuild(UInt8 slotIdx)
 {
 	LocalID tmpID;
+	char tmpName[dmDBNameLength];
 
 	gRebuildSlot = slotIdx;
+	DAVDbTmpName(slotIdx, tmpName);
 
 	/* Fresh empty staging area every time - delete any stale temp DB left
-	 * behind by a prior crash/abort before recreating it. */
-	tmpID = DmFindDatabase(0, cddvDavDbTmpName);
+	 * behind by a prior crash/abort, or an earlier sync of this slot in the
+	 * same batch, before recreating it. */
+	gStagedMask &= (UInt16) ~(1 << slotIdx);
+	tmpID = DmFindDatabase(0, tmpName);
 	if (tmpID != 0) DmDeleteDatabase(0, tmpID);
 
-	if (DmCreateDatabase(0, cddvDavDbTmpName, appCreator, cddvDavDbType, false) != errNone)
+	if (DmCreateDatabase(0, tmpName, appCreator, cddvDavDbType, false) != errNone)
 		return dmErrMemError;
-	tmpID = DmFindDatabase(0, cddvDavDbTmpName);
+	tmpID = DmFindDatabase(0, tmpName);
 	if (tmpID == 0) return dmErrMemError;
 
 	gRebuildDB = DmOpenDatabase(0, tmpID, dmModeReadWrite);
@@ -175,59 +201,43 @@ static Int16 DAVDbCompareByLocalStart(void *rec1, void *rec2, Int16 other,
 	return (Int16) MemCmp(r1SortInfo->uniqueID, r2SortInfo->uniqueID, 3);
 }
 
+/* Closes the current slot's staging DB and keeps it for DAVDbCommitStaged. */
+SEC003 void DAVDbStageSlotRebuild(void)
+{
+	if (!gRebuildDB) return;
+	DmCloseDatabase(gRebuildDB);
+	gRebuildDB = NULL;
+	gStagedMask |= (UInt16) (1 << gRebuildSlot);
+}
+
+/* Stage + commit in one step, for callers outside a sync (Clear DB). */
 SEC003 void DAVDbCommitSlotRebuild(void)
 {
-	DmOpenRef realDB;
-	LocalID dbID, tmpID;
-	UInt16 tmpTotal, i;
+	DAVDbStageSlotRebuild();
+	DAVDbCommitStaged();
+}
 
-	if (!gRebuildDB) return;
-	tmpID = DmFindDatabase(0, cddvDavDbTmpName);
+/* Copies one slot's staged records into realDB, encrypting each field with
+ * the record's final uniqueID as the nonce. Returns the records it read. */
+static UInt16 DAVDbCopyStaged(DmOpenRef realDB, DmOpenRef tmpDB, UInt16 doneSoFar, UInt16 grandTotal) SEC003;
+static UInt16 DAVDbCopyStaged(DmOpenRef realDB, DmOpenRef tmpDB, UInt16 doneSoFar, UInt16 grandTotal)
+{
+	UInt16 tmpTotal = DmNumRecords(tmpDB), i;
+	char msg[32];
 
-	dbID = DmFindDatabase(0, cddvDavDbName);
-	if (dbID == 0) {
-		if (DmCreateDatabase(0, cddvDavDbName, appCreator, cddvDavDbType, false) != errNone) {
-			DmCloseDatabase(gRebuildDB);
-			gRebuildDB = NULL;
-			if (tmpID != 0) DmDeleteDatabase(0, tmpID);
-			return;
-		}
-		dbID = DmFindDatabase(0, cddvDavDbName);
-	}
-	realDB = DmOpenDatabase(0, dbID, dmModeReadWrite);
-	if (!realDB) {
-		DmCloseDatabase(gRebuildDB);
-		gRebuildDB = NULL;
-		if (tmpID != 0) DmDeleteDatabase(0, tmpID);
-		return;
-	}
-
-	/* Only now - once the new data in the temp DB is confirmed to exist -
-	 * delete this slot's old records from the real database. Iterate
-	 * backwards, since DmRemoveRecord shifts every later index down by one. */
-	{
-		Int16 j;
-		for (j = (Int16) DmNumRecords(realDB) - 1; j >= 0; j--) {
-			MemHandle h = DmQueryRecord(realDB, (UInt16) j);
-			CDDVEvent ev;
-			void *raw;
-			if (!h) continue;
-			raw = MemHandleLock(h);
-			MemMove(&ev, raw, sizeof(ev));
-			MemHandleUnlock(h);
-			if (ev.sourceSlot == gRebuildSlot) DmRemoveRecord(realDB, (UInt16) j);
-		}
-	}
-
-	/* Copy every staged record from the temp DB into the real one. */
-	tmpTotal = DmNumRecords(gRebuildDB);
 	for (i = 0; i < tmpTotal; i++) {
-		MemHandle srcH = DmQueryRecord(gRebuildDB, i);
+		MemHandle srcH = DmQueryRecord(tmpDB, i);
 		CDDVEvent ev;
 		void *srcRaw;
 		UInt16 index;
 		MemHandle dstH;
 		void *dstRaw;
+
+		if ((i & 0x0F) == 0) {	/* redraw every 16 records - avoid pointless flicker */
+			StrPrintF(msg, "Saving %u/%u", doneSoFar + i + 1, grandTotal);
+			ToastDraw(msg);
+			EvtResetAutoOffTimer();
+		}
 
 		if (!srcH) continue;
 		srcRaw = MemHandleLock(srcH);
@@ -254,12 +264,90 @@ SEC003 void DAVDbCommitSlotRebuild(void)
 		MemHandleUnlock(dstH);
 		DmReleaseRecord(realDB, index, true);
 	}
+	return tmpTotal;
+}
 
-	DmQuickSort(realDB, DAVDbCompareByLocalStart, 0);
-	DmCloseDatabase(realDB);
+/* Commits every slot staged since the last commit as one unit: removes
+ * those slots' old records, copies in the staged ones, sorts once, and
+ * deletes all staging DBs (including stale ones nothing staged this run).
+ * If Sec35 has locked since the sync, nothing is committed - the fields
+ * could not be encrypted - and the old records are left as they were. */
+SEC003 void DAVDbCommitStaged(void)
+{
+	DmOpenRef realDB = NULL;
+	LocalID dbID, tmpID;
+	UInt16 mask, grandTotal = 0, done = 0;
+	UInt8 slot;
+	char tmpName[dmDBNameLength];
 
-	DmCloseDatabase(gRebuildDB);
-	gRebuildDB = NULL;
+	if (gRebuildDB) DAVDbAbortSlotRebuild();	/* never commit a half-written stage */
+	mask = gStagedMask;
+	gStagedMask = 0;
+
+	if (mask && CDDVSec35Installed() && !CDDVSec35Unlocked()) mask = 0;
+
+	if (mask) {
+		dbID = DmFindDatabase(0, cddvDavDbName);
+		if (dbID == 0 &&
+			DmCreateDatabase(0, cddvDavDbName, appCreator, cddvDavDbType, false) == errNone)
+			dbID = DmFindDatabase(0, cddvDavDbName);
+		if (dbID != 0) realDB = DmOpenDatabase(0, dbID, dmModeReadWrite);
+	}
+
+	if (realDB) {
+		Int16 j;
+
+		/* Count staged records first, for the progress toast; drop any slot
+		 * whose staging DB has gone missing so its old records survive. */
+		for (slot = 0; slot < cddvMaxSlots; slot++) {
+			DmOpenRef t;
+			if (!(mask & (1 << slot))) continue;
+			DAVDbTmpName(slot, tmpName);
+			tmpID = DmFindDatabase(0, tmpName);
+			t = tmpID ? DmOpenDatabase(0, tmpID, dmModeReadOnly) : NULL;
+			if (!t) { mask &= (UInt16) ~(1 << slot); continue; }
+			grandTotal += DmNumRecords(t);
+			DmCloseDatabase(t);
+		}
+		ToastDraw("Saving...");
+
+		/* Only now - once the new data in the temp DBs is confirmed to exist -
+		 * delete the staged slots' old records from the real database.
+		 * Iterate backwards, since DmRemoveRecord shifts every later index
+		 * down by one. */
+		for (j = (Int16) DmNumRecords(realDB) - 1; j >= 0; j--) {
+			MemHandle h = DmQueryRecord(realDB, (UInt16) j);
+			UInt8 src;
+			if (!h) continue;
+			src = ((CDDVEvent *) MemHandleLock(h))->sourceSlot;
+			MemHandleUnlock(h);
+			if (src < cddvMaxSlots && (mask & (1 << src))) DmRemoveRecord(realDB, (UInt16) j);
+		}
+
+		for (slot = 0; slot < cddvMaxSlots; slot++) {
+			DmOpenRef t;
+			if (!(mask & (1 << slot))) continue;
+			DAVDbTmpName(slot, tmpName);
+			tmpID = DmFindDatabase(0, tmpName);
+			t = tmpID ? DmOpenDatabase(0, tmpID, dmModeReadOnly) : NULL;
+			if (!t) continue;
+			done += DAVDbCopyStaged(realDB, t, done, grandTotal);
+			DmCloseDatabase(t);
+		}
+
+		ToastDraw("Sorting...");
+		DmQuickSort(realDB, DAVDbCompareByLocalStart, 0);
+		DmCloseDatabase(realDB);
+		ToastEnd();
+	}
+
+	/* Delete every staging DB, committed or not. */
+	for (slot = 0; slot < cddvMaxSlots; slot++) {
+		DAVDbTmpName(slot, tmpName);
+		tmpID = DmFindDatabase(0, tmpName);
+		if (tmpID != 0) DmDeleteDatabase(0, tmpID);
+	}
+	tmpID = DmFindDatabase(0, cddvDavDbOldTmpName);
 	if (tmpID != 0) DmDeleteDatabase(0, tmpID);
 }
 
@@ -270,9 +358,35 @@ SEC003 void DAVDbAbortSlotRebuild(void)
 	 * every existing record in DateBook35DAV.pdb exactly as it was before
 	 * the sync started. */
 	LocalID tmpID;
+	char tmpName[dmDBNameLength];
 	if (gRebuildDB) { DmCloseDatabase(gRebuildDB); gRebuildDB = NULL; }
-	tmpID = DmFindDatabase(0, cddvDavDbTmpName);
+	gStagedMask &= (UInt16) ~(1 << gRebuildSlot);
+	DAVDbTmpName(gRebuildSlot, tmpName);
+	tmpID = DmFindDatabase(0, tmpName);
 	if (tmpID != 0) DmDeleteDatabase(0, tmpID);
+}
+
+SEC003 Boolean DAVDbSlotHasRows(UInt8 slotIdx)
+{
+	LocalID id = DmFindDatabase(0, cddvDavDbName);
+	DmOpenRef db;
+	UInt16 i, n;
+	Boolean found = false;
+
+	if (id == 0) return false;
+	db = DmOpenDatabase(0, id, dmModeReadOnly);
+	if (!db) return false;
+	n = DmNumRecords(db);
+	for (i = 0; i < n && !found; i++) {
+		MemHandle h = DmQueryRecord(db, i);
+		if (h) {
+			const CDDVEvent *ev = (const CDDVEvent *) MemHandleLock(h);
+			found = (Boolean) (ev->sourceSlot == slotIdx);
+			MemHandleUnlock(h);
+		}
+	}
+	DmCloseDatabase(db);
+	return found;
 }
 
 SEC003 void DAVDbDeleteAll(void)

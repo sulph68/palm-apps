@@ -181,7 +181,7 @@ END
  * rule for every non-blocking dialog with input fields - see frmUnlock's
  * own AT for the same shape) - this form had drifted to a fixed y=22
  * instead of tracking its own height, unlike frmUnlock. */
-FORM ID frmPrefs AT (2 10 156 146)
+FORM ID frmPrefs AT (2 2 156 156)
 FRAME MODAL
 BEGIN
 	TITLE "Preferences"
@@ -212,22 +212,27 @@ BEGIN
 	POPUPLIST				ID popPrefsTtl lstPrefsTtl
 
 	/* Must match whatever WiRSa's own serial-speed menu setting currently is
-	 * - see Serial.c's own comment on why this isn't just hardcoded. Same 9
+	 * - see Serial.c's own comment on why this isn't just hardcoded. Same 7
 	 * rates/order as WiRSa's own bauds[] (main.cpp). */
 	LABEL "Baud:"				ID 1215 AT (4 106) FONT 1
 	POPUPTRIGGER "57600"			ID popPrefsBaud		AT (40 104 50 13)
-	LIST "300" "1200" "2400" "4800" "9600" "19200" "38400" "57600" "115200"
-									ID lstPrefsBaud		AT (40 10 50 90)
-									VISIBLEITEMS 9 NONUSABLE
+	LIST "9600" "14400" "19200" "28800" "38400" "57600" "115200"
+									ID lstPrefsBaud		AT (40 10 50 77)
+									VISIBLEITEMS 7 NONUSABLE
 	POPUPLIST				ID popPrefsBaud lstPrefsBaud
 
+	/* Screenless Mode: before a sync, put WiRSa into BitWarden Relay from
+	 * here, and back to its main menu after (WiRSa without a screen). */
+	LABEL "Screenless Mode:"	ID 1219 AT (4 120) FONT 1
+	CHECKBOX ""				ID chkPrefsScreenless	AT (90 119 16 12)
+
 	/* Left-aligned 4px from the form's own left border, 4px apart from each
-	 * other, 4px from the form's own bottom edge (146-14-4=128) - same
+	 * other, 4px from the form's own bottom edge (156-14-4=138) - same
 	 * pattern as frmUnlock's own OK/Cancel, now applied consistently to
 	 * every dialog with input fields rather than just the one that
 	 * happened to get real-device feedback first. */
-	BUTTON "OK"					ID btnPrefsOk			AT (4 128 40 14)
-	BUTTON "Cancel"				ID btnPrefsCancel		AT (48 128 44 14)
+	BUTTON "OK"					ID btnPrefsOk			AT (4 138 40 14)
+	BUTTON "Cancel"				ID btnPrefsCancel		AT (48 138 44 14)
 END
 
 /* ---- Unlock: master password entry (local unlock, and feeds Sync) ----- *

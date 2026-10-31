@@ -1,0 +1,400 @@
+/* WiRSaControl ("WiRSaCtl") - control WiRSa from the Palm over the serial
+ * line. Spec: apps/WiRSaControl.md. Resource IDs are #define'd in
+ * WiRSaControlRsc.h (hand-written, kept in step with this file by hand).
+ *
+ * Hand-editing notes:
+ *  - Every position is a plain AT (x y w h). Labels are colon-aligned:
+ *    AT (RIGHT@c y) puts the label's right edge (its colon) at column c, and
+ *    the values start at c+3. Each form's comment gives its c.
+ *  - Modal forms are bottom-aligned (y + h = 158, like the 156x156 ones at y=2) with OK/Cancel-style
+ *    buttons 4px from the form's bottom edge, as in the rest of this suite.
+ *  - Mode names, mode guidance and the SASD/SLIP confirmation text are the
+ *    STRINGTABLEs at the end (one entry per mode, order M H D S A B). The
+ *    Modes popup LIST must stay in that same order.
+ *  - The value FIELDs are filled in at run time; widen them freely, but keep
+ *    MAXCHARS at least as large as the text the code puts in them.
+ */
+#include "WiRSaControlRsc.h"
+
+VERSION ID 1 "1.0"
+
+/* Launcher icons, 1-bit: 22x22 (launcher grid) and 15x9 (list view).
+ * Drawn as icons/wirsacontrol_*.png (black on transparent); the .bmp files
+ * pilrc reads are converted from them - convert again after editing a png. */
+ICON "icons/wirsacontrol_large.bmp"
+SMALLICON "icons/wirsacontrol_small.bmp"
+
+/* ---- shared Edit menu for every form with text fields ------------------ */
+MENU ID mnuDlgEdit
+BEGIN
+	PULLDOWN "Edit"
+	BEGIN
+		MENUITEM "Undo"				ID mniEditUndo		"U"
+		MENUITEM "Cut"				ID mniEditCut		"X"
+		MENUITEM "Copy"				ID mniEditCopy		"C"
+		MENUITEM "Paste"			ID mniEditPaste		"P"
+		MENUITEM "Select All"		ID mniEditSelectAll	"S"
+		MENUITEM SEPARATOR
+		MENUITEM "Keyboard"			ID mniEditKeyboard	"K"
+		MENUITEM "Graffiti Help"	ID mniEditGraffiti	"G"
+	END
+END
+
+MENU ID mnuMain
+BEGIN
+	PULLDOWN "Options"
+	BEGIN
+		MENUITEM "Find WiRSa"		ID mniMainFind		"F"
+		MENUITEM "Reboot WiRSa"		ID mniMainReboot	"R"
+		MENUITEM "Factory Reset..."	ID mniMainFactory
+		MENUITEM SEPARATOR
+		MENUITEM "Preferences..."	ID mniMainPrefs
+	END
+	PULLDOWN "Help"
+	BEGIN
+		MENUITEM "System"			ID mniMainSystem
+		MENUITEM "Show Logs"		ID mniMainLogs
+		MENUITEM "About WiRSa-Palm Control"	ID mniMainAbout
+	END
+END
+
+/* ---- frmMain: status. Colons at 41, values at 44. ---------- */
+FORM ID frmMain AT (0 0 160 160)
+USABLE
+MENUID mnuMain
+BEGIN
+	TITLE "WiRSa-Palm Control"
+
+	LABEL "Mode:"		AUTOID AT (RIGHT@41 20) FONT 1
+	FIELD ID fldMainMode	AT (44 20 114 12) NONEDITABLE SINGLELINE FONT 0 MAXCHARS 40
+
+	LABEL "WiRSa:"		AUTOID AT (RIGHT@41 33) FONT 1
+	FIELD ID fldMainLink	AT (44 33 114 12) NONEDITABLE SINGLELINE FONT 0 MAXCHARS 40
+	LABEL "WiFi:"		AUTOID AT (RIGHT@41 46) FONT 1
+	FIELD ID fldMainWifi	AT (44 46 114 12) NONEDITABLE SINGLELINE FONT 0 MAXCHARS 48
+	LABEL "IP:"			AUTOID AT (RIGHT@41 59) FONT 1
+	FIELD ID fldMainIp		AT (44 59 114 12) NONEDITABLE SINGLELINE FONT 0 MAXCHARS 24
+	LABEL "SD:"			ID lblMainSd AT (RIGHT@41 72) FONT 1
+	LABEL "V. SD:"		ID lblMainVsd AT (RIGHT@41 72) NONUSABLE FONT 1
+	FIELD ID fldMainSd		AT (44 72 114 12) NONEDITABLE SINGLELINE FONT 0 MAXCHARS 24
+	LABEL "FTP:"		AUTOID AT (RIGHT@41 85) FONT 1
+	FIELD ID fldMainFtp		AT (44 85 114 12) NONEDITABLE SINGLELINE FONT 0 MAXCHARS 32
+	LABEL "Batt.:"  	AUTOID AT (RIGHT@41 98) FONT 1
+	FIELD ID fldMainBatt	AT (44 98 114 12) NONEDITABLE SINGLELINE FONT 0 MAXCHARS 24
+
+	/* Guidance when WiRSa can't be reached: 3 lines at most (strMainNotes),
+	 * a 4th would run into the buttons. */
+	FIELD ID fldMainNote	AT (4 112 152 33) NONEDITABLE MULTIPLELINES FONT 0 MAXCHARS 120
+
+	/* Evenly spaced, Refresh near the left edge (x=2), Setup near the
+	 * right edge (ends at x=158). */
+	BUTTON "Refresh"	ID btnMainRefresh	AT (2 147 36 12)
+	BUTTON "WiFi"		ID btnMainWifi		AT (45 147 30 12)
+	BUTTON "Modes"		ID btnMainModes		AT (83 147 34 12)
+	BUTTON "Setup"		ID btnMainSetup		AT (124 147 34 12)
+END
+
+/* ---- frmModes (colons at 69, values at 72): pick one mode (they are mutually exclusive), FTP on/off.
+ * The 3-line guidance under the popup comes from strModeNotes. ---------- */
+FORM ID frmModes AT (2 2 156 156)
+FRAME
+MODAL
+SAVEBEHIND
+BEGIN
+	TITLE "Modes"
+
+	LABEL "Select Mode:"	AUTOID AT (RIGHT@69 18) FONT 1
+	POPUPTRIGGER "Main Menu" ID popModesMode AT (72 18 80 12) LEFTANCHOR
+	LIST "Main Menu" "HotSync" "SASD SD Card" "SLIP Gateway" "CalDAV Relay" "Bitwarden Relay" "Meshtastic"
+		ID lstModesMode AT (72 18 80 77) VISIBLEITEMS 7 NONUSABLE
+	POPUPLIST ID popModesMode lstModesMode
+
+	FIELD ID fldModesNote	AT (4 34 148 33) NONEDITABLE MULTIPLELINES FONT 0 MAXCHARS 160
+
+	LABEL "FTP Server:"	AUTOID AT (RIGHT@69 80) FONT 1
+	PUSHBUTTON "Start"	ID pbtModesFtpStart	AT (72 79 40 12) GROUP 1
+	PUSHBUTTON "Stop"	ID pbtModesFtpStop	AT (113 79 40 12) GROUP 1
+	FIELD ID fldModesFtp	AT (72 93 80 12) NONEDITABLE SINGLELINE FONT 0 MAXCHARS 32
+
+	BUTTON "Start"		ID btnModesStart	AT (4 138 40 14)
+	BUTTON "Cancel"		ID btnModesCancel	AT (48 138 44 14)
+END
+
+/* ---- frmWifi: scan list, SSID, password (masked), Connect. Colons at 56, values at 59. */
+FORM ID frmWifi AT (2 2 156 156)
+FRAME
+MODAL
+SAVEBEHIND
+MENUID mnuDlgEdit
+BEGIN
+	TITLE "WiFi Setup"
+
+	BUTTON "Scan"		ID btnWifiScan		AT (4 16 36 12)
+	LIST "" ID lstWifiNets AT (4 31 148 55) VISIBLEITEMS 5
+
+	LABEL "SSID:"		AUTOID AT (RIGHT@56 91) FONT 1
+	FIELD ID fldWifiSsid	AT (59 91 93 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 32
+	LABEL "Password:"	AUTOID AT (RIGHT@56 105) FONT 1
+	FIELD ID fldWifiPass	AT (59 105 93 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 64
+	CHECKBOX "Show password" ID chkWifiShow AT (57 119 95 12) FONT 0
+
+	GRAFFITISTATEINDICATOR AT (140 141)
+	BUTTON "Connect"	ID btnWifiConnect	AT (4 138 48 14)
+	BUTTON "Cancel"		ID btnWifiCancel	AT (56 138 44 14)
+END
+
+/* ---- frmSetup: WiRSa settings. Colons at 68, values at 71. Orientation is hidden on a screenless
+ * WiRSa, and the rows below it then move up one row (SetupHandleEvent). FTP, AP, SLIP and the
+ * Exit Timers have their own forms, in a 2x2 grid of buttons. ------------- */
+FORM ID frmSetup AT (2 2 156 156)
+FRAME
+MODAL
+SAVEBEHIND
+BEGIN
+	TITLE "WiRSa Setup"
+
+	LABEL "Max baud:"	AUTOID AT (RIGHT@68 18) FONT 1
+	POPUPTRIGGER "9600" ID popSetupBaud AT (71 18 60 12) LEFTANCHOR
+	LIST "9600" "14400" "19200" "28800" "38400" "57600" "115200"
+		ID lstSetupBaud AT (71 18 60 77) VISIBLEITEMS 7 NONUSABLE
+	POPUPLIST ID popSetupBaud lstSetupBaud
+
+	LABEL "Log level:"	AUTOID AT (RIGHT@68 31) FONT 1
+	POPUPTRIGGER "Info" ID popSetupLog AT (71 31 60 12) LEFTANCHOR
+	LIST "Off" "Warn" "Info" "Verbose" ID lstSetupLog AT (71 31 60 44) VISIBLEITEMS 4 NONUSABLE
+	POPUPLIST ID popSetupLog lstSetupLog
+
+	LABEL "Orientation:"	ID lblSetupOrient AT (RIGHT@68 44) FONT 1
+	POPUPTRIGGER "Normal" ID popSetupOrient AT (71 44 60 12) LEFTANCHOR
+	LIST "Normal" "Flipped" ID lstSetupOrient AT (71 44 60 22) VISIBLEITEMS 2 NONUSABLE
+	POPUPLIST ID popSetupOrient lstSetupOrient
+
+	/* Disk (SASD and HotSync): shown when the firmware sends it. */
+	LABEL "Disk:"	ID lblSetupDisk AT (RIGHT@68 57) FONT 1
+	POPUPTRIGGER "Auto" ID popSetupDisk AT (71 57 60 12) LEFTANCHOR
+	LIST "Auto" "SD card" "Virtual" ID lstSetupDisk AT (71 57 60 33) VISIBLEITEMS 3 NONUSABLE
+	POPUPLIST ID popSetupDisk lstSetupDisk
+
+	/* Deep sleep after this long without Palm traffic (T7-S3 firmware): shown when it sends it. */
+	LABEL "Sleep:"	ID lblSetupSleep AT (RIGHT@68 70) FONT 1
+	POPUPTRIGGER "Off" ID popSetupSleep AT (71 70 60 12) LEFTANCHOR
+	LIST "Off" "1 min" "3 min" "5 min" "15 min" ID lstSetupSleep AT (71 70 60 55) VISIBLEITEMS 5 NONUSABLE
+	POPUPLIST ID popSetupSleep lstSetupSleep
+
+	BUTTON "FTP Setup..."		ID btnSetupFtp		AT (4 86 72 12)
+	BUTTON "AP Setup..."		ID btnSetupAp		AT (80 86 72 12)
+	BUTTON "SLIP Address..."	ID btnSetupSlip		AT (4 101 72 12)
+	BUTTON "Exit Timers..."		ID btnSetupTimers	AT (80 101 72 12)
+
+	GRAFFITISTATEINDICATOR AT (140 141)
+	BUTTON "OK"			ID btnSetupOk		AT (4 138 40 14)
+	BUTTON "Cancel"		ID btnSetupCancel	AT (48 138 44 14)
+END
+
+/* ---- frmFtp / frmAp: user (SSID) and password. Colons at 54, values at 57. Blank password =
+ * keep the current one. ------------------------------------------------- */
+FORM ID frmFtp AT (2 78 156 80)
+FRAME
+MODAL
+SAVEBEHIND
+MENUID mnuDlgEdit
+BEGIN
+	TITLE "FTP Setup"
+
+	LABEL "User:"	AUTOID AT (RIGHT@54 16) FONT 1
+	FIELD ID fldFtpUser AT (57 16 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 32
+	LABEL "Pass:"	AUTOID AT (RIGHT@54 30) FONT 1
+	FIELD ID fldFtpPass AT (57 30 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 32
+	LABEL "Blank password = keep current" AUTOID AT (4 43) FONT 0
+
+	GRAFFITISTATEINDICATOR AT (140 63)
+	BUTTON "OK"		ID btnFtpOk		AT (4 60 40 14)
+	BUTTON "Cancel"	ID btnFtpCancel	AT (48 60 44 14)
+END
+
+FORM ID frmAp AT (2 78 156 80)
+FRAME
+MODAL
+SAVEBEHIND
+MENUID mnuDlgEdit
+BEGIN
+	TITLE "AP Setup"
+
+	LABEL "SSID:"	AUTOID AT (RIGHT@54 16) FONT 1
+	FIELD ID fldApSsid AT (57 16 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 32
+	LABEL "Pass:"	AUTOID AT (RIGHT@54 30) FONT 1
+	FIELD ID fldApPass AT (57 30 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 64
+	LABEL "Blank password = keep current" AUTOID AT (4 43) FONT 0
+
+	GRAFFITISTATEINDICATOR AT (140 63)
+	BUTTON "OK"		ID btnApOk		AT (4 60 40 14)
+	BUTTON "Cancel"	ID btnApCancel	AT (48 60 44 14)
+END
+
+/* ---- frmSlip: the four SLIP Gateway addresses, dotted. Colons at 54, values at 57. -- */
+FORM ID frmSlip AT (2 62 156 96)
+FRAME
+MODAL
+SAVEBEHIND
+MENUID mnuDlgEdit
+BEGIN
+	TITLE "SLIP Addresses"
+
+	LABEL "Gateway:"	AUTOID AT (RIGHT@54 16) FONT 1
+	FIELD ID fldSlipGw		AT (57 16 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 15
+	LABEL "Client:"		AUTOID AT (RIGHT@54 30) FONT 1
+	FIELD ID fldSlipClient	AT (57 30 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 15
+	LABEL "Subnet:"		AUTOID AT (RIGHT@54 44) FONT 1
+	FIELD ID fldSlipMask	AT (57 44 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 15
+	LABEL "DNS:"		AUTOID AT (RIGHT@54 58) FONT 1
+	FIELD ID fldSlipDns		AT (57 58 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 15
+
+	GRAFFITISTATEINDICATOR AT (140 81)
+	BUTTON "OK"			ID btnSlipOk		AT (4 78 40 14)
+	BUTTON "Cancel"		ID btnSlipCancel	AT (48 78 44 14)
+END
+
+/* ---- frmTimers: Exit Timers - when HotSync / CalDAV Relay / Bitwarden Relay
+ * go back to WiRSa's main menu by themselves. Colons at 78, values at 81. */
+FORM ID frmTimers AT (2 60 156 98)
+FRAME
+MODAL
+SAVEBEHIND
+MENUID mnuDlgEdit
+BEGIN
+	TITLE "Exit Timers"
+
+	LABEL "Unused mode:"	AUTOID AT (RIGHT@78 16) FONT 1
+	FIELD ID fldTimersUnused	AT (81 16 24 12) EDITABLE UNDERLINED SINGLELINE NUMERIC MAXCHARS 3
+	LABEL "s"			AUTOID AT (108 16) FONT 0
+	LABEL "After session:"	AUTOID AT (RIGHT@78 30) FONT 1
+	FIELD ID fldTimersAfter	AT (81 30 24 12) EDITABLE UNDERLINED SINGLELINE NUMERIC MAXCHARS 3
+	LABEL "s"			AUTOID AT (108 30) FONT 0
+	/* SLIP Gateway: back to the main menu after this long with no traffic
+	 * either way. Hidden when WiRSa's firmware doesn't report it. */
+	LABEL "SLIP Timeout:"	ID lblTimersSlip AT (RIGHT@78 44) FONT 1
+	POPUPTRIGGER "5 min" ID popTimersSlip AT (81 44 44 12) LEFTANCHOR
+	LIST "1 min" "2 min" "3 min" "5 min" ID lstTimersSlip AT (81 44 44 44) VISIBLEITEMS 4 NONUSABLE
+	POPUPLIST ID popTimersSlip lstTimersSlip
+
+	LABEL "Seconds, 0 = never." AUTOID AT (4 60) FONT 0
+
+	GRAFFITISTATEINDICATOR AT (140 83)
+	BUTTON "OK"			ID btnTimersOk		AT (4 80 40 14)
+	BUTTON "Cancel"		ID btnTimersCancel	AT (48 80 44 14)
+END
+
+/* ---- frmPrefs: this app's own preferences, kept on this Palm. Colon at
+ * 78, value at 81. Preferred Baud: after finding WiRSa's menu at 9600, ask
+ * WiRSa to run its menu at this rate until WiRSa restarts. */
+FORM ID frmPrefs AT (2 80 156 78)
+FRAME
+MODAL
+SAVEBEHIND
+BEGIN
+	TITLE "Preferences"
+
+	LABEL "Pref Baud:"	AUTOID AT (RIGHT@78 16) FONT 1
+	POPUPTRIGGER "9600" ID popPrefsBaud AT (81 16 50 12) LEFTANCHOR
+	LIST "9600" "14400" "19200" "28800" "38400" "57600" "115200" ID lstPrefsBaud AT (81 16 50 77) VISIBLEITEMS 7 NONUSABLE
+	POPUPLIST ID popPrefsBaud lstPrefsBaud
+
+	LABEL "The fastest rate this Palm can" AUTOID AT (4 32) FONT 0
+	LABEL "use. WiRSa's menu follows it." AUTOID AT (4 43) FONT 0
+
+	BUTTON "OK"			ID btnPrefsOk		AT (4 60 40 14)
+	BUTTON "Cancel"		ID btnPrefsCancel	AT (48 60 44 14)
+END
+
+/* ---- alerts ------------------------------------------------------------- */
+ALERT ID altError
+ERROR
+BEGIN
+	TITLE "WiRSa-Palm Control"
+	MESSAGE "^1"
+	BUTTONS "OK"
+END
+
+ALERT ID altInfo
+INFORMATION
+BEGIN
+	TITLE "WiRSa-Palm Control"
+	MESSAGE "^1"
+	BUTTONS "OK"
+END
+
+ALERT ID altConfirmMode
+CONFIRMATION
+BEGIN
+	TITLE "Start Mode"
+	MESSAGE "^1"
+	BUTTONS "Continue" "Cancel"
+END
+
+ALERT ID altFactory
+CONFIRMATION
+BEGIN
+	TITLE "Factory Reset"
+	MESSAGE "Erase all WiRSa settings (WiFi, FTP, SLIP, baud) and restart it?"
+	BUTTONS "Reset" "Cancel"
+END
+
+/* ---- frmLog: WiRSa's session log, newest at the bottom ---------------------- */
+FORM ID frmLog AT (2 2 156 156)
+FRAME
+MODAL
+SAVEBEHIND
+BEGIN
+	TITLE "WiRSa Log"
+
+	FIELD ID fldLogText AT (4 16 142 118) NONEDITABLE MULTIPLELINES FONT 0
+	SCROLLBAR ID sclLog AT (148 16 7 118) VALUE 0 MIN 0 MAX 0 PAGESIZE 8
+
+	BUTTON "Done"		ID btnLogDone		AT (4 138 40 14)
+	BUTTON "Refresh"	ID btnLogRefresh	AT (50 138 46 14)
+	BUTTON "Clear"		ID btnLogClear		AT (102 138 40 14)
+END
+
+ALERT ID altAbout
+INFORMATION
+BEGIN
+	TITLE "About WiRSa-Palm Control"
+	MESSAGE "WiRSa-Palm Control 1.0\nControls WiRSa-Palm over the serial line."
+	BUTTONS "OK"
+END
+
+/* ---- strings, one per mode in the order M H D S A B T -------------------- */
+
+/* Shown large on the main screen. */
+STRINGTABLE ID strModeNames ""
+	"Main Menu" "HotSync" "SASD SD Card" "SLIP Gateway" "CalDAV Relay" "Bitwarden Relay" "Meshtastic"
+
+/* Guidance under "Select Mode:" (3 lines of about 30 characters). */
+STRINGTABLE ID strModeNotes ""
+	"Back to WiRSa's main menu, from HotSync, CalDAV or Bitwarden. SASD and SLIP need a reset."
+	"Exits by itself 15 seconds after the HotSync finishes."
+	"Stays on until WiRSa is reset. After the reset, switch the Palm off and on."
+	"Stays on until WiRSa is reset. Disconnect the Palm's network first."
+	"Stays on until you choose Main Menu here, or CalDAV Sync ends it (Screenless Mode)."
+	"Stays on until you choose Main Menu here, or Bitwarden ends it (Screenless Mode)."
+	"WiRSa keeps the Bluetooth link to your Meshtastic node and collects messages. Stays on until you choose Main Menu here."
+
+/* Confirmation for the modes that only a reset ends (others are empty). */
+STRINGTABLE ID strModeConfirm ""
+	"" ""
+	"WiRSa stays in SASD SD Card mode until it is reset. Continue?"
+	"WiRSa stays in SLIP Gateway mode until it is reset. Continue?"
+	"" "" ""
+
+/* frmMain guidance, 3 lines of about 30 characters each:
+ * 0 after SASD was started, 1 after SLIP was started, 2 port in use,
+ * 3 no answer (never found), 4 after Reboot / Factory Reset, 5 a mode
+ * just started from Modes, 6 no answer (last known mode shown). */
+STRINGTABLE ID strMainNotes ""
+	"In SASD mode. Reset WiRSa, switch the Palm off and on, then tap Refresh."
+	"In SLIP mode. Disconnect the network, reset WiRSa, then tap Refresh."
+	"Used by a SASD card or SLIP link. Reset WiRSa or disconnect, then tap Refresh."
+	"No answer. Check the cable and power, or reset WiRSa, then tap Refresh."
+	"Tap Refresh once WiRSa has restarted."
+	"Mode started from here. WiRSa is asked again every 15 seconds."
+	"WiRSa didn't answer just now. Asking again every 15 seconds."

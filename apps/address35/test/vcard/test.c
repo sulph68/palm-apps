@@ -202,6 +202,32 @@ int main(void){
 		printf("MACOS CONTACTS COMPAT: %s\n", ok ? "ALL OK" : "SOME FAILED");
 	}
 
+	/* relation labels: Apple's family words map to the Address35 types */
+	{
+		static const struct { const char *label; int want; } rl[] = {
+			{"Mother", a35relParent}, {"Father", a35relParent}, {"Parent", a35relParent},
+			{"Sister", a35relSibling}, {"Brother", a35relSibling}, {"Sibling", a35relSibling},
+			{"Son", a35relChild}, {"Daughter", a35relChild}, {"Child", a35relChild},
+			{"Husband", a35relSpouse}, {"Wife", a35relSpouse}, {"Spouse", a35relSpouse},
+			{"Partner", a35relPartner}, {"Assistant", a35relAssistant}, {"Manager", a35relManager},
+			{"Friend", a35relFriend}, {"Neighbour", a35relOther}
+		};
+		unsigned k; int bad = 0;
+		for (k = 0; k < sizeof(rl) / sizeof(rl[0]); k++) {
+			char card[512]; A35Record rr; VCardArena ar; const A35Field *f; A35Relation re;
+			sprintf(card, "BEGIN:VCARD\r\nVERSION:3.0\r\nN:Doe;John;;;\r\n"
+				"item1.X-ABRELATEDNAMES:Jane Public\r\nitem1.X-ABLabel:_$!<%s>!$_\r\nEND:VCARD\r\n", rl[k].label);
+			f = NULL;
+			if (A35VCardToRecord((DmOpenRef)1, card, (UInt16)strlen(card), &rr, &ar))
+				f = A35FindField(&rr, a35fRelation, 0);
+			if (!f || !A35UnpackRelation(f->value, f->len, &re) || re.relType != rl[k].want) {
+				printf("relation label %s: got %d expect %d FAIL\n", rl[k].label, f ? re.relType : -1, rl[k].want);
+				bad++;
+			}
+		}
+		printf("RELATION LABELS: %s\n", bad ? "SOME FAILED" : "ALL OK");
+	}
+
 	/* span check on a 2-card blob */
 	{
 		char two[8192]; UInt16 s;

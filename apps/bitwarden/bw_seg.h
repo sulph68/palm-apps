@@ -35,6 +35,10 @@
  * same sec001 placement as the former Serial.c/Wire.c. */
 #define RP_SECTION SEC001
 
+/* WiRSa control link (../lib/wirsactl.c) - Screenless Mode. Main is full;
+ * it calls the blocking reads in main (RpRecvFrame), the safe direction. */
+#define WCTL_SECTION SEC001
+
 /* Bundled crypto (apps/lib/enccore.c + aes.c) stays in main - BitWarden's
  * own EncCrypt/EncCryptFast call sites are all over the main-segment sync/
  * store hot paths, and enccore.h's own sects.h default (empty) already

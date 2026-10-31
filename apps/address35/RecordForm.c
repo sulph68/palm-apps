@@ -8,28 +8,18 @@
  */
 #include <PalmOS.h>
 #include "Main.h"
+#include "RecField.h"
 
 #define kRecCol			0
-#define recHeaderLine	1	/* bold, full-width (the name)            */
-#define recSubLine		2	/* normal, full-width (company / title)   */
-#define recFieldLine	3	/* "label : value" (aligned colon column) */
-#define recContLine		4	/* value only, at the value column        */
 
-#define recValLen		120		/* per-rendered-LINE text (an address sub-line etc.) */
 #define recFieldMax		256		/* raw field-value copy before splitting; big enough
 									 * for a full international address (was recValLen,
 									 * which clipped long addresses' zip+country) */
 #define recNoteMaxLines	20		/* note preview: show up to N lines, then "(more...)" */
 #define recNoteWrapPx	100		/* approx value-column width used to wrap note lines */
 
-typedef struct {
-	UInt8	kind;
-	Int16	field;		/* source record field index (-1 = header/none) */
-	char	label[24];
-	char	value[recValLen];
-} RecLine;
 
-static RecLine	gRecLines[a35MaxFields + recNoteMaxLines + 6];
+static RecLine	gRecLines[a35MaxFields + recNoteMaxLines + 6 + 24];	/* +24: wrapped continuation lines */
 static Int16	gRecField = -1;		/* record field currently being emitted */
 static UInt16	gRecCount;
 static UInt16	gRecTop;
@@ -299,12 +289,17 @@ static void RecBuild(void)
 			/* address: TAB-delimited Line1/Line2/Apt/City/State/Zip/Country ->
 			 * a multi-line block (each part trimmed, empties skipped). */
 			if (t == a35fAddress) {
-				char pt[7][72], line[160];	/* match EditForm: long address parts */
+				/* heap, not stack: 7 parts of up to 129 characters + the city/state/zip line */
+				char (*pt)[recValLen] = (char (*)[recValLen]) MemPtrNew(7 * recValLen + 400);
+				char *line;
 				UInt16 k;
+
+				if (pt == NULL) continue;
+				line = (char *) pt + 7 * recValLen;
 
 				for (k = 0; k < 7; k++) {
 					Int16 e, st = 0;
-					RecAddrField(val, k, pt[k], sizeof(pt[k]));
+					RecAddrField(val, k, pt[k], recValLen);
 					e = (Int16) StrLen(pt[k]);
 					while (e > 0 && pt[k][e - 1] == ' ') pt[k][--e] = '\0';
 					while (pt[k][st] == ' ') st++;
@@ -318,15 +313,16 @@ static void RecBuild(void)
 					 * overflow this 160-byte buffer; see the identical fix
 					 * + rationale on RecBuild's name[] just above. */
 					StrCopy(line, "Apt ");
-					StrNCat(line, pt[2], sizeof(line));
+					StrNCat(line, pt[2], 400);
 					RecAddLine(recContLine, NULL, line);
 				}
 				line[0] = '\0';
-				if (pt[3][0]) StrNCat(line, pt[3], sizeof(line));
-				if (pt[4][0]) { if (line[0]) StrNCat(line, ", ", sizeof(line)); StrNCat(line, pt[4], sizeof(line)); }
-				if (pt[5][0]) { if (line[0]) StrNCat(line, " ", sizeof(line)); StrNCat(line, pt[5], sizeof(line)); }
+				if (pt[3][0]) StrNCat(line, pt[3], 400);
+				if (pt[4][0]) { if (line[0]) StrNCat(line, ", ", 400); StrNCat(line, pt[4], 400); }
+				if (pt[5][0]) { if (line[0]) StrNCat(line, " ", 400); StrNCat(line, pt[5], 400); }
 				if (line[0]) RecAddLine(recContLine, NULL, line);
 				if (pt[6][0]) RecAddLine(recContLine, NULL, pt[6]);
+				MemPtrFree(pt);
 				continue;
 			}
 			/* birthday/anniversary: "YYYYMMDD" -> "Jun 15, 1990"; the
@@ -398,6 +394,45 @@ static void RecBuild(void)
 			}
 		}
 		FntSetFont(o);
+	}
+
+	/* Wrap every line that is wider than its column onto continuation lines, so nothing is
+	 * clipped with "..." (the bold name too): a continuation keeps the kind of a header /
+	 * sub line, a field value goes on at the value column. Same in Local and CardDAV views. */
+	{
+		UInt16 cap = (UInt16) (sizeof(gRecLines) / sizeof(gRecLines[0]));
+		UInt16 i;
+
+		for (i = 0; i < gRecCount && gRecCount < cap; i++) {
+			RecLine *L = &gRecLines[i];
+			Boolean wide = (Boolean) (L->kind == recHeaderLine || L->kind == recSubLine);
+			Int16 avail = (Int16) (148 - (wide ? 0 : gRecValueX));
+			UInt16 len = StrLen(L->value), n;
+			FontID o = FntSetFont(L->kind == recHeaderLine ? boldFont : stdFont);
+
+			n = (avail > 8) ? FntWordWrap(L->value, (UInt16) avail) : 0;
+			FntSetFont(o);
+			if (n == 0 || n >= len)
+				continue;
+			{
+				RecLine *N;
+				const char *rest = L->value + n;
+				Int16 e;
+
+				MemMove(&gRecLines[i + 2], &gRecLines[i + 1],
+					(gRecCount - (i + 1)) * sizeof(RecLine));
+				N = &gRecLines[i + 1];
+				N->kind = wide ? L->kind : recContLine;
+				N->field = L->field;
+				N->label[0] = '\0';
+				while (*rest == ' ') rest++;
+				StrCopy(N->value, rest);
+				L->value[n] = '\0';
+				e = (Int16) StrLen(L->value);
+				while (e > 0 && L->value[e - 1] == ' ') L->value[--e] = '\0';
+				gRecCount++;
+			}
+		}
 	}
 }
 
@@ -574,6 +609,7 @@ static void RecInit(void)
 	TableType *t = RecTable();
 
 	gEditFocusOrigin = -1;		/* fresh view: no field targeted for the editor */
+	RecFieldReset();
 	TblSetCustomDrawProcedure(t, kRecCol, RecDrawLine);
 	TblSetColumnUsable(t, kRecCol, true);
 	RecBuild();
@@ -594,7 +630,7 @@ static void RecInit(void)
 		FrmSetObjectBounds(f, idx, &r);
 		CtlSetLabel((ControlPtr) RecObj(btnRecordEdit),
 			gViewingCard ? "Import" : "Edit");
-		FrmSetTitle(f, (char *) (gViewingCard ? "Card Contact" : "Address35"));
+		FrmSetTitle(f, (char *) (gViewingCard ? (gDavTitle[0] ? gDavTitle : "Card Contact") : "Address35"));
 		if (gViewingCard) {
 			FrmHideObject(f, catIdx);
 		} else {
@@ -619,8 +655,10 @@ Boolean RecordFormHandleEvent(EventPtr eventP)
 		/* remember which field was tapped so "Edit" can jump straight to it */
 		if (eventP->data.tblSelect.tableID == tblRecord) {
 			UInt16 line = (UInt16) (gRecTop + eventP->data.tblSelect.row);
-			if (line < gRecCount)
+			if (line < gRecCount) {
 				gEditFocusOrigin = gRecLines[line].field;
+				RecFieldShow(gRecLines, line);	/* the whole field, read-only, with Copy */
+			}
 			handled = true;
 		}
 		break;
@@ -655,14 +693,7 @@ Boolean RecordFormHandleEvent(EventPtr eventP)
 	case menuEvent:
 		switch (eventP->data.menu.itemID) {
 		case mniRecordSetMe:
-			/* mark this DB record as the "Me" card (stored by unique id, so it
-			 * survives sort/HotSync). It then pins first + bold in the list. */
-			if (!gViewingCard && gEditIndex != a35NoRecord &&
-				FrmAlert(altSetMe) == 0) {			/* 0 = OK */
-				UInt32 uid = 0;
-				DmRecordInfo(gAddrDB, gEditIndex, NULL, &uid, NULL);
-				gMeUniqueID = uid;
-			}
+			RecSetMe();
 			handled = true;
 			break;
 		case mniRecordEdit:
@@ -692,6 +723,14 @@ Boolean RecordFormHandleEvent(EventPtr eventP)
 		case mniRecordBeam:
 			if (!gViewingCard && gEditIndex != a35NoRecord)
 				A35BeamRecord(gAddrDB, gEditIndex);
+			handled = true;
+			break;
+		case mniRecordCopy:
+			RecFieldCopy();
+			handled = true;
+			break;
+		case mniRecordCopyAll:
+			RecContactCopy(gRecLines, gRecCount);
 			handled = true;
 			break;
 		}

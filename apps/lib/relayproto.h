@@ -40,6 +40,17 @@ extern UInt16 gRpLastLineErrs;
  * ticks instead. Reset to 0 by RpOpen. */
 extern UInt32 gRpIdleOverrideTicks;
 
+/* WiRSa control link (wirsactl.c) only - both default to off, which is the
+ * relay apps' own behaviour. gRpLeadByte non-zero: every frame sent is
+ * preceded by this byte, and RpRecvFrame skips everything up to it (WiRSa's
+ * menu text shares the line). gRpAllowPlain: plaintext non-key-exchange
+ * frames may be sent while the link is not secured, and are accepted. */
+extern UInt8 gRpLeadByte;
+extern Boolean gRpAllowPlain;
+
+/* SrmOpen's result from the last RpOpen (serErrAlreadyOpen = port in use). */
+extern Err gRpOpenErr;
+
 Boolean RpOpen(void);
 void RpClose(void);
 /* Close+reopen at the new rate (SrmControl/srmCtlSetBaudRate does not take
@@ -51,6 +62,9 @@ void RpSetBaud(UInt32 baud);
 Boolean RpSendFrame(UInt8 type, const UInt8 *body, UInt16 bodyLen) RP_SECTION;
 /* Discards whatever is waiting in the receive buffer. */
 void RpFlushInput(void) RP_SECTION;
+#ifdef RP_WITH_PENDING
+UInt32 RpPending(void) RP_SECTION;
+#endif
 /* false on timeout, cancel, line error, oversized (drained) frame or
  * checksum mismatch; never partial. */
 Boolean RpRecvFrame(UInt8 *typeOut, UInt8 *body, UInt16 bodyCap, UInt16 *bodyLenOut);

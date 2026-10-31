@@ -181,14 +181,20 @@ sec001→sec002** (`-DTODOEXT_SEG_NAME=sec002`) — the swollen sec001 had overf
 Foreground-only means: reached only via normal launch or `GoTo` (both have
 globals), never Find/ExgReceive/ExgAskUser.
 
-**Current state (2026-10, after CalDAV §17-18 and Phone Lookup) — the three
-secondary segments are full; only main has room:**
+**Current state (2026-10-15, after Compress Day View, §20) — every segment is
+now full:**
 | segment | used | cap | free |
 |---|---|---|---|
-| main (`.text`) | 31,348 | 32,768 | 1,420 |
-| sec001 | 32,676 | 32,768 | **92** |
+| main (`.text`) | 32,700 | 32,768 | **68** |
+| sec001 | 32,500 | 32,768 | 268 |
 | sec002 | 32,736 | 32,768 | **32** |
-| sec003 | 32,760 | 32,768 | **8** |
+| sec003 | 32,688 | 32,768 | **80** |
+
+(Update 2026-10-21, §21: sec003 32,764 (4 free); new sec004 836 bytes.)
+
+(Before §20: main 1,184 free, sec001 92.) The next real addition needs a new
+`sec004` (add it to `Datebook35.def` and `db35_seg.h`) rather than another
+relocation.
 
 (After the multi-day span feature, §16, it was main 4,328 / sec001 4 / sec002 2,452 /
 sec003 3,272 free.) `sec001` (`DateDay.c`) has effectively no headroom. Two functions
@@ -1536,7 +1542,114 @@ while running, which also calls `FrmSaveAllForms`) does the same, and `ClearEdit
 the main segment.
 
 **Segment budget** (32,768-byte limit each, after the Phone Lookup work): sec001 0x7FA4 (92
-free), sec002 0x7FE0 (32 free), sec003 0x7FF8 (8 free), main 0x7A74 (1,420 free). The
-three secondary segments are effectively full, so new features beyond what main's ~1.4 KB can
-hold need a fourth segment: add `"sec004"` to `Datebook35.def`'s `multiple code`
+free), sec002 0x7FE0 (32 free), sec003 0x7FF8 (8 free), main 0x7A74 (1,420 free); see §4 and
+§19 for the current figures. The three secondary segments are effectively full, so new
+features beyond what main's ~1.2 KB can hold need a fourth segment: add `"sec004"` to `Datebook35.def`'s `multiple code`
 list and a `SEC004` macro in `Src/db35_seg.h` (CalDAV Sync uses four this way).
+
+## 19. Agenda rows in time order (2026-10-14)
+
+**Bug (real device):** in the Agenda view, birthday/anniversary rows and CalDAV events always
+came after the day's own appointments instead of in time order. `AgendaLoadAppointments`
+(`DateAgenda.c`, sec003) takes the day's appointments from `ApptGetAppointments` (already
+sorted) and then *appends* the `AddrBday` rows (untimed) and the `DateDAVGet` rows (timed, or
+untimed for all-day events) without re-sorting; the comment there claimed CalDAV rows "sort
+into their correct chronological slot", which nothing did.
+
+**Fix:** after the appends, `AgendaSortAppointments` re-sorts the whole list with
+`SysInsertionSort` and `AgendaApptCompare`, the same order as `DateDB.c`'s `ApptListCompare`:
+start time, then end time, with untimed rows (`TimeType` -1) first. Insertion sort is stable,
+so rows at the same time keep the order appointments, birthdays, CalDAV events. It only runs
+when something was appended. Rows are identified by their `recordNum` sentinels
+(`kBdaySentinel`, `kDavSentinel`), not by position, so nothing else depended on the order.
+
+**Space:** sec003 had 8 bytes free. `AgendaApptCompare` and `AgendaSortAppointments` live in
+main (no `SEC003` tag; main is always resident, and `SysInsertionSort` is handed a main-segment
+function pointer), leaving one call in `AgendaLoadAppointments`. That still did not fit, so
+`CountRecords` (`DateAgenda.c`, 112 bytes; callers in sec003) moved to main as well - its
+prototype and definition lost the `SEC003` tag. Result: sec003 0x7FB0 (80 free), main 0x7B60
+(1,184 free).
+
+**Verified:** built clean; user-tested on hardware, working (2026-10-15).
+
+
+## 20. Compress Day View fits all rows (2026-10-15)
+
+**Problem (real device):** with Compress Day View on (Options > Display Options, on by default), a
+day with an early and a late event showed the first event, many blank hours, and needed a scroll
+to reach the last one. Two causes in `DayViewLayoutDay` (`DateDay.c`, sec001):
+- The stock compress fill measured only the day's own appointments. The ToDo35, birthday and
+  CalDAV Sync rows (`DayInjectTodos`/`DayInjectBdays`/`DayInjectCalDav`) were added *after* the
+  fill, so they pushed the list past the screen, and a blank slot could land in the same hour as
+  a CalDAV event.
+- A day with no Datebook appointments (only CalDAV events, say) took the "no appointments"
+  branch, which always adds every hour from Day Start to Day End and ignores the setting.
+
+**Fix:** with Compress on, `DayViewLayoutDay` now:
+1. `DayCompressPrep` — copies the day's appointments only (sorted, untimed first; no end-time
+   slots, no empty hours).
+2. `DayViewCheckForConflicts` — time bars from the appointments only, as before.
+3. The usual injects, then `DayInjectLocationText` (location text changes row heights).
+4. `DayCompressFill` — measures every row with `DayViewGetDescriptionHeight`, then adds as many
+   empty slots as fit (row count and table height), in this priority:
+   - between the first and last timed row (the first slot in a gap starts at the previous row's
+     end time, like the stock end-time slot; the rest on the hour);
+   - after the last timed row, up to Day End;
+   - before the first timed row, from Day Start.
+   At least one slot is always kept between the first and last timed row when there is a gap,
+   even if the view then scrolls. Slots are inserted after every row that starts at or before
+   them.
+5. `DayInjectLocationText` again if slots were added (they shift the row indexes that
+   `gDayLocText[]` is kept by).
+
+Compress off is unchanged: the stock merge/fill path, now joined to the injects with a `goto
+inject` (the "no appointments" branch shares it too). The compress-only code in that path was
+removed, which freed 176 bytes in sec001.
+
+**Gotcha:** `DayCompressPrep`/`DayCompressFill` are in main. A first version also called the
+injects from main and failed to assemble ("Signed .word overflow; switch may be too large"):
+main→sec001 calls use a 16-bit offset into sec001, and functions late in `DateDay.c`
+(`DayInjectTodos`, `DayInjectBdays`, `DayInjectLocationText`) sit past 32 KB at assembly time.
+Keep those calls in sec001 code; main may call sec001 functions early in the file
+(`DayViewGetDescriptionHeight` works).
+
+**Space:** main 32,700 (68 free), sec001 32,500 (268 free) — see the segment table above.
+
+**Verified:** built clean, no warnings; opens in POSE without a crash; user-tested on hardware,
+working (2026-10-15).
+
+## 21. CardDAV / iCloud birthdays and anniversaries (2026-10-21)
+
+Day view and Agenda show the birthdays and anniversaries of the contacts CalDAV Sync keeps in
+`Address35DAV_<n>` (design: `carddav_sync.md` §3.6, §5), right after Address35's own, with the same
+text ("Ann Adams - 46th Birthday", "Bob Baker - 16th Wedding"; Other anniversaries by their name).
+
+- **Reader:** `AddrBdayDav` (`Src/AddrBdayDav.c`, **new segment sec004**, `SEC004` in `db35_seg.h`,
+  `"sec004"` in `Datebook35.def`). It opens `Address35DAVBDA` (12 records, one per month; layout in
+  `caldav_sync/ContactDb.h`) and reads only the month record of the day drawn. Names and dates are
+  clear in that index, so a locked Sec35 doesn't hide the rows. `AddrBdayGet` (sec003) calls it
+  after its own loop, and no longer returns early when Address35DB is missing (a CardDAV-only
+  setup still works). `AddrBdayLine` lost its `static` so sec004 can call it.
+- **Alias prefix (2026-10-21):** like a CalDAV event row, the text is "\x95 Alias - Name - Nth Birthday".
+  The alias is Sec35-encrypted in the AppInfo of `Address35DAV_<n>` (nonce 'ALIA', slot index);
+  `DavAlias` decrypts it (cut to 10 characters), or shows `******` while Sec35 is locked. The row is one
+  line was first cut to fit; it now wraps instead (below).
+- **Multi-line birthday rows (Day view, local and CardDAV alike):** the row stays a custom table
+  item, but `DayViewGetDescriptionHeight` takes its height from `DayBdayHeight` (word-wraps the text,
+  capped at the table height) and the draw callback calls `DayBdayDraw` (one dotted line per text
+  line); both are sec004. The ROM table sends no tap for the second and later lines of a custom
+  row, so the Day view's pen-down handler first asks `DayBdayHit` (sec004) whether the pen is on a
+  birthday row and goes to Address35 itself. Agenda rows are still one clipped line, as for every
+  Agenda row. sec001 32,584 (184 free), sec004 1,784.
+- **No new sentinel range:** the DAV rows reuse the existing birthday rows (`0xD...` UID, day
+  view `kDayBdayBase`, agenda `kBdaySentinel`). Their `recIndex[]` value is
+  `0x8000 | slot << 12 | record` (slot 0..7, record 0..4095; larger records are left out).
+- **Tap:** `AddrBdayGoTo` sees the flag and sends GoTo with `matchCustom = 'DAV'<<8 | slot` and
+  `recordNum = record`. Address35's `GoToRecord` hands that to `DavGoTo` (`Address35.md` §10.1),
+  which opens the contact read-only (title "iCloud - Alias"). Sec35 locked: the "Sec35 Locked"
+  alert and Address35's main list.
+- **Space:** sec003 is now at 32,764 of 32,768; the next addition to Datebook35 belongs in sec004.
+- **Verified in POSE:** a generated `Address35DAVBDA` with two entries on Oct 15 - both rows show
+  with correct ages, tapping one opens that contact in Address35, Done returns to the main list,
+  and with Sec35 locked the tap shows the locked alert. Not exercised: Agenda view (same code path)
+  and real iCloud data on a device.

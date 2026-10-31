@@ -4,7 +4,7 @@
 
       OBJS = Address35.o MainForm.o EditForm.o RecordForm.o EditDialogs.o \
              PrefsForm.o AddressDB35.o vcard.o vcardw.o Transfer.o CardIO.o \
-             AddrCard.o Lookup.o hackcheck.o catsync.o enccore.o aes.o $(EXE)-sections.o
+             AddrCard.o DavView.o RecField.o Lookup.o hackcheck.o catsync.o enccore.o aes.o $(EXE)-sections.o
 
    DEFINES = -DCATSYNC_MULTISEG
   INCLUDES = $(shell find /home/cnrai/palmos_sdk/palm-os-sdk/sdk-4/include -type d | sed 's/^/-I/' | tr '\n' ' ') -I../lib

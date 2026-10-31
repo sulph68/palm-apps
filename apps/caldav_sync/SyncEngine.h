@@ -15,4 +15,12 @@
  * next call to reuse (skips its own HELLO). Always closes on failure. */
 Boolean SyncEngineRunOne(CDDVPrefsType *p, UInt8 slotIdx, Boolean silent, Boolean keepOpen) SEC004;
 
+/* Screenless Mode (Preferences): put WiRSa into CalDAV Relay before a
+ * session (Sync Now, Sync All, Google sign-in) and back to its main menu
+ * after. Both do nothing when Screenless Mode is off. Begin returns false
+ * only if WiRSa refused (alert shown) - skip the session then; End is
+ * always called. */
+Boolean SyncScreenlessBegin(void) SEC004;
+void SyncScreenlessEnd(void) SEC004;
+
 #endif

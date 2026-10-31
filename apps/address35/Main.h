@@ -15,6 +15,9 @@
 #define a35PrefVersion		2			/* v2: adds meUniqueID */
 /* transient "last used" defaults live in the UNSAVED prefs DB (not HotSync-backed) */
 #define a35UnsavedPrefID	1
+#define a35DavMePrefID	4		/* UInt32[8]: hash of the "Me" contact's UID per CardDAV slot, 0 = none */
+#define a35LookupPrefID	3		/* UInt8: Phone Lookup source, 0 = Local, 1..8 = CardDAV slot */
+#define a35DavPrefID		2		/* UInt8: CardDAV slot 1..8 shown at launch, 0 = Local */
 #define a35DefaultsVer		2			/* v2: adds showHiddenFiles */
 /* last-used country index (address) + dial-code index (phone); 0 = none */
 Int16	A35GetLastCountry(void);
@@ -47,6 +50,7 @@ extern Boolean		gMainDbFreshFromLaunch;	/* StartApplication just merged+sealed -
 											 * again on the very first open */
 extern A35Record	gCardRecord;
 extern VCardArena	gCardArena;
+extern char			gDavTitle[36];
 extern Boolean		gShowHiddenFiles;	/* Prefs > Display > Show Hidden; default true */
 
 /* saved on exit */

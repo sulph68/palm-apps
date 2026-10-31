@@ -106,9 +106,20 @@ void BwSetTtlSeconds(UInt32 seconds);
  * list Preferences' popup shows (300/1200/2400/4800/9600/19200/38400/
  * 57600/115200); BwGetBaud() resolves an index to the real UInt32 rate
  * Serial.c passes to SrmOpen. */
-UInt8 BwGetBaudIndex(void);
-void BwSetBaudIndex(UInt8 idx);
-UInt32 BwGetBaud(void);
+UInt8 BwGetBaudIndex(void) SEC001;	/* SEC001: main .text is full */
+void BwSetBaudIndex(UInt8 idx) SEC001;
+UInt32 BwGetBaud(void) SEC001;
+
+/* Screenless Mode (Screenless.c, all SEC001 - main is full): before a
+ * sync, put WiRSa into BitWarden Relay from here, and back to its main menu
+ * after. BwSyncScreenless wraps BwSyncRun with that (or is just BwSyncRun
+ * when the pref is off). The form helpers read/write the Preferences
+ * checkbox on the active form. */
+Boolean BwGetScreenless(void) SEC001;
+void BwSetScreenless(Boolean on) SEC001;
+void BwScreenlessFormLoad(void) SEC001;
+void BwScreenlessFormSave(void) SEC001;
+Boolean BwSyncScreenless(void) SEC001;
 
 /* Options > Security > 2FA (Dialogs.c's BwTwoFactorPrefsPromptRun /
  * BwTwoFactorPromptRun) - how the 2FA code field takes input. */
@@ -211,6 +222,13 @@ Boolean BwStoreGetCachedNameIfReady(UInt16 recIndex, char *out, UInt16 outLen);
 Boolean BwStoreGetCachedHeader(UInt16 recIndex, UInt8 *type, UInt16 *folder, UInt16 *org, Boolean *archived);
 UInt16 BwStoreGetCachedCount(void);
 void BwStoreInvalidateNameCache(void);
+Boolean BwStoreWarmPending(void);	/* the name cache still has names to decrypt (and can be built) */
+void BwStoreWarmNames(void);		/* decrypt a few more - the list calls this while idle */
+/* Name order saved by the last sync (built while the items were stored), loaded by BwStoreGetCachedCount.
+ * gBwOrderCount 0 = none usable - sort at list time as before. Otherwise gBwOrder[0..count-1] lists every
+ * cached recIndex once, by name. Plain globals: MainForm.c's SEC001 code can't call SEC001 code in Store.c. */
+extern UInt16 *gBwOrder;
+extern UInt16 gBwOrderCount;
 
 /* ---- prefs (server URL / TOFU pin) ------------------------------------ */
 void BwGetServerURL(char *out, UInt16 outLen);
@@ -336,7 +354,7 @@ Boolean MainFormHandleEvent(EventPtr e);
  * decide whether it needs a bounded EvtGetEvent timeout right now, since
  * evtWaitForever would otherwise starve the nilEvent that debounce timer
  * depends on. */
-Boolean MainHasPendingSearch(void);
+Boolean MainHasPendingSearch(void) SEC001;
 /* Same shape/reasoning as MainHasPendingSearch above, for frmRecordLogin's
  * own live TOTP countdown (RecordForm.c). */
 Boolean RecordHasTotpActive(void);

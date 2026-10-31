@@ -31,6 +31,15 @@
  * temp database and reopens the real one, completely untouched. */
 #define bwDBNameTemp	"BitWardenDB_new"
 
+/* name order built during a sync - see "name order" below */
+static void SortFree(void) SEC001;
+static void NameCacheFree(void) SEC001;
+static Boolean NameCacheAlloc(UInt16 count) SEC001;
+static void OrderLoad(void) SEC001;
+static void SortBegin(void) SEC001;
+static void SortSave(void) SEC001;
+static void SortAdd(UInt16 recNum, const char *name) SEC001;
+
 #define bwPrefID	1
 #define bwKeyFtr	2000	/* FtrPtrNew value = BwKeyBlock, under appCreator */
 #define bwCachedPwFtr	2001	/* FtrPtrNew value = BwCachedPwBlock, under appCreator - see BwGetCachedPassword's own comment */
@@ -53,30 +62,48 @@
  * (main.cpp) exactly, same order, so PrefsForm.c's popup index always maps
  * to a rate WiRSa itself can actually be configured to. */
 #define bwBaudPrefID	2
-#define bwDefaultBaudIndex	7	/* 57600 - preserves this app's prior hardcoded behavior for anyone who hasn't touched WiRSa's own baud setting */
-static const UInt32 kBwBauds[] = { 300, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200 };
-#define bwBaudCount	9
+#define bwDefaultBaudIndex	5	/* 57600 - preserves this app's prior hardcoded behavior for anyone who hasn't touched WiRSa's own baud setting */
+/* The Baud popup lists WiRSa's own bauds[] (main.cpp): 9600 14400 19200 28800 38400 57600 115200.
+ * Pref version 3 stores an index into that list. Version 1 stored one into 300 1200 2400 4800 9600 19200 38400
+ * 57600 115200, version 2 into the same with 14400 and 28800 added; both are converted when read. */
+#define bwBaudCount	7
 
-UInt8 BwGetBaudIndex(void)
+SEC001 UInt8 BwGetBaudIndex(void)
 {
 	UInt8 idx;
 	UInt16 sz = sizeof(idx);
-	if (PrefGetAppPreferences(appCreator, bwBaudPrefID, &idx, &sz, false) == noPreferenceFound
-		|| sz != sizeof(idx) || idx >= bwBaudCount) {
+	Int16 ver = PrefGetAppPreferences(appCreator, bwBaudPrefID, &idx, &sz, false);
+	if (ver == noPreferenceFound || sz != sizeof(idx) || ver < 1 || ver > 3) {
 		return bwDefaultBaudIndex;
 	}
+	if (ver == 3) return idx < bwBaudCount ? idx : bwDefaultBaudIndex;
+	if (ver == 2) idx = (UInt8) (idx < 4 ? 0 : idx - 4);			/* 300..4800 become 9600 */
+	else if (idx < 5) idx = 0;										/* 300..9600 */
+	else idx = (UInt8) (idx == 5 ? 2 : idx == 6 ? 4 : idx == 7 ? 5 : 6);
+	if (idx >= bwBaudCount) idx = bwDefaultBaudIndex;
+	BwSetBaudIndex(idx);
 	return idx;
 }
 
-void BwSetBaudIndex(UInt8 idx)
+SEC001 void BwSetBaudIndex(UInt8 idx)
 {
 	if (idx >= bwBaudCount) idx = bwDefaultBaudIndex;
-	PrefSetAppPreferences(appCreator, bwBaudPrefID, 1, &idx, sizeof(idx), false);
+	PrefSetAppPreferences(appCreator, bwBaudPrefID, 3, &idx, sizeof(idx), false);
 }
 
-UInt32 BwGetBaud(void)
+/* Comparisons, not a table or a switch: a constant table (a jump table too) read from a secondary segment may
+ * come back as garbage on this toolchain. Same order as the Baud popup (BitWardenEn.rcp). */
+SEC001 UInt32 BwGetBaud(void)
 {
-	return kBwBauds[BwGetBaudIndex()];
+	UInt8 i = BwGetBaudIndex();
+
+	if (i == 1) return 14400;
+	if (i == 2) return 19200;
+	if (i == 3) return 28800;
+	if (i == 4) return 38400;
+	if (i == 5) return 57600;
+	if (i == 6) return 115200;
+	return 9600;
 }
 
 /* Record header layout (big-endian on-disk convention, matches this
@@ -800,6 +827,7 @@ void BwStoreInit(void)
 	LoadPrefs();
 	if (gPrefs.formatVersion != bwStoreFormatVersion) {
 		BwStoreBeginSync();	/* one-time full wipe - see bwStoreFormatVersion's comment */
+		SortFree();		/* nothing is being stored after this wipe - don't hold the sort tables */
 		gPrefs.formatVersion = bwStoreFormatVersion;
 		SavePrefs();
 	}
@@ -895,6 +923,7 @@ Boolean BwStoreBeginSync(void)
 	gStorageHeapID = 0xFFFF;
 	gItemsSinceCompact = 0;
 	BwStoreInvalidateNameCache();	/* content is about to change - see its own comment */
+	SortBegin();
 	return true;
 }
 
@@ -914,6 +943,7 @@ void BwStoreEndSync(void)
 		DmSetDatabaseInfo(0, tempID, (Char *) bwDBName, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 	}
 	gDB = DmOpenDatabase(0, DmFindDatabase(0, bwDBName), dmModeReadWrite);
+	SortSave();
 	BwStoreInvalidateNameCache();	/* the real DB's own content just changed */
 }
 
@@ -930,6 +960,7 @@ void BwStoreAbortSync(void)
 	tempID = DmFindDatabase(0, bwDBNameTemp);
 	if (tempID != 0) DmDeleteDatabase(0, tempID);
 	gDB = DmOpenDatabase(0, DmFindDatabase(0, bwDBName), dmModeReadWrite);
+	SortFree();
 	/* A list redraw while the temp DB was open (the progress dialog closing
 	 * before this call) can have built the name/header caches from it. */
 	BwStoreInvalidateNameCache();
@@ -1016,6 +1047,7 @@ static Boolean AddMarker(UInt8 markerType, UInt16 index, const char *name, UInt3
 	wrU16(p + bwHdrFixedSize - bwFieldCount * 2, nameLen);	/* fieldLen[0] = name length */
 	MemMove(p + bwHdrFixedSize, name, nameLen);
 
+	idx = dmMaxRecordIndex;
 	h = DmNewRecord(gDB, &idx, bwHdrFixedSize + nameLen);
 	if (h != NULL) {
 		UInt32 uid = 0;
@@ -1063,6 +1095,146 @@ Boolean BwStoreAddOrg(UInt16 index, const char *name)
  * out union member, i.e. unrelated/uninitialized bytes), only pointed at
  * this empty string instead. */
 static const char kEmptyField[1] = "";
+
+/* ------------------------------------------------------------------ *
+ *  name order, built while the sync stores the items
+ * ------------------------------------------------------------------ *
+ * Sorting the list by name after a sync used to decrypt every name (two
+ * AES layers each) just to compare them. The plaintext name is already in
+ * hand when an item is stored, so the order is kept as we go instead: each
+ * item's lowercase name (first bwSortKeyLen-1 chars) goes into a table
+ * indexed by record number, and the record number is inserted into a sorted
+ * array by binary search (a ~1 KB memmove per insert at 1000 items). The
+ * finished order is saved by BwStoreEndSync in a small side database of
+ * record numbers only (no names), and MainForm.c lists in that order. If
+ * anything doesn't line up - table allocation failed, the side database is
+ * missing or belongs to a different vault database - the app falls back to
+ * the old sort at list time, which is slow but always correct. */
+#define bwWarmChunk	12	/* names decrypted per idle tick while warming the name cache */
+#define bwSortKeyLen	24
+#define SortKeyOff(r)	((((UInt32) (r)) << 4) + (((UInt32) (r)) << 3))	/* r * 24 without a libgcc multiply (sec001 can't reach it) */
+#define SortBytes2(n)	(((UInt32) (n)) << 1)	/* n * sizeof(UInt16) */
+#define bwSortInitCap	1024
+#define bwSortMaxCap	4096
+#define bwIdxDBName		"BitWardenIdx"
+#define bwIdxDBType		'BWix'
+#define bwIdxMagic		0x42775378UL	/* 'BwSx' */
+#define bwIdxHdrSize	12		/* magic u32, vault crDate u32, record count u16, entries u16 */
+
+static char *gSortKeys = NULL;		/* gSortCap * bwSortKeyLen, indexed by record number */
+static UInt16 *gSortPerm = NULL;	/* record numbers in name order */
+static UInt16 gSortCap = 0, gSortCount = 0;
+static Boolean gSortOk = false;
+
+SEC001 static void SortFree(void)
+{
+	if (gSortKeys) { MemPtrFree(gSortKeys); gSortKeys = NULL; }
+	if (gSortPerm) { MemPtrFree(gSortPerm); gSortPerm = NULL; }
+	gSortCap = gSortCount = 0;
+	gSortOk = false;
+}
+
+SEC001 static void SortBegin(void)
+{
+	SortFree();
+	gSortKeys = (char *) MemPtrNew(SortKeyOff(bwSortInitCap));
+	gSortPerm = (UInt16 *) MemPtrNew(SortBytes2(bwSortInitCap));
+	if (!gSortKeys || !gSortPerm) { SortFree(); return; }
+	gSortCap = bwSortInitCap;
+	gSortOk = true;
+}
+
+/* recNum = the record number DmNewRecord just returned. */
+SEC001 static void SortAdd(UInt16 recNum, const char *name)
+{
+	char key[bwSortKeyLen];
+	UInt16 lo, hi, mid;
+
+	if (!gSortOk) return;
+	if (recNum >= gSortCap) {
+		UInt16 newCap = (UInt16) (gSortCap << 1);
+		char *nk;
+		UInt16 *np;
+		if (newCap > bwSortMaxCap || recNum >= newCap) { SortFree(); return; }
+		nk = (char *) MemPtrNew(SortKeyOff(newCap));
+		np = (UInt16 *) MemPtrNew(SortBytes2(newCap));
+		if (!nk || !np) {
+			if (nk) MemPtrFree(nk);
+			if (np) MemPtrFree(np);
+			SortFree();
+			return;
+		}
+		MemMove(nk, gSortKeys, SortKeyOff(gSortCap));
+		MemMove(np, gSortPerm, SortBytes2(gSortCount));
+		MemPtrFree(gSortKeys); MemPtrFree(gSortPerm);
+		gSortKeys = nk; gSortPerm = np; gSortCap = newCap;
+	}
+	MemSet(key, sizeof(key), 0);
+	StrNCopy(key, name, bwSortKeyLen - 1);
+	StrToLower(key, key);
+	MemMove(gSortKeys + SortKeyOff(recNum), key, bwSortKeyLen);
+
+	lo = 0; hi = gSortCount;
+	while (lo < hi) {
+		mid = (UInt16) ((lo + hi) / 2);
+		if (StrCompare(gSortKeys + SortKeyOff(gSortPerm[mid]), key) <= 0) lo = (UInt16) (mid + 1);
+		else hi = mid;
+	}
+	MemMove(&gSortPerm[lo + 1], &gSortPerm[lo], SortBytes2(gSortCount - lo));
+	gSortPerm[lo] = recNum;
+	gSortCount++;
+}
+
+SEC001 static void IdxDeleteDB(void)
+{
+	LocalID id = DmFindDatabase(0, bwIdxDBName);
+	if (id != 0) DmDeleteDatabase(0, id);
+}
+
+SEC001 static UInt32 VaultCreateDate(void)
+{
+	UInt32 cr = 0;
+	LocalID id = DmFindDatabase(0, bwDBName);
+	if (id != 0) DmDatabaseInfo(0, id, NULL, NULL, NULL, &cr, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+	return cr;
+}
+
+/* Saves the order of the vault database just put in place by BwStoreEndSync. */
+SEC001 static void SortSave(void)
+{
+	LocalID id;
+	DmOpenRef idxDB;
+	MemHandle h;
+	UInt16 at, n;
+	UInt32 size, magic, cr;
+	UInt8 *rp;
+
+	IdxDeleteDB();
+	if (!gSortOk || gSortCount == 0 || !gDB) { SortFree(); return; }
+	if (DmCreateDatabase(0, bwIdxDBName, appCreator, bwIdxDBType, false) != errNone) { SortFree(); return; }
+	id = DmFindDatabase(0, bwIdxDBName);
+	idxDB = id ? DmOpenDatabase(0, id, dmModeReadWrite) : NULL;
+	if (!idxDB) { IdxDeleteDB(); SortFree(); return; }
+	size = bwIdxHdrSize + SortBytes2(gSortCount);
+	at = dmMaxRecordIndex;
+	h = DmNewRecord(idxDB, &at, size);
+	if (h) {
+		rp = (UInt8 *) MemHandleLock(h);
+		magic = bwIdxMagic;
+		cr = VaultCreateDate();
+		n = DmNumRecords(gDB);
+		DmWrite(rp, 0, &magic, 4);
+		DmWrite(rp, 4, &cr, 4);
+		DmWrite(rp, 8, &n, 2);
+		DmWrite(rp, 10, &gSortCount, 2);
+		DmWrite(rp, bwIdxHdrSize, gSortPerm, SortBytes2(gSortCount));
+		MemHandleUnlock(h);
+		DmReleaseRecord(idxDB, at, true);
+	}
+	DmCloseDatabase(idxDB);
+	if (!h) IdxDeleteDB();
+	SortFree();
+}
 
 /* Returns false if this item was NOT actually stored - see AddMarker's own
  * comment on why the caller (Sync.c) must now treat that as fatal (abort
@@ -1166,6 +1338,7 @@ Boolean BwStoreAddItem(const BwItemFull *item)
 		off += lens[i];
 	}
 
+	idx = dmMaxRecordIndex;		/* always append - an unset index could insert mid-database and shift the sort table below */
 	h = DmNewRecord(gDB, &idx, off);
 	stored = (h != NULL);
 	if (h != NULL) {
@@ -1173,6 +1346,7 @@ Boolean BwStoreAddItem(const BwItemFull *item)
 		DmWrite(rp, 0, gRecBuf, off);
 		MemHandleUnlock(h);
 		DmReleaseRecord(gDB, idx, true);
+		SortAdd(idx, item->name);
 
 		/* DmNewRecord above is the one call in this function that can
 		 * genuinely stall (real-device testing measured 100+ seconds once,
@@ -1492,7 +1666,6 @@ Boolean BwStoreGetItemNameFast(UInt16 dbIdx, EncKeySchedule *sec35Sched, EncKeyS
 	MemHandle h;
 	const UInt8 *rp;
 	UInt16 nameLen;
-	UInt8 tmp[bwMaxField];
 	UInt32 uid;
 
 	out[0] = 0;
@@ -1502,15 +1675,16 @@ Boolean BwStoreGetItemNameFast(UInt16 dbIdx, EncKeySchedule *sec35Sched, EncKeyS
 	rp = (const UInt8 *) MemHandleLock(h);
 	nameLen = rdU16(rp + 5 + bwGuidLen + bwFieldName * 2);
 	if (nameLen >= bwMaxField) nameLen = bwMaxField - 1;
-	MemMove(tmp, rp + bwHdrFixedSize, nameLen);
+	/* CTR mode: the first bytes decrypt on their own, so only what the caller can hold is read and
+	 * decrypted, straight into its buffer (no 512-byte scratch on the stack under a deep handler). */
+	if (nameLen >= outLen) nameLen = (UInt16) (outLen - 1);
+	MemMove(out, rp + bwHdrFixedSize, nameLen);
 	MemHandleUnlock(h);
 
 	DmRecordInfo(gDB, dbIdx, NULL, &uid, NULL);
-	EncCryptFast(sec35Sched, tmp, nameLen, uid, bwFieldName);	/* unwrap outer layer first */
-	EncCryptFast(localSched, tmp, nameLen, uid, bwFieldName);	/* then the existing inner layer */
-
-	MemMove(out, tmp, nameLen);
-	out[nameLen < outLen ? nameLen : outLen - 1] = 0;
+	EncCryptFast(sec35Sched, (UInt8 *) out, nameLen, uid, bwFieldName);	/* unwrap outer layer first */
+	EncCryptFast(localSched, (UInt8 *) out, nameLen, uid, bwFieldName);	/* then the existing inner layer */
+	out[nameLen] = 0;
 	return true;
 }
 
@@ -1549,6 +1723,9 @@ Boolean BwStoreGetItemNameFast(UInt16 dbIdx, EncKeySchedule *sec35Sched, EncKeyS
 static char *gNameCache = NULL;	/* gNameCacheCount * bwNameCacheEntryLen bytes, or NULL if not (yet) built - LOWERCASE, for search matching */
 static char *gDisplayNameCache = NULL;	/* same shape, ORIGINAL case - see MainDrawRow's own comment on why this exists */
 static UInt16 gNameCacheCount = 0;
+static UInt16 gNameBuilt = 0, gNameDbPos = 0;
+static Boolean gNameWarmOff = false;	/* the cache can't be built (no memory, no key): stop trying until it is invalidated */
+
 static UInt8 *gTypeCache = NULL;	/* gHeaderCacheCount bytes */
 static UInt16 *gFolderCache = NULL;	/* gHeaderCacheCount UInt16s */
 static UInt16 *gOrgCache = NULL;	/* gHeaderCacheCount UInt16s */
@@ -1569,12 +1746,17 @@ static Boolean *gArchivedCache = NULL;	/* gHeaderCacheCount Booleans */
  * NthItemDbIndex at all. */
 static UInt16 *gDbIndexCache = NULL;	/* gHeaderCacheCount UInt16s */
 static UInt16 gHeaderCacheCount = 0;
+UInt16 *gBwOrder = NULL;		/* gBwOrderCount recIndex values in name order, from the side database (read by MainForm.c: a call into SEC001 from SEC001 code in another file jumps wrong) */
+UInt16 gBwOrderCount = 0;
+static UInt8 gOrderState = 0;		/* 0 not looked at yet, 1 loaded, 2 none usable */
 
 void BwStoreInvalidateNameCache(void)
 {
-	if (gNameCache) { MemPtrFree(gNameCache); gNameCache = NULL; }
-	if (gDisplayNameCache) { MemPtrFree(gDisplayNameCache); gDisplayNameCache = NULL; }
-	gNameCacheCount = 0;
+	if (gBwOrder) { MemPtrFree(gBwOrder); gBwOrder = NULL; }
+	gBwOrderCount = 0;
+	gOrderState = 0;
+	NameCacheFree();
+	gNameWarmOff = false;
 	if (gTypeCache) { MemPtrFree(gTypeCache); gTypeCache = NULL; }
 	if (gFolderCache) { MemPtrFree(gFolderCache); gFolderCache = NULL; }
 	if (gOrgCache) { MemPtrFree(gOrgCache); gOrgCache = NULL; }
@@ -1624,50 +1806,123 @@ static Boolean EnsureHeaderCache(void)
 	return true;
 }
 
-/* Expensive - real AES decrypt for every real item's name (once, via
- * BwStoreBeginNameScan's own key-schedule caching). Only called when a
- * search is actually active. */
-static Boolean EnsureNameCacheOnly(void)
+/* The name order saved by the last sync (see "name order" above), as recIndex
+ * values for MainForm.c. 0 = none usable: list the old way (sort at list
+ * time). Checked against the vault database it was built for (creation date,
+ * record count) and against the header cache; anything off means "none". */
+SEC001 static void OrderLoad(void)
 {
-	UInt16 dbTotal, dbIdx, recIndex;
+	LocalID id;
+	DmOpenRef idxDB;
+	MemHandle h;
+	const UInt8 *rp;
+	UInt32 magic = 0, cr = 0;
+	UInt16 raw = 0, n = 0, i, rec;
+	UInt16 *inv, *order;
+	Boolean ok;
+
+	if (gOrderState != 0) return;
+	if (!gDB || !gTypeCache || gHeaderCacheCount == 0) return;
+	gOrderState = 2;		/* until proven good */
+	id = DmFindDatabase(0, bwIdxDBName);
+	if (id == 0) return;
+	idxDB = DmOpenDatabase(0, id, dmModeReadOnly);
+	if (!idxDB) return;
+	h = (DmNumRecords(idxDB) > 0) ? DmQueryRecord(idxDB, 0) : NULL;
+	if (h) {
+		rp = (const UInt8 *) MemHandleLock(h);
+		MemMove(&magic, rp, 4);
+		MemMove(&cr, rp + 4, 4);
+		MemMove(&raw, rp + 8, 2);
+		MemMove(&n, rp + 10, 2);
+		if (magic == bwIdxMagic && cr == VaultCreateDate() && raw == DmNumRecords(gDB) && n == gHeaderCacheCount
+				&& MemHandleSize(h) >= bwIdxHdrSize + SortBytes2(n)) {
+			inv = (UInt16 *) MemPtrNew(SortBytes2(raw));
+			order = (UInt16 *) MemPtrNew(SortBytes2(n));
+			if (inv && order) {
+				for (i = 0; i < raw; i++) inv[i] = 0xFFFF;
+				for (i = 0; i < gHeaderCacheCount; i++) inv[gDbIndexCache[i]] = i;
+				ok = true;
+				for (i = 0; i < n; i++) {
+					MemMove(&rec, rp + bwIdxHdrSize + SortBytes2(i), 2);
+					if (rec >= raw || inv[rec] >= 0xFFFE) { ok = false; break; }	/* not a record, or listed twice */
+					order[i] = inv[rec];
+					inv[rec] = 0xFFFE;
+				}
+				if (ok) {
+					gBwOrder = order; order = NULL;
+					gBwOrderCount = n;
+					gOrderState = 1;
+				}
+			}
+			if (inv) MemPtrFree(inv);
+			if (order) MemPtrFree(order);
+		}
+		MemHandleUnlock(h);
+	}
+	DmCloseDatabase(idxDB);
+}
+
+
+/* Expensive - real AES decrypt for every real item's name (key schedules built once per call via
+ * BwStoreBeginNameScan). Filled in steps so the list can warm it while idle (BwStoreWarmNames) instead of
+ * the first search paying for the whole vault: gNameBuilt entries (in recIndex order) are done, gNameDbPos
+ * is where the record scan resumes. maxItems = how many more to do this call. */
+
+#define NameBytes(n)	((((UInt32) (n)) << 5) + (((UInt32) (n)) << 4))	/* n * bwNameCacheEntryLen (48) without a libgcc multiply */
+
+SEC001 static void NameCacheFree(void)
+{
+	if (gNameCache) { MemPtrFree(gNameCache); gNameCache = NULL; }
+	if (gDisplayNameCache) { MemPtrFree(gDisplayNameCache); gDisplayNameCache = NULL; }
+	gNameCacheCount = 0;
+	gNameBuilt = gNameDbPos = 0;
+}
+
+SEC001 static Boolean NameCacheAlloc(UInt16 count)
+{
+	gNameCache = (char *) MemPtrNew(NameBytes(count));
+	gDisplayNameCache = (char *) MemPtrNew(NameBytes(count));
+	if (!gNameCache || !gDisplayNameCache) { NameCacheFree(); return false; }
+	MemSet(gNameCache, NameBytes(count), 0);
+	MemSet(gDisplayNameCache, NameBytes(count), 0);
+	gNameCacheCount = count;
+	gNameBuilt = gNameDbPos = 0;
+	return true;
+}
+
+static Boolean NameCacheStep(UInt16 maxItems)
+{
+	UInt16 dbTotal, dbIdx, recIndex, done;
 	EncKeySchedule sec35Sched, localSched;
 
-	/* gNameCache != NULL means "already built and still valid" - trust the
-	 * explicit invalidation call sites (BwStoreBeginSync, BwLock) rather
-	 * than re-verifying the record count here on every call. This function
-	 * is called ONCE PER RECORD during a search scan - a real bug in an
-	 * earlier version of this cache recomputed the count (a full O(n)
-	 * header rescan) on every single call just to confirm the cache was
-	 * still fresh, which silently turned the whole point of caching back
-	 * into O(n^2) even though the CRYPTO part was genuinely cached. Found
-	 * 2026-08 via POSE64 input starving out at >2s per keystroke even after
-	 * this cache was added. */
-	if (gNameCache) return true;
-	if (!EnsureHeaderCache() || gHeaderCacheCount == 0) return gHeaderCacheCount == 0;
-
-	gNameCache = (char *) MemPtrNew((UInt32) gHeaderCacheCount * bwNameCacheEntryLen);
-	gDisplayNameCache = (char *) MemPtrNew((UInt32) gHeaderCacheCount * bwNameCacheEntryLen);
-	if (!gNameCache || !gDisplayNameCache) {
-		if (gNameCache) { MemPtrFree(gNameCache); gNameCache = NULL; }
-		if (gDisplayNameCache) { MemPtrFree(gDisplayNameCache); gDisplayNameCache = NULL; }
-		return false;	/* allocation failed - caller's findActive branch just finds nothing, same as Sec35/key being unavailable */
+	/* gNameCache != NULL with gNameBuilt == gNameCacheCount means "fully built and still valid" - trust the
+	 * explicit invalidation call sites (BwStoreBeginSync, BwLock) rather than re-verifying the record count
+	 * here on every call. This function is called ONCE PER RECORD during a search scan - a real bug in an
+	 * earlier version of this cache recomputed the count (a full O(n) header rescan) on every single call
+	 * just to confirm the cache was still fresh, which silently turned the whole point of caching back
+	 * into O(n^2). Found 2026-08 via POSE64 input starving out at >2s per keystroke. */
+	if (gNameCache && gNameBuilt >= gNameCacheCount) return true;
+	if (!gNameCache) {
+		if (!EnsureHeaderCache() || gHeaderCacheCount == 0) return gHeaderCacheCount == 0;
+		if (!NameCacheAlloc(gHeaderCacheCount)) {
+			gNameWarmOff = true;
+			return false;	/* allocation failed - the search just finds nothing, same as Sec35/key being unavailable */
+		}
 	}
-	MemSet(gNameCache, (UInt32) gHeaderCacheCount * bwNameCacheEntryLen, 0);
-	MemSet(gDisplayNameCache, (UInt32) gHeaderCacheCount * bwNameCacheEntryLen, 0);
-	gNameCacheCount = gHeaderCacheCount;
 
 	if (!BwStoreBeginNameScan(&sec35Sched, &localSched)) {
-		if (gNameCache) { MemPtrFree(gNameCache); gNameCache = NULL; }
-		if (gDisplayNameCache) { MemPtrFree(gDisplayNameCache); gDisplayNameCache = NULL; }
-		gNameCacheCount = 0;
+		NameCacheFree();
+		gNameWarmOff = true;
 		return false;
 	}
 
 	dbTotal = BwStoreRawRecordCount();
-	recIndex = 0;
-	for (dbIdx = 0; dbIdx < dbTotal && recIndex < gNameCacheCount; dbIdx++) {
+	recIndex = gNameBuilt;
+	done = 0;
+	for (dbIdx = gNameDbPos; dbIdx < dbTotal && recIndex < gNameCacheCount && done < maxItems; dbIdx++) {
 		UInt8 type; UInt16 folder, org; Boolean archived;
-		char name[bwMaxField];
+		char name[bwNameCacheEntryLen];
 		if (!BwStoreGetHeaderByDbIndex(dbIdx, &type, &folder, &org, &archived)) continue;
 		if (BwStoreGetItemNameFast(dbIdx, &sec35Sched, &localSched, name, sizeof(name))) {
 			/* Same one decrypt feeds both caches - store original case for
@@ -1681,10 +1936,31 @@ static Boolean EnsureNameCacheOnly(void)
 			StrToLower(lowerSlot, lowerSlot);
 		}
 		recIndex++;
+		done++;
+		gNameDbPos = (UInt16) (dbIdx + 1);
+		gNameBuilt = recIndex;
 	}
+	if (recIndex >= gNameCacheCount) gNameBuilt = gNameCacheCount;
 	EncKeyScheduleWipe(&sec35Sched);
 	EncKeyScheduleWipe(&localSched);
-	return true;
+	return gNameBuilt >= gNameCacheCount;
+}
+
+static Boolean EnsureNameCacheOnly(void)
+{
+	return NameCacheStep(0xFFFF);
+}
+
+/* The list calls this while idle after it opens (nilEvent): a few more names per call, so the first
+ * search finds the cache already built. */
+Boolean BwStoreWarmPending(void)
+{
+	return !gNameWarmOff && !(gNameCache && gNameBuilt >= gNameCacheCount);
+}
+
+void BwStoreWarmNames(void)
+{
+	if (BwStoreWarmPending()) NameCacheStep(bwWarmChunk);
 }
 
 /* Public entry points for MainForm.c's search/filter loop - recIndex-
@@ -1726,7 +2002,7 @@ const char *BwStoreGetCachedLowerNamePtr(UInt16 recIndex)
  * this cache existed. */
 Boolean BwStoreGetCachedNameIfReady(UInt16 recIndex, char *out, UInt16 outLen)
 {
-	if (!gDisplayNameCache || recIndex >= gNameCacheCount) { out[0] = 0; return false; }
+	if (!gDisplayNameCache || recIndex >= gNameBuilt) { out[0] = 0; return false; }
 	StrNCopy(out, gDisplayNameCache + (UInt32) recIndex * bwNameCacheEntryLen, outLen - 1);
 	out[outLen - 1] = 0;
 	return true;
@@ -1750,6 +2026,7 @@ Boolean BwStoreGetCachedHeader(UInt16 recIndex, UInt8 *type, UInt16 *folder, UIn
 UInt16 BwStoreGetCachedCount(void)
 {
 	if (!EnsureHeaderCache()) return 0;
+	OrderLoad();		/* main -> SEC001 in this file: the safe direction */
 	return gHeaderCacheCount;
 }
 

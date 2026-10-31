@@ -36,7 +36,7 @@ typedef struct {
 	Boolean isRepeating;			/* master VEVENT had an RRULE (WiRSa's own determination) */
 	/* Appended (2026-09-24, user request) - uid/alias/title/location/notes
 	 * above are Sec35 ciphertext at rest, encrypted once at
-	 * DAVDbCommitSlotRebuild time (not DAVDbAddEvent - see that function's
+	 * DAVDbCommitStaged time (not DAVDbAddEvent - see that function's
 	 * own comment for why the record's FINAL real-database DmRecordInfo
 	 * uniqueID, not its temp-staging one, has to be the nonce). AES-CTR
 	 * ciphertext isn't NUL-safe, so each needs an explicit plaintext-length
@@ -68,19 +68,29 @@ typedef struct {
  * would wipe every other slot's already-synced events. "Sync All" is just
  * this same per-slot primitive called once per slot.
  *
- * DAVDbBeginSlotRebuild stages fresh events into a separate temp database
+ * DAVDbBeginSlotRebuild stages fresh events into a per-slot temp database
  * via DAVDbAddEvent - the real database is never touched until
- * DAVDbCommitSlotRebuild, which only runs on full success: it deletes
- * slotIdx's old records and copies in the staged new ones as one unit.
+ * DAVDbCommitStaged. On full success DAVDbStageSlotRebuild keeps the temp
+ * DB; DAVDbCommitStaged then, for every slot staged since it last ran,
+ * deletes that slot's old records and copies in the staged new ones, and
+ * sorts the database once. Sync All stages each calendar and commits only
+ * after its last one, once the WiRSa connection is closed (see DAVDb.c).
+ * DAVDbCommitSlotRebuild is stage + commit in one call.
  * DAVDbAbortSlotRebuild only ever discards the temp DB, so a sync that
  * fails outright leaves the slot's existing data untouched instead of
  * erased. */
 Err  DAVDbBeginSlotRebuild(UInt8 slotIdx) SEC003;
 Err  DAVDbAddEvent(const CDDVEvent *ev) SEC003;
+void DAVDbStageSlotRebuild(void) SEC003;
+void DAVDbCommitStaged(void) SEC003;
 void DAVDbCommitSlotRebuild(void) SEC003;
 void DAVDbAbortSlotRebuild(void) SEC003;
 
 void DAVDbDeleteAll(void) SEC003;
+
+/* True if DateBook35DAV holds any event of slot slotIdx (sourceSlot is not
+ * encrypted) - lets the stale-data cleanup skip slots with nothing to remove. */
+Boolean DAVDbSlotHasRows(UInt8 slotIdx) SEC003;
 
 /* Iterates every record, redoes ONLY localStart/localEnd via
  * TimUTCToTimeZone against the CURRENT prefTimeZone/
@@ -89,5 +99,8 @@ void DAVDbDeleteAll(void) SEC003;
  * localStart. Shows an A35ProgressBegin/A35ProgressBar/A35ProgressEnd-style
  * progress bar for the duration. */
 void DAVDbRecomputeLocalTimes(void) SEC003;
+/* The same busy toast, for other long jobs (Re-Sort Contacts). */
+void DAVDbToast(const char *text) SEC003;
+void DAVDbToastEnd(void) SEC003;
 
 #endif

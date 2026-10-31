@@ -39,8 +39,14 @@ typedef enum {
 	cddvTypeCalDAV = 0,
 	cddvTypeICloud = 1,
 	cddvTypeGoogle = 2,
-	cddvTypeICSFeed = 3
+	cddvTypeICSFeed = 3,
+	/* contacts (apps/carddav_sync.md): written to Address35DAV_<n>, not
+	 * DateBook35DAV - see ContactDb.h */
+	cddvTypeICloudContacts = 4,
+	cddvTypeCardDAV = 5
 } CDDVServerType;
+#define cddvNumServerTypes	6
+#define cddvIsContacts(t)	((t) == cddvTypeICloudContacts || (t) == cddvTypeCardDAV)
 
 /* Shared past/future sync-window enum - same option list used by both the
  * global Preferences form and a slot's own override fields (SlotForm.c).

@@ -415,7 +415,7 @@ static UInt16		CountRecords (
 								UInt16							inCategory,
 								DateType							inDate,
 								Boolean							inShowCompleted,
-								Boolean							inShowDueOnly ) SEC003;
+								Boolean							inShowDueOnly );	// main segment: sec003 is full
 static void ListInitTableRow (TablePtr table, UInt16 row, UInt16 recordNum, 
 	Int16 rowHeight) SEC003;
 
@@ -2109,6 +2109,40 @@ AgendaViewFillAppointments (
 
 
 #pragma mark -
+// Db35: same ordering as DateDB.c's ApptListCompare (start time, then end
+// time; untimed TimeType -1 sorts first). Used to merge the birthday and
+// CalDAV rows AgendaLoadAppointments appends into the day's appointments.
+// These two live in the main code segment because sec003 is full.
+static Int16 AgendaApptCompare (void *p1, void *p2, Int32 other)
+{
+	ApptInfoPtr a1 = (ApptInfoPtr) p1;
+	ApptInfoPtr a2 = (ApptInfoPtr) p2;
+	Int16 t1 = TimeToInt (a1->startTime);
+	Int16 t2 = TimeToInt (a2->startTime);
+
+	if (t1 == t2)
+		{
+		t1 = TimeToInt (a1->endTime);
+		t2 = TimeToInt (a2->endTime);
+		}
+	return (Int16) ((t1 > t2) - (t1 < t2));
+}
+
+// Insertion sort is stable, so rows with equal times keep their order:
+// appointments, birthdays, then CalDAV events.
+static void AgendaSortAppointments (MemHandle apptsH, UInt16 count)
+{
+	ApptInfoPtr appts;
+
+	if (apptsH == NULL || count < 2)
+		return;
+	appts = MemHandleLock (apptsH);
+	SysInsertionSort (appts, (Int16) count, sizeof (ApptInfoType),
+		AgendaApptCompare, 0L);
+	MemPtrUnlock (appts);
+}
+
+
 /***********************************************************************
  *
  * FUNCTION:    AgendaLoadAppointments
@@ -2216,6 +2250,13 @@ AgendaLoadAppointments (
 			count = total;
 			}
 		}
+
+	// Db35: birthdays and CalDAV events above were appended after the day's
+	// own (already sorted) appointments, so re-sort the whole list the same
+	// way ApptGetAppointments does: by start time, then end time. Untimed rows
+	// (TimeType -1) come first.
+	if (nBday | nDav)
+		AgendaSortAppointments (appointmentsH, count);
 
 	// Replace the current appointments with our new data (frees any old data)
 	AgendaSetAppointments (appointmentsH, count);
@@ -3141,7 +3182,7 @@ SeekRecord (
 }
 
 
-SEC003 static UInt16
+static UInt16
 CountRecords (
 	DmOpenRef						inDB,
 	UInt16*							outIndices,

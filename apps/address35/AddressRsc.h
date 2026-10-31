@@ -25,6 +25,8 @@
 #define mniMainAbout			1011
 #define mniMainBrowseCard		1012
 #define mniMainFont				1013
+#define mniMainDav				1014
+#define mniMainDavImport		1015
 
 /* ---- Edit form: inline-editable, section-ordered scrolling list -------- *
  * kEditRows physical rows: a type SELECTOR (label) + an editable value field,
@@ -76,6 +78,8 @@
 #define mniRecordBeam			1203
 #define mniRecordSetMe			1204
 #define mniRecordDuplicate		1205
+#define mniRecordCopy			1207
+#define mniRecordCopyAll		1208
 
 /* ---- shared searchable list picker (Picker.c) -------------------------- */
 #define frmPick					1500
@@ -218,6 +222,20 @@
 #define altNoSec35				1911
 #define altCardGroupSplit		1912
 #define altCardSplitFailed		1915
+#define altDavLocked			1930
+#define altDavNoSync			1931
+#define altDavReadOnly			1932
+#define altDavInfo				1933
+#define altDavImportAsk			1934
+#define altDavImportDone		1935
+
+/* Options > CardDAV... (MainForm.c MainDavDialog) */
+#define frmDav					1940
+#define popDavShow				1941
+#define lstDavShow				1942
+#define btnDavOK				1943
+#define btnDavCancel			1944
+#define btnDavSync				1945
 
 /* "Reading..." is drawn screen-direct (A35BusyBegin/End in AddrCard.c) - no
  * form resource, matching CryptoNote's CardBusyShow style. "Processing
@@ -253,6 +271,8 @@
 #define btnLookupPaste			2104
 #define btnLookupCancel			2105
 #define lstLookupItems			2106
+#define popLookupSrc			2107
+#define lstLookupSrc			2108
 #define altLookupNone			2110
 #define altDelFieldWarn			1903
 
@@ -260,3 +280,12 @@
 #define strAboutText			1000
 
 #endif /* ADDRESSRSC_H */
+
+/* Record view: full-field popup (RecField.c) */
+#define frmRecField				2200
+#define fldRecField				2201
+#define sclRecField				2202
+#define btnRecFieldDone			2203
+#define btnRecFieldCopy			2204
+#define mnuRecField				2205
+#define mniRecFieldCopy			2206

@@ -504,6 +504,8 @@ static void DetailsSetDavLocationField (const char *location);
 static Boolean DayDavRepeatOverrideLabel (void);
 static void NoteViewDavTitle (char *buf, UInt16 bufCap);
 static void DayInjectLocationText (void) SEC001;
+static void DayCompressPrep (void);		/* Db35: main segment - sec001/sec002 are full */
+static Boolean DayCompressFill (void);
 
 
 /***********************************************************************
@@ -5247,18 +5249,8 @@ SEC001 static void DayViewDrawIcons (void * table, Int16 row, Int16 column,
 	if (IsDayBday (recordNum))
 		{
 		UInt16	slot = (UInt16)(recordNum - kDayBdayBase);
-		char*		d = (slot < gDayBdayCount) ? gDayBdayLines[slot] : "";
-		Int16		lineH;
 
-		curFont = FntSetFont (ApptDescFont);
-		WinDrawTruncChars (d, StrLen (d), bounds->topLeft.x, bounds->topLeft.y,
-			bounds->extent.x);
-		lineH = FntLineHeight ();
-		FntSetFont (curFont);
-
-		y = (Int16)(bounds->topLeft.y + lineH - 1);
-		WinDrawGrayLine (bounds->topLeft.x, y,
-			(Coord)(bounds->topLeft.x + bounds->extent.x - 1), y);
+		DayBdayDraw ((slot < gDayBdayCount) ? gDayBdayLines[slot] : "", bounds);
 		return;
 		}
 
@@ -6184,6 +6176,10 @@ SEC001 static Int16 DayViewGetDescriptionHeight (Int16 apptIndex, Int16 width, I
 		height = FntLineHeight ();
 		FntSetFont (curFont);
 		*fontIdP = ApptDescFont;
+		// birthday/anniversary rows wrap (ToDo35 rows stay one line)
+		if (IsDayBday (recordNum))
+			height = DayBdayHeight ((recordNum - kDayBdayBase < gDayBdayCount) ?
+				gDayBdayLines[recordNum - kDayBdayBase] : "", width, maxHeight);
 		}
 
 	*iconsWidthP = iconsWidth;
@@ -7509,6 +7505,177 @@ SEC001 static void DayLaunchTodo (UInt16 slot)
 
 /***********************************************************************
  *
+ * FUNCTION:    DayCompressAddSlots
+ *
+ * DESCRIPTION: Db35 -- append to cand[] the empty slots covering from..to:
+ *              the first starts at 'from' (an event's end time, like the
+ *              stock end-time slot), the rest on the hour. Returns the new
+ *              count. Main segment.
+ *
+ ***********************************************************************/
+#define kCompressMaxCand	(hoursPerDay * 2)
+
+static UInt16 DayCompressAddSlots (TimeType (*cand)[2], UInt16 n, TimeType from, TimeType to)
+{
+	TimeType	e;
+
+	while (n < kCompressMaxCand && TimeToInt (from) < TimeToInt (to))
+		{
+		e.hours = from.hours + 1;
+		e.minutes = 0;
+		if (TimeToInt (e) > TimeToInt (to))
+			e = to;
+		cand[n][0] = from;
+		cand[n][1] = e;
+		n++;
+		from = e;
+		}
+	return n;
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:    DayCompressFill
+ *
+ * DESCRIPTION: Db35 -- Compress Day View: add as many empty slots as fit
+ *              on the screen to the finished row list (events, ToDos,
+ *              birthdays, CalDAV rows). Slots go first in the time between
+ *              the first and last timed row, then after the last one, then
+ *              before the first one (within Day Start..Day End). At least
+ *              one slot is always kept between the first and last timed
+ *              row when there is a gap, even if the view then scrolls.
+ *              Returns true if any slot was added. Main segment.
+ *
+ ***********************************************************************/
+static Boolean DayCompressFill (void)
+{
+	TablePtr		table = GetObjectPtr (DayTable);
+	RectangleType	r;
+	Int16			height = 0, lineHeight, columnWidth, iconsWidth, tableHeight;
+	UInt16			i, j, nCand = 0, nBetween, allowed = 0, room;
+	FontID			fontID, curFont;
+	Boolean			haveTimed = false;
+	TimeType		firstT, endT, from, dayEnd;
+	TimeType		cand[kCompressMaxCand][2];
+	ApptInfoPtr		appts;
+
+	if (! ApptsH)
+		return false;
+
+	TblGetBounds (table, &r);
+	tableHeight = r.extent.y;
+	columnWidth = TblGetColumnWidth (table, descColumn);
+	for (i = 0; i < NumAppts; i++)
+		height += DayViewGetDescriptionHeight (i, columnWidth, tableHeight, &iconsWidth, &fontID);
+
+	curFont = FntSetFont (apptTimeFont);		// an empty slot's row height
+	lineHeight = FntLineHeight ();
+	FntSetFont (curFont);
+
+	// Gaps between the first and last timed rows (rows are sorted, untimed first).
+	appts = MemHandleLock (ApptsH);
+	for (i = 0; i < NumAppts; i++)
+		{
+		if (TimeToInt (appts[i].startTime) == apptNoTime)
+			continue;
+		if (! haveTimed)
+			{
+			haveTimed = true;
+			firstT = endT = appts[i].startTime;
+			}
+		else if (TimeToInt (appts[i].startTime) > TimeToInt (endT))
+			nCand = DayCompressAddSlots (cand, nCand, endT, appts[i].startTime);
+		if (TimeToInt (appts[i].endTime) > TimeToInt (endT))
+			endT = appts[i].endTime;
+		}
+	MemPtrUnlock (appts);
+	nBetween = nCand;
+
+	// Then the rest of Day Start..Day End: after the last row, then before the first.
+	from.hours = DayStartHour;
+	from.minutes = 0;
+	if (DayEndHour < 23)
+		{
+		dayEnd.hours = DayEndHour + 1;
+		dayEnd.minutes = 0;
+		}
+	else
+		{
+		dayEnd.hours = 23;		// max end time is 11:55 pm
+		dayEnd.minutes = 55;
+		}
+	if (! haveTimed)
+		nCand = DayCompressAddSlots (cand, nCand, from, dayEnd);
+	else
+		{
+		nCand = DayCompressAddSlots (cand, nCand,
+			(TimeToInt (endT) > TimeToInt (from)) ? endT : from, dayEnd);
+		nCand = DayCompressAddSlots (cand, nCand, from,
+			(TimeToInt (firstT) < TimeToInt (dayEnd)) ? firstT : dayEnd);
+		}
+
+	room = TblGetNumberOfRows (table);
+	room = (room > NumAppts) ? room - NumAppts : 0;
+	while (allowed < nCand && allowed < room && height + lineHeight <= tableHeight)
+		{
+		height += lineHeight;
+		allowed++;
+		}
+	if (allowed == 0 && nBetween)
+		allowed = 1;
+	if (allowed == 0)
+		return false;
+
+	if (MemHandleResize (ApptsH, (NumAppts + allowed) * sizeof (ApptInfoType)) != errNone)
+		return false;
+
+	// Insert each slot after every row that starts at or before it.
+	appts = MemHandleLock (ApptsH);
+	for (j = 0; j < allowed; j++)
+		{
+		for (i = 0; i < NumAppts; i++)
+			if (TimeToInt (appts[i].startTime) > TimeToInt (cand[j][0]))
+				break;
+		MemMove (&appts[i+1], &appts[i], (NumAppts - i) * sizeof (ApptInfoType));
+		appts[i].startTime = cand[j][0];
+		appts[i].endTime = cand[j][1];
+		appts[i].recordNum = emptySlot;
+		NumAppts++;
+		}
+	MemPtrUnlock (appts);
+	return true;
+}
+
+
+/***********************************************************************
+ *
+ * FUNCTION:    DayCompressPrep
+ *
+ * DESCRIPTION: Db35 -- Compress Day View: start the row list as just the
+ *              day's appointments (already sorted, untimed first), with no
+ *              empty slots - DayViewLayoutDay adds the ToDo/birthday/CalDAV
+ *              rows, then DayCompressFill the empty slots. Main segment.
+ *
+ ***********************************************************************/
+static void DayCompressPrep (void)
+{
+	UInt16	n = ApptsOnlyH ? NumApptsOnly : 0;
+
+	NumAppts = 0;
+	ApptsH = MemHandleNew ((n + 1) * sizeof (ApptInfoType));
+	if (n && ApptsH)
+		{
+		MemMove (MemHandleLock (ApptsH), MemHandleLock (ApptsOnlyH), n * sizeof (ApptInfoType));
+		MemHandleUnlock (ApptsOnlyH);
+		MemHandleUnlock (ApptsH);
+		NumAppts = n;
+		}
+}
+
+
+/***********************************************************************
+ *
  * FUNCTION:    DayViewLayoutDay
  *
  * DESCRIPTION: This routine builds a list of: untimed appointment, 
@@ -7536,24 +7703,13 @@ SEC001 static void DayViewLayoutDay (Boolean retieve)
 {
 	Int16				i, j;
 	Int16				index;
-	Int16				numRows;
-	Int16				height;
-	Int16				lineHeight;
-	Int16				iconsWidth;
-	Int16				tableHeight;
-	Int16				columnWidth;
-	FontID			fontID;
-	FontID			currFont;
-	TablePtr			table;
 	TimeType			next;
 	TimeType			endTime;
 	Boolean			replace;
 	Boolean			addEndTime;
 	ApptInfoPtr		appts;
 	ApptInfoPtr		apptsOnly;
-	RectangleType 	r;
-	FormPtr			frm;
-	
+
 
 	// Get a list of: untimed appointment and timed appointment for the
 	// current day.
@@ -7567,6 +7723,16 @@ SEC001 static void DayViewLayoutDay (Boolean retieve)
 	// Free the existing list.
 	if (ApptsH)
 		MemHandleFree (ApptsH);
+
+	// Db35: Compress Day View starts from the day's appointments alone and
+	// adds its empty slots last (DayCompressFill, below), once the ToDo/
+	// birthday/CalDAV rows are in and it can tell how many fit.
+	if (CompressDayView)
+		{
+		DayCompressPrep ();
+		DayViewCheckForConflicts ();
+		goto inject;
+		}
 
 	// If there are no appointsment on the day, fill in the appointment list
 	// with empty time slots.
@@ -7587,11 +7753,7 @@ SEC001 static void DayViewLayoutDay (Boolean retieve)
 			
 		DayViewCheckForConflicts ();
 		MemHandleUnlock (ApptsH);
-		DayInjectTodos ();			/* Db35: prepend due/undated ToDo35 rows */
-		DayInjectBdays ();			/* Db35: prepend Address35 birthday/anniversary rows */
-		DayInjectCalDav ();			/* Db35: prepend/insert synced CalDAV Sync events */
-		DayInjectLocationText ();	/* Db35: prefetch "@ location" suffixes */
-		return;
+		goto inject;
 		}
 
 	// Merge empty time slots into the appointment list.
@@ -7711,38 +7873,14 @@ SEC001 static void DayViewLayoutDay (Boolean retieve)
 	DayViewCheckForConflicts ();
 
 
-	// Determine if that is space to add empty time slot, these time slot are in
-	// addition to the empty time slot that represent end times of events.
-	frm = FrmGetFormPtr (DayView);
-	table = FrmGetObjectPtr (frm, FrmGetObjectIndex (frm, DayTable));
-	numRows = TblGetNumberOfRows (table);
-	if (( ! CompressDayView) || (numRows > NumAppts))
+	// Add an empty time slot for every hour of the day not taken by an
+	// event (Compress Day View is handled by DayCompressLayout instead).
 		{
-		TblGetBounds (table, &r);
-		tableHeight = r.extent.y;
-		height = 0;
-		columnWidth = TblGetColumnWidth (table, descColumn);
-
-		currFont = FntSetFont (apptEmptyDescFont);
-		lineHeight = FntLineHeight ();
-		FntSetFont (currFont);
-
-		if (CompressDayView)
-			{
-			for (j = 0; j < NumAppts; j++)
-				{
-				height += DayViewGetDescriptionHeight (j, columnWidth, tableHeight, &iconsWidth, &fontID);
-				if (height >= tableHeight)
-					break;
-				}
-			}
-		
-		// Add empty time slots to the list of appointment until the table is full.
 		next.hours = DayStartHour;
 		next.minutes = 0;
 		i = 0;
 
-		while (( ! CompressDayView) || (height + lineHeight <= tableHeight))
+		while (true)
 			{
 			if ((i < NumAppts) &&
 				 (TimeToInt (next) >= TimeToInt (appts[i].startTime)))
@@ -7781,8 +7919,6 @@ SEC001 static void DayViewLayoutDay (Boolean retieve)
 					next = appts[i+1].startTime;
 	
 				appts[i].endTime = next;
-				
-				height += DayViewGetDescriptionHeight (i, columnWidth, tableHeight, &iconsWidth, &fontID);
 				i++;
 				}
 
@@ -7803,10 +7939,15 @@ SEC001 static void DayViewLayoutDay (Boolean retieve)
 	MemHandleUnlock (ApptsH);
 	MemHandleResize (ApptsH, (NumAppts * sizeof (ApptInfoType)));
 
+inject:
 	DayInjectTodos ();			/* Db35: prepend due/undated ToDo35 rows */
 	DayInjectBdays ();			/* Db35: prepend Address35 birthday/anniversary rows */
 	DayInjectCalDav ();			/* Db35: prepend/insert synced CalDAV Sync events */
 	DayInjectLocationText ();	/* Db35: prefetch "@ location" suffixes */
+
+	// Db35: the empty slots shift the row indexes the location text is kept by.
+	if (CompressDayView && DayCompressFill ())
+		DayInjectLocationText ();
 }
 
 
@@ -10014,10 +10155,19 @@ SEC001 Boolean DayViewHandleEvent (EventType* event)
 	else if (event->eType == penDownEvent)
 		{
 		frm = FrmGetActiveForm ();
-		handled = FrmHandleEvent (frm, event);
-		if (! handled)
+		// Db35: a tap on any line of a (wrapped) birthday row -> Address35
+		uniqueID = DayBdayHit (FrmGetObjectPtr (frm, FrmGetObjectIndex (frm, DayTable)),
+			event->screenX, event->screenY);
+		if (uniqueID)
 			{
-			DayViewClearEditState ();
+			AddrBdayGoTo (gDayBdayRec[uniqueID - kDayBdayBase]);
+			handled = true;
+			}
+		else
+			{
+			handled = FrmHandleEvent (frm, event);
+			if (! handled)
+				DayViewClearEditState ();
 			}
 		}
 

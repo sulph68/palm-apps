@@ -6,10 +6,10 @@
 
 # grown incrementally as each piece lands (see the implementation plan) -
 # not all files exist yet.
-      OBJS = CalDAVSync.o MainForm.o SlotEditForm.o LongTextDialog.o PrefsForm.o HelpForm.o \
+      OBJS = CalDAVSync.o MainForm.o SlotEditForm.o DupSlot.o ContactDb.o LongTextDialog.o PrefsForm.o HelpForm.o \
              SyncProgress.o \
              CDDVPrefs.o CDDVSec35.o DAVDb.o \
-             Serial.o relayproto.o relaywire.o relaysec.o SyncEngine.o OAuthRelay.o \
+             Serial.o relayproto.o relaywire.o relaysec.o wirsactl.o SyncEngine.o OAuthRelay.o \
              enccore.o aes.o \
              $(EXE)-sections.o
 
@@ -67,6 +67,10 @@ relaywire.o: ../lib/relaywire.c ../lib/relaywire.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 relaysec.o: ../lib/relaysec.c ../lib/relaysec.h ../lib/relayproto.h relay_cfg.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# WiRSa control link - Screenless Mode (main segment: blocking reads).
+wirsactl.o: ../lib/wirsactl.c ../lib/wirsactl.h ../lib/relayproto.h ../lib/relaywire.h ../lib/relaysec.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(EXE): $(OBJS) $(EXE)-sections.ld

@@ -12,6 +12,7 @@
 #include "hackcheck.h"
 #include "catsync.h"		/* keep categories in sync with the other apps */
 #include "Transfer.h"		/* beam / vCard receive */
+#include "DavView.h"
 #include "vcard.h"		/* VCardArena for the Card-browse globals */
 
 /* ---- globals ----------------------------------------------------------- */
@@ -33,6 +34,7 @@ UInt32		gMeUniqueID = 0;		/* the "Me" record (0 = none); see MainForm/RecordForm
 Boolean		gViewingCard = false;
 A35Record	gCardRecord;
 VCardArena	gCardArena;
+char		gDavTitle[36];			/* RecordForm title for a CardDAV contact ("" = SD card) */
 Boolean		gShowHiddenFiles = false;	/* Prefs > Display > Show Hidden */
 
 /* StartApplication already ran A35MergePlainDB+A35SealAllPlaintext once (both
@@ -425,6 +427,10 @@ static void GoToRecord(GoToParamsPtr gp)
 {
 	if (gAddrDB == NULL)			/* mis-delivered goto with no open DB -> no crash */
 		return;
+	if ((gp->matchCustom & 0xFFFFFF00UL) == davGoToMagic) {	/* CardDAV contact */
+		DavGoTo(gp);
+		return;
+	}
 	gEditIndex = gp->recordNum;
 	gCurrentRecord = gp->recordNum;
 	gShowAllCategories = true;

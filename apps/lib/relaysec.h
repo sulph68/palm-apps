@@ -47,6 +47,13 @@
 extern Boolean gRpSecured;
 extern UInt32 gRpTxSeq;
 
+/* How long each key exchange attempt waits for WiRSa's first reply (KEX_PUB).
+ * 0 (default) = relayproto's 180 s idle wait. Screenless Mode sets a few
+ * seconds while it has just started the mode (WiRSa's key is ready, so the
+ * reply is quick): a lost KEX_REQ is then retried instead of waited out.
+ * Not reset by RpOpen. */
+extern UInt32 gRpKexReplyTicks;
+
 UInt8 RpSecure(void) RP_SECTION;
 /* AES-128-CTR in place with the session key, starting at 16-byte block
  * index blk of frame (dir, seq). Encrypt and decrypt are the same call. */

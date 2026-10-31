@@ -4,12 +4,14 @@
  * SYNC_DONE/SYNC_ERROR/timeout.
  */
 #include "SyncEngine.h"
+#include "wirsactl.h"
 #include "Serial.h"
 #include "CDDVWire.h"
 #include "relaysec.h"
 #include "CDDVSec35.h"
 #include "CDDVPrefs.h"	/* CDDVGetBaud() - offered rate for CDDV_HELLO negotiation */
 #include "DAVDb.h"
+#include "ContactDb.h"
 #include "SyncProgress.h"
 
 #define cddvItemAckRetries    40
@@ -22,6 +24,26 @@ static void ResolveWindow(const CDDVPrefsType *p, const CDDVSlot *s, UInt8 *past
 {
 	*pastOut = s->pastOverrideSel ? (UInt8) (s->pastOverrideSel - 1) : (UInt8) p->pastDefault;
 	*futureOut = s->futureOverrideSel ? (UInt8) (s->futureOverrideSel - 1) : (UInt8) p->futureDefault;
+}
+
+/* WiRSa may need a few tries for one frame (it resends after ~10 s of silence,
+ * and a frame it can't get acked is held back to the end of the sync), so a
+ * failed receive is tried again before the slot is given up - same cadence as
+ * the BitWarden app's RecvFrameWithRetry. */
+#define cddvRecvTries	3
+/* Wait for the next frame once the first has arrived (WiRSa streams from a
+ * queue, but a slow server can leave gaps); until then the library's own
+ * long wait (the first reply follows WiRSa's whole fetch) applies. */
+#define cddvIdleAfterFirstTicks	(SysTicksPerSecond() * 30)
+
+static Boolean RecvFrameWithRetry(UInt8 *rxType, UInt8 *body, UInt16 cap, UInt16 *rxLen)
+{
+	UInt8 i;
+	for (i = 0; i < cddvRecvTries; i++) {
+		if (CDDVSerialRecvFrame(rxType, body, cap, rxLen)) return true;
+		if (SyncProgressCancelled()) return false;
+	}
+	return false;
 }
 
 static Boolean SendAckWithRetry(void)
@@ -79,10 +101,12 @@ SEC004 Boolean SyncEngineRunOne(CDDVPrefsType *p, UInt8 slotIdx, Boolean silent,
 	Boolean synced = false;
 	Boolean rebuildOpen = false;
 	UInt16 eventCount = 0;
+	Boolean contacts;
 
 	if (slotIdx >= cddvMaxSlots) return false;
 	s = &p->slots[slotIdx];
 	if (s->aliasLen == 0) return false;	/* nothing configured in this slot */
+	contacts = (Boolean) cddvIsContacts(s->serverType);	/* -> ContactDb.c, not DAVDb.c */
 
 	/* A locked Sec35 would otherwise decrypt every field below to empty and
 	 * fail with confusing errors. Every server type needs this now - even
@@ -218,16 +242,17 @@ SEC004 Boolean SyncEngineRunOne(CDDVPrefsType *p, UInt8 slotIdx, Boolean silent,
 	}
 	SyncProgressSetStatus("Waiting for WiRSa...");
 
-	if (DAVDbBeginSlotRebuild(slotIdx) != errNone) {
+	if ((contacts ? ContactDbBegin(slotIdx) : DAVDbBeginSlotRebuild(slotIdx)) != errNone) {
 		SyncProgressHide();
-		StrCopy(gSyncErrMsg, "Could not open the calendar database.");
+		StrCopy(gSyncErrMsg, contacts ? "Could not open the contacts database." : "Could not open the calendar database.");
 		if (!silent) FrmCustomAlert(altErr, gSyncErrMsg, NULL, NULL);
 		goto finish;
 	}
 	rebuildOpen = true;
 
+	gRpIdleOverrideTicks = 0;		/* the first frame of a slot gets the long wait */
 	while (true) {
-		if (!CDDVSerialRecvFrame(&rxType, body, sizeof(gSyncBody), &rxLen)) {
+		if (!RecvFrameWithRetry(&rxType, body, sizeof(gSyncBody), &rxLen)) {
 			SyncProgressHide();
 			/* A cancel and a genuine dropped connection look identical here -
 			 * distinguish via SyncProgressCancelled() before alerting. */
@@ -246,6 +271,7 @@ SEC004 Boolean SyncEngineRunOne(CDDVPrefsType *p, UInt8 slotIdx, Boolean silent,
 			break;
 		}
 
+		gRpIdleOverrideTicks = cddvIdleAfterFirstTicks;
 		if (rxType == CDDV_EVENT_ITEM) {
 			MemSet(&gSyncEv, sizeof(gSyncEv), 0);
 			gSyncR.buf = body; gSyncR.len = rxLen; gSyncR.pos = 0; gSyncR.ok = true;
@@ -288,6 +314,24 @@ SEC004 Boolean SyncEngineRunOne(CDDVPrefsType *p, UInt8 slotIdx, Boolean silent,
 				break;
 			}
 			EvtResetAutoOffTimer();
+		} else if (contacts && (rxType == CDDV_CONTACT_ITEM || rxType == CDDV_GROUP_ITEM)) {
+			if (rxType == CDDV_CONTACT_ITEM) {
+				if (ContactDbAdd(body, rxLen)) eventCount++;
+			} else {
+				ContactDbAddGroup(body, rxLen);		/* -> categories at commit */
+			}
+			StrPrintF(gSyncStatusBuf, "Fetching contacts for %s... %u", gSyncAlias, eventCount);
+			SyncProgressSetStatus(gSyncStatusBuf);
+			SyncProgressBar(eventCount);
+			if (!SendAckWithRetry()) {
+				SyncProgressHide();
+				if (!SyncProgressCancelled()) {
+					StrCopy(gSyncErrMsg, "Lost contact with WiRSa mid-sync (ack). Previously synced contacts were left untouched.");
+					if (!silent) FrmCustomAlert(altErr, gSyncErrMsg, NULL, NULL);
+				}
+				break;
+			}
+			EvtResetAutoOffTimer();
 		} else if (rxType == CDDV_SYNC_DONE) {
 			synced = true;
 			break;
@@ -304,11 +348,19 @@ SEC004 Boolean SyncEngineRunOne(CDDVPrefsType *p, UInt8 slotIdx, Boolean silent,
 		}
 	}
 
+	gRpIdleOverrideTicks = 0;
 	SyncProgressHide();
 
+	/* Keep the downloaded events staged; they are committed below, only
+	 * after the connection to WiRSa is finished with. */
 	if (rebuildOpen) {
-		if (synced) DAVDbCommitSlotRebuild();
-		else DAVDbAbortSlotRebuild();
+		if (contacts) {
+			if (synced) ContactDbStage((UInt8) s->serverType, gSyncAlias);
+			else ContactDbAbort();
+		} else {
+			if (synced) DAVDbStageSlotRebuild();
+			else DAVDbAbortSlotRebuild();
+		}
 	}
 
 finish:
@@ -321,9 +373,65 @@ finish:
 		CDDVSerialClose();
 		gCddvConnNegotiated = false;
 	}
+	/* Commit (encrypt + sort) every staged calendar only once the connection
+	 * is closed: on a big calendar it takes longer than WiRSa waits for the
+	 * next SYNC_REQUEST (CDDV_NEGOTIATE_TIMEOUT_MS), and WiRSa would drop
+	 * back to its idle baud mid Sync All. With keepOpen the caller is
+	 * responsible for a later call that commits (the batch's last slot, or
+	 * DAVDbCommitStaged directly). */
+	if (!keepOpen) {
+		DAVDbCommitStaged();
+		ContactDbCommitStaged();
+	}
 	s->lastSyncTime = TimGetSeconds();
 	s->lastSyncOk = synced;
 	s->lastSyncEventCount = eventCount;
 	StrNCopy(s->lastSyncErrMsg, gSyncErrMsg, sizeof(s->lastSyncErrMsg) - 1);
 	return synced;
+}
+
+/* WiRSa was reached when the mode was started, so End must send it back. */
+static Boolean gScreenlessEntered = false;
+
+SEC004 Boolean SyncScreenlessBegin(void)
+{
+	UInt8 r;
+	Boolean cancelled;
+
+	gScreenlessEntered = false;
+	if (!CDDVGetScreenless()) return true;
+	SyncProgressShow("Starting WiRSa...");
+	r = WCtlEnsureMode('A', CDDVGetBaud());
+	cancelled = SyncProgressCancelled();
+	SyncProgressHide();
+	gScreenlessEntered = (Boolean) (r == wctlOk || r == wctlModeNotUp);
+	/* The mode is up and its key ready: don't wait 3 minutes on a lost
+	 * first KEX_REQ (relaysec.h). */
+	if (r == wctlOk) gRpKexReplyTicks = SysTicksPerSecond() * 5;
+	if (cancelled) return false;		/* Cancel tapped: no alert, no sync (End sends WiRSa back) */
+	if (r == wctlErrReply) {
+		FrmCustomAlert(altErr, gWCtlErrMsg[0] ? gWCtlErrMsg : "WiRSa refused to start CalDAV Relay.", NULL, NULL);
+		return false;
+	}
+	if (r == wctlModeNotUp) {
+		FrmCustomAlert(altErr, "WiRSa didn't switch to CalDAV Relay. Try again, or reset WiRSa.", NULL, NULL);
+		return false;
+	}
+	if (r != wctlOk) {
+		/* Not found at any rate: syncing anyway would only hang. */
+		FrmCustomAlert(altErr, r == wctlPortBusy ? "The serial port is in use." :
+			"WiRSa didn't answer. Check the cable and that WiRSa is on (Screenless Mode needs the WiRSa control link).", NULL, NULL);
+		return false;
+	}
+	return true;
+}
+
+SEC004 void SyncScreenlessEnd(void)
+{
+	gRpKexReplyTicks = 0;
+	if (!gScreenlessEntered) return;
+	gScreenlessEntered = false;
+	SyncProgressShow("Returning WiRSa...");
+	WCtlLeaveMode(CDDVGetBaud());
+	SyncProgressHide();
 }

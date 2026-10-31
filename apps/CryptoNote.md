@@ -122,6 +122,13 @@ the question entirely. (`multiseg-same-segment-disp16-gotcha` memory.)
   direct VFS calls in the import path. See §4.2 and the
   `cryptonote-sd-card-phase5` memory for full history/gotchas.
 - **EditForm.h/.c** — the shared editor; card-file bridge globals + load/save.
+- **PasswordForm.h/.c** — the app password form (masking with a short reveal, like Sec35's)
+  and the numeric keypad popup (`frmKeypadForm`), used when Sec35's Preferences > Password
+  Type is numeric (`EncGetPasswordEntryType`). A near-verbatim port of Sec35's own keypad in
+  `sec35.c`. Its digit/Del keys are GADGETs, which get no automatic Control Manager tap
+  click, so the pen-down handler plays `SndPlaySystemSound(sndClick)` itself, as Sec35's
+  does (honours the System Sound preference; added 2026-10-14, user-tested on hardware
+  2026-10-15). `sec001` (`AES_SECTION`).
 - **MainForm.c** — category popup with "Card", the card browser + navigation.
 - Icons: `card.bmp` (8×11 — `bmpCardIcon` 2003; a pixel-for-pixel copy of the ROM
   launcher's "card" glyph), `folder.bmp` (`bmpCardFolder` 2000), `cardup.bmp`
@@ -566,6 +573,7 @@ apps/cryptonote/
   MainForm.c            category popup w/ Card row + divider (main), card browser,
                         sort/order/drag + bulk crypto (sec001)
   EditForm.{c,h}        shared editor + card-file bridge globals, load/save, key draw
+  PasswordForm.{c,h}    password form (masking) + numeric keypad popup with key click (sec001)
   Main.h MainRsc.h      IDs, cardNewFileEvent, alerts (altCard*), bmpCard* ids
   Main<LOC>.rcp         pilrc source (latin-1): forms, frmCardNewNote/Password, alerts
   card.bmp folder.bmp cardup.bmp   card-browser icons (key reuses key.bmp)

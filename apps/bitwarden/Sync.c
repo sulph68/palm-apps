@@ -56,7 +56,11 @@ static UInt8 gWireBody[bwWireBodyCap];
  * POSE64 tolerated it. Same discipline as Store.c's gRecBuf and
  * bitwarden_relay.cpp's gFrameBody/gScratch* buffers - BwSyncRun processes
  * one frame at a time, never re-entrantly, so static reuse is safe. */
-static BwItemFull gSyncItem;
+/* One item buffer for both Sync.c and RecordForm.c (they never run at the
+ * same time: a sync is modal and no record is open during it) - the second
+ * 3.4 KB copy would not leave room for the 4 KB serial receive buffer. */
+BwItemFull gBwItemShared;
+#define gSyncItem gBwItemShared
 static char gSyncNameBuf[bwMaxField];
 /* Shared scratch for whatever updatedTwoFactorToken SYNC_DONE or
  * SYNC_ERROR carries - datares has no room for a second full-size copy;
@@ -789,6 +793,15 @@ Boolean BwSyncRun(void)
 		}
 	}
 
+	/* BYE and close BEFORE finishing the vault: BwStoreEndSync (sort and
+	 * replace) takes well over WiRSa's 15 s negotiate timeout on a large
+	 * vault, after which WiRSa is back at 9600 and a late BYE at the
+	 * negotiated rate reaches it as junk (found on hardware - Screenless
+	 * Mode then couldn't send WiRSa back to its menu). Same reason CalDAV
+	 * Sync commits its calendars only after its own BYE. */
+	BwSerialSendFrame(BW_BYE, NULL, 0);
+	BwSerialClose();
+
 	if (ok) {
 		BwStoreEndSync();
 		BwProgressHide();
@@ -799,8 +812,5 @@ Boolean BwSyncRun(void)
 		 * same cleanup themselves, since they bypass this shared ending. */
 		BwStoreAbortSync();
 	}
-
-	BwSerialSendFrame(BW_BYE, NULL, 0);
-	BwSerialClose();
 	return ok;
 }

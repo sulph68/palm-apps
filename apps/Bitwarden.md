@@ -48,8 +48,9 @@ $ make clean && make 2>&1 | tail -5 && m68k-palmos-size BitWarden
   42044     236   31524   73804   1204c BitWarden
 ```
 Breaking `text` down by linker region (`m68k-palmos-objdump -h BitWarden`):
-- **`sec001` code region: 9376 / 32768 bytes** — 23392 bytes free. Plenty of headroom.
-- **`.text` (main `coderes` region): 32668 / 32768 bytes — only ~100 bytes free.** This is
+- **`sec001` code region: 12124 / 32768 bytes** (2026-10-16, after Screenless Mode, §9) —
+  ~20.6 KB free. Plenty of headroom.
+- **`.text` (main `coderes` region): 32664 / 32768 bytes — only ~100 bytes free.** This is
   the tight one.
 - **`.data`+`.bss` (`datares` region): 31760 / 32767 bytes — ~1007 bytes free.** Was
   razor-thin (tens of bytes) mid-session; recovered by shrinking two oversized buffers to
@@ -244,7 +245,9 @@ actually closing — see `Sync.c`'s `TryCatchTrailingToken`.
   has up to 18 possible fields), Show/Hide masking for the one sensitive field per type
   (password/card number/SSN), and a live TOTP countdown ticked once a second.
 - **`PrefsForm.c`** — server URL/email, Sync Now, Forget Trusted Server, Lock-After TTL,
-  baud rate.
+  baud rate, Screenless Mode.
+- **`Screenless.c`** (SEC001) — `BwSyncScreenless()`: switches WiRSa to BitWarden Relay around a
+  sync when Screenless Mode is on (§9).
 - **`Dialogs.c`** — every transient modal: master-password entry (masked, Sec35-style
   reveal-then-hide), TOFU trust prompt, 2FA code entry (plain text field *or* a numeric
   keypad popup), the sync progress dialog + sawtooth progress bar + Cancel button. All
@@ -544,3 +547,110 @@ only ~100 bytes free — treat any new main-segment code as needing either a `SE
 build, not assumed. `datares` (static data) has ~1007 bytes free — tight but workable for
 something small; anything larger needs a deliberate trim elsewhere first (see §2.2 for the
 concrete techniques already used).
+
+## 9. Screenless Mode (2026-10-16)
+
+Preferences > **Screenless Mode:** (default off, its own pref ID 3 like the baud rate).
+Preferences is now full screen (`AT (2 2 156 156)`), OK/Cancel at y=138.
+
+When on, both Sync Now paths (`SyncNowWithChime` in MainForm.c and PrefsForm.c) call
+`BwSyncScreenless()` (Screenless.c) instead of `BwSyncRun()`: `WCtlEnsureMode('B', BwGetBaud())`
+puts WiRSa into BitWarden Relay first (refusal = WiRSa's message, no sync; WiRSa not reached or the
+mode never up = the app says so, no sync), then `BwSyncRun()`, then ("Returning WiRSa...")
+`WCtlLeaveMode()` back to WiRSa's main menu - also after a cancelled password prompt, and only if
+WiRSa was reached when the mode was started. It retries for ~12 s, since WiRSa can drop a PING
+while it restarts its UART after BYE. WiRSa's own Exit Timers (firmware 2026-10-16+; default 15 s
+after the session, 45 s if no session starts) bring it back too, so this EXIT is now a fallback;
+ENTER's flags byte is ignored by current firmware. Spec: `apps/WiRSaControl.md`.
+
+**Segments:** main `.text` had ~100 bytes free, so everything new is SEC001: Screenless.c, and
+`../lib/wirsactl.c` via `WCTL_SECTION SEC001` (bw_seg.h). `BwGetBaudIndex`/`BwSetBaudIndex`
+(Store.c) also moved to SEC001 to make room (no constant tables, only traps). Result (current
+build): main `.text` 32,664, sec001 12,124. `wirsactl.c` has no division or 32-bit multiply (libgcc is main-only here).
+
+**Gotcha hit:** the Makefile has no header dependencies. After tagging `BwGetBaudIndex` SEC001 in
+BitWarden.h, PrefsForm.o wasn't rebuilt and still called it as a main function: address error in
+POSE as Preferences opened. **After changing a prototype's segment, `make clean && make`.**
+
+Tested in POSE against a stand-in (enter, poll, exit around a sync) and on real hardware.
+
+**With firmware 2026-10-18+** (menu at 9600 after boot, `WiRSaControl.md` §2.10): the first PING
+at 9600 finds the menu right after a boot, or brings it down to 9600 if another Palm's WiRSaCtl
+had raised it. The sync still negotiates up to the lower of this app's Baud setting and WiRSa's
+configured maximum, so set Baud to this Palm's fastest rate.
+
+**Baud list (2026-10-24):** Preferences > Baud offers 9600, 14400, 19200, 28800, 38400, 57600 and 115200, the same
+list as WiRSa (`bwBaudCount` 7, default 57600). The pref is version 3: a saved index from the older 5- or 6-rate lists
+is mapped to the same rate (an if-ladder, no tables in `sec001`; `BwGetBaud()` is `SEC001`). **Gotcha:** changing a
+prototype's segment attribute needs `make clean` (no header deps), otherwise the old object makes the sync die with a
+fatal exception.
+
+**Hardening (2026-10-16, after hardware testing):**
+- WiRSa is looked for at 9600 and the Baud setting, then at every rate: the Baud setting is the
+  fastest rate offered for the sync, not necessarily WiRSa's menu rate. The menu rate WiRSa
+  reports is used to send it back afterwards.
+- If WiRSa can't be found, or answers but the mode never comes up, the app says so and skips the
+  sync instead of syncing blind (which hung at "Connecting..." for 3 minutes).
+- The key exchange right after the switch waits 5 s per attempt for WiRSa's first reply
+  (`gRpKexReplyTicks`, relaysec.h; default 0 = the usual 180 s) and retries even on silence, so a
+  lost first KEX_REQ costs seconds, not 3 minutes. Seen on hardware: the first sync after a switch
+  from the menu sometimes stuck at "Connecting...", a second try worked. Root cause of the lost
+  request not yet pinned down (a USB debug log of a failing first attempt would show it).
+- **BYE before finishing the vault (Sync.c):** a successful sync used to run `BwStoreEndSync()`
+  (sort and replace - well over 15 s on a large vault) *before* sending BW_BYE. WiRSa's 15 s
+  negotiate timeout had already put it back at 9600, so the late BYE at the negotiated rate
+  arrived as junk and Screenless Mode couldn't send WiRSa back to its menu (found on hardware).
+  BYE and close now come first, then the vault is finished - the same order CalDAV Sync uses for
+  its staged commit. `WCtlLeaveMode` also retries for ~12 s now.
+
+## Name order built during the sync (2026-10-23)
+
+Sorting the list by name after a sync used to decrypt every name (two AES layers each, the Sec35
+wrap and the local key) just to compare them - the long pause after a big sync. The plaintext name is
+already in hand when `BwStoreAddItem` stores an item, so `Store.c` keeps the order as it goes:
+
+- Each item's lowercase name (first 23 characters) goes into a table indexed by record number, and
+  the record number is inserted into a sorted array by binary search (about 10 compares and a ~1 KB
+  memmove per insert at 1000 items). The table starts at 1024 entries and doubles to 4096; if an
+  allocation fails the order is simply not built.
+- `BwStoreEndSync` saves the order in a small side database `BitWardenIdx` (record numbers only, no
+  names): magic, the vault database's creation date, its record count, the entry count, the numbers.
+- `BwStoreGetCachedCount` (`Store.c`, main) loads the saved order (`OrderLoad`, SEC001) into the globals
+  `gBwOrder`/`gBwOrderCount`, which `MainRebuildMatches` (`MainForm.c`) reads directly. If the saved order matches the vault
+  (creation date, record count, every number a real item exactly once) it walks that order and does no
+  `SysQSort` and no name decrypt; the name cache is then built by the first search, as before. If not
+  (older database, aborted sync, a restored vault, allocation failure) it sorts at list time exactly as
+  it used to - slow but correct, so the list is never left unsorted.
+- Ties keep arrival order. Names that share their first 23 characters may order differently from the
+  full-name sort; that only affects display order.
+- All of it is `SEC001` (main `.text` is full) and avoids 32-bit multiplies (no libgcc in `sec001`).
+- **A call from `SEC001` code into `SEC001` code in another file is wrong** (found 2026-10-23: first search
+  after the sorted list = fatal exception). The linker adds the callee's `sec001` offset to the *main*
+  segment base, so the jump lands in the wrong place (here, past the end of a segment). Calls inside one
+  file (`bsr`) and main -> `SEC001` are fine. That is why the order is handed over in globals rather than
+  through `BwStoreSortedCount()`/`BwStoreSortedRecIndex()` (removed). Reproduced and verified in POSE64
+  (Palm III ROM, 700-item plaintext fixture plus a generated `BitWardenIdx`).
+- Found on the way: `DmNewRecord` was called with an unset record index in `BwStoreAddItem` and
+  `AddMarker`; both now pass `dmMaxRecordIndex`, so a record can never be inserted mid-database.
+- **Name cache warmed while idle (2026-10-23).** The first search used to pay for the whole-vault name
+  decrypt (two AES-CTR passes per item). `Store.c` now fills the cache in steps (`NameCacheStep`; 12 names
+  per `nilEvent` tick via `BwStoreWarmNames`, driven by `MainWarmTick` in `MainForm.c`;
+  `MainHasPendingSearch` also reports "warming" so `EventLoop` gives `frmMain` its 200 ms timeout). A search
+  that arrives early just finishes the rest. The cache is the same RAM-only plaintext as before and is wiped
+  on lock; the only change is that it now exists as soon as the unlocked list has been up for a few seconds,
+  not only after the first search. Main `.text` is now at 32768 of 32770 bytes - no room left; new code must
+  go to `sec001` (allocation helpers `NameCacheAlloc`/`NameCacheFree` already did).
+
+## WiRSa-side log lines and the notes cap (2026-10-23)
+
+- WiRSa now logs `BW: synced N item(s), N folder(s), N org(s) to the Palm` only after the Palm has taken the
+  whole sync. It used to log it when the firmware's queue had been filled, which could be well before the
+  Palm finished. If the Palm stopped answering or an item was lost: `BW: sync incomplete - X of N item(s)
+  reached the Palm`. Read them on the Palm with WiRSaCtl, Help -> Show Logs (see `WiRSaControl.md`).
+- **The 8192-byte notes limit** is on WiRSa's side, on the *encrypted* notes string as it arrives from the
+  server (about 6 KB of text after Base64 and the cipher text overhead). The firmware captures that one
+  field into a fixed buffer before it decrypts it; a longer (or malformed) field is dropped and the item's
+  notes are sent empty, with `BW: an item's notes are over 8192 encrypted bytes ... left empty`. The Palm
+  only keeps `bwMaxField` = 512 bytes of notes (`BitWardenRsc.h`) anyway, so nothing visible is lost for
+  notes under that.
+

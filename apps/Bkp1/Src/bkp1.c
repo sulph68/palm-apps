@@ -27,6 +27,12 @@ static const char mStrNotRestored[] = " database(s) could not be restored and we
 static const char mStrAndMore[] = "\n(and more)";
 static const char mStrNewline[] = "\n";
 static const char mStrColonSpace[] = ": ";
+static const char mStrSlash[] = "/";
+static const char mStrSettingsDbName[] = BKP_SETTINGS_DB_NAME;
+static const char mStrNotSet[] = "Not Set";
+static const char mStrOther[] = "Other";
+static const char mStrBadNameChars[] = "\\/:*?\"<>|";
+static const char mStrBadName[] = "Enter a name. It cannot contain \\ / : * ? \" < > | or start or end with a space or a dot.";
 
 
 
@@ -34,6 +40,19 @@ static const char mStrColonSpace[] = ": ";
 
 
 #define MAX_VOLUMES							10
+
+//device name (Backup > Settings): backups go into a folder of this name. Kept in its own database,
+//which backups leave out (see ops.c), so restoring another device's backup never changes it
+#define SETTINGS_DB_CREATOR					'PpB1'
+#define SETTINGS_DB_TYPE					'sett'
+#define DEVICE_NAME_MAX						31
+#define MAX_DEVICES							24		//device folders offered in the Settings popup
+#define SETTINGS_LIST_VISIBLE				6
+
+#ifndef vchrRockerUp						//5-way up/down on later devices (not in this SDK)
+#define vchrRockerUp						0x0132
+#define vchrRockerDown						0x0133
+#endif
 
 #define EVENT_TYPE_VOLUMES_CHANGED			(firstUserEvent + 0)
 #define ERR_USER_CANCELLED					(0xffff)
@@ -63,6 +82,11 @@ static UInt16 mNumRestoreFails;		//how many happened (may be more than we have r
 static UInt8 mNumVolumes, mCurVolume;
 static struct VolumeEntry mVolumes[MAX_VOLUMES];
 struct BackupEntry *mBackups;
+
+//Settings form popup: "Not Set", device folders, "Other"
+static char mDeviceNames[MAX_DEVICES + 1][DEVICE_NAME_MAX + 1];	//+1: the current name if it has no folder yet
+static char *mSettingsItems[MAX_DEVICES + 3];
+static UInt16 mNumDeviceNames, mNumSettingsItems;
 
 
 static void uiPrvErrAlert(Err e)
@@ -536,16 +560,82 @@ static Err uiPrvOpRestoreErrHandlerF(void *data, const char *name, Err e)
 	return errNone;	//we always try to continue
 }
 
+//this device's name, "" when none is set
+static void settingsPrvGetDeviceName(char *buf)
+{
+	LocalID LID = DmFindDatabase(0, mStrSettingsDbName);
+	DmOpenRef db;
+	MemHandle mh;
+
+	buf[0] = 0;
+	if (!LID || !(db = DmOpenDatabase(0, LID, dmModeReadOnly)))
+		return;
+	if (DmNumRecords(db) && (mh = DmQueryRecord(db, 0)) != NULL) {
+		StrNCopy(buf, MemHandleLock(mh), DEVICE_NAME_MAX);
+		buf[DEVICE_NAME_MAX] = 0;
+		MemHandleUnlock(mh);
+	}
+	DmCloseDatabase(db);
+}
+
+static Err settingsPrvSetDeviceName(const char *name)
+{
+	LocalID LID = DmFindDatabase(0, mStrSettingsDbName);
+	UInt16 idx = 0, len = StrLen(name) + 1;
+	DmOpenRef db;
+	MemHandle mh;
+	Err e;
+
+	if (!LID) {
+		e = DmCreateDatabase(0, mStrSettingsDbName, SETTINGS_DB_CREATOR, SETTINGS_DB_TYPE, false);
+		if (e != errNone)
+			return e;
+		LID = DmFindDatabase(0, mStrSettingsDbName);
+	}
+	if (!LID || !(db = DmOpenDatabase(0, LID, dmModeReadWrite)))
+		return dmErrCantOpen;
+
+	while (DmNumRecords(db))
+		(void)DmRemoveRecord(db, 0);
+	mh = DmNewRecord(db, &idx, len);
+	if (mh) {
+		DmWrite(MemHandleLock(mh), 0, name, len);
+		MemHandleUnlock(mh);
+		DmReleaseRecord(db, idx, true);
+	}
+	DmCloseDatabase(db);
+
+	return mh ? errNone : memErrNotEnoughSpace;
+}
+
+//a name for a folder on the card: not empty, no characters FAT refuses, no leading/trailing space or dot
+static Boolean uiPrvNameValid(const char *name)
+{
+	const char *c;
+
+	if (!name[0] || name[0] == ' ' || name[0] == '.')
+		return false;
+	for (c = name; *c; c++) {
+		if ((UInt8)*c < 0x20 || StrChr(mStrBadNameChars, (UInt8)*c))
+			return false;
+	}
+	return c[-1] != ' ' && c[-1] != '.';
+}
+
 static void uiPrvOpBackup(void)
 {
-	char name[longDateStrLength + timeStringLength + 2];
+	char name[DEVICE_NAME_MAX + 1 + longDateStrLength + timeStringLength + 2];
 	DateTimeType dt;
 	void *state;
 	Err e;
-	
+
+	//"Device/date" with a device name set, just "date" (as always) without
+	settingsPrvGetDeviceName(name);
+	if (name[0])
+		StrCat(name, mStrSlash);
 
 	TimSecondsToDateTime(TimGetSeconds(), &dt);
-	DateToAscii(dt.month, dt.day, dt.year, dfMDYLongWithComma, name);
+	DateToAscii(dt.month, dt.day, dt.year, dfMDYLongWithComma, name + StrLen(name));
 	StrCat(name, mStrSpace);
 	TimeToAscii(dt.hour, dt.minute, tfDotAMPM, name + StrLen(name));
 	
@@ -634,20 +724,27 @@ static void uiPrvOpRestore(void)
 static void uiPrvOpRename(void)
 {
 	struct BackupEntry *bkp = uiPrvGetCurEntry();
+	const char *leaf, *c;
 	UInt16 button;
 	MemHandle mh;
 	FieldPtr fi;
 	FormPtr fp;
 	Err e;
-	
+
 	if (!bkp)
 		return;
-	
-	mh = MemHandleNew(StrLen(bkp->name) + 1);
+
+	//only the backup's own name is edited; it stays in its device folder
+	for (leaf = c = bkp->name; *c; c++) {
+		if (*c == '/')
+			leaf = c + 1;
+	}
+
+	mh = MemHandleNew(StrLen(leaf) + 1);
 	if (!mh)
 		return;
-	
-	StrCopy(MemHandleLock(mh), bkp->name);
+
+	StrCopy(MemHandleLock(mh), leaf);
 	MemHandleUnlock(mh);
 	
 	fp = FrmInitForm(1002);
@@ -657,10 +754,135 @@ static void uiPrvOpRename(void)
 	FldSetTextHandle(fi, NULL);
 	FrmDeleteForm(fp);
 	
-	e = (button == 2000) ? backupRename(mVolumes[mCurVolume].vrn, bkp->name, MemHandleLock(mh)) : errNone;
+	e = errNone;
+	if (button == 2000) {
+		const char *newName = MemHandleLock(mh);
+
+		if (!uiPrvNameValid(newName))
+			FrmCustomAlert(1000, mStrBadName, mStrSpace, mStrSpace);
+		else
+			e = backupRename(mVolumes[mCurVolume].vrn, bkp->name, newName);
+	}
 	MemHandleUnlock(mh);
 	MemHandleFree(mh);
 	
+	if (e != errNone)
+		uiPrvErrAlert(e);
+}
+
+static Err uiPrvDevicesEnumF(void *userData, const char *name)
+{
+	//longer names than we store cannot be picked (a folder made on a computer); skip them
+	if (mNumDeviceNames < MAX_DEVICES && StrLen(name) <= DEVICE_NAME_MAX)
+		StrCopy(mDeviceNames[mNumDeviceNames++], name);
+
+	return errNone;
+}
+
+//the field below the popup: shows the picked folder's name, or takes a new one when "Other" is picked
+static void uiPrvSettingsShowSel(FormPtr fp, Int16 sel, Boolean draw)
+{
+	FieldPtr fi = uiPrvFrmGetObjectPtrFromId(fp, 1003);
+	Boolean other = (sel == mNumSettingsItems - 1);
+	const char *txt = (sel > 0 && !other) ? mSettingsItems[sel] : mStrNothing;
+	FieldAttrType attr;
+
+	if (!other && FrmGetFocus(fp) == FrmGetObjectIndex(fp, 1003))
+		FrmSetFocus(fp, noFocus);
+
+	FldGetAttributes(fi, &attr);
+	attr.editable = other;
+	FldSetAttributes(fi, &attr);
+
+	if (draw) {
+		FldEraseField(fi);
+		uiPrvSetTextField(fp, 1003, txt, StrLen(txt));
+		if (other)
+			FrmSetFocus(fp, FrmGetObjectIndex(fp, 1003));
+	}
+	else {	//form not drawn yet: just set the text
+		MemHandle mh = MemHandleNew(StrLen(txt) + 1);
+
+		if (mh) {
+			StrCopy(MemHandleLock(mh), txt);
+			MemHandleUnlock(mh);
+			FldSetTextHandle(fi, mh);
+		}
+	}
+}
+
+static Boolean uiPrvSettingsEventHandler(EventType *e)
+{
+	FormPtr fp = FrmGetActiveForm();
+
+	if (e->eType == popSelectEvent && e->data.popSelect.controlID == 1001)
+		uiPrvSettingsShowSel(fp, e->data.popSelect.selection, true);	//not handled: the form still sets the trigger label
+
+	//"Other" needs a name before OK can close the form
+	else if (e->eType == ctlSelectEvent && e->data.ctlSelect.controlID == 2000 &&
+			LstGetSelection(uiPrvFrmGetObjectPtrFromId(fp, 1002)) == mNumSettingsItems - 1 &&
+			!uiPrvNameValid(uiPrvGetFieldText(fp, 1003))) {
+
+		FrmCustomAlert(1000, mStrBadName, mStrSpace, mStrSpace);
+		FrmSetFocus(fp, FrmGetObjectIndex(fp, 1003));
+		return true;
+	}
+
+	return false;
+}
+
+static void uiPrvOpSettings(void)
+{
+	char cur[DEVICE_NAME_MAX + 1];
+	Int16 sel = 0;
+	UInt16 i, j;
+	ListPtr list;
+	FormPtr fp;
+	Err e = errNone;
+
+	//"Not Set", the device folders on this card (sorted), the current name if it has none yet, "Other"
+	settingsPrvGetDeviceName(cur);
+	mNumDeviceNames = 0;
+	(void)backupEnumerateDevices(mVolumes[mCurVolume].vrn, uiPrvDevicesEnumF, NULL);
+	for (i = 0; i < mNumDeviceNames && (!cur[0] || StrCaselessCompare(mDeviceNames[i], cur)); i++);
+	if (cur[0] && i == mNumDeviceNames)
+		StrCopy(mDeviceNames[mNumDeviceNames++], cur);
+
+	mNumSettingsItems = 0;
+	mSettingsItems[mNumSettingsItems++] = (char*)mStrNotSet;
+	for (i = 0; i < mNumDeviceNames; i++) {		//insertion sort into place
+
+		for (j = mNumSettingsItems; j > 1 && StrCaselessCompare(mSettingsItems[j - 1], mDeviceNames[i]) > 0; j--)
+			mSettingsItems[j] = mSettingsItems[j - 1];
+		mSettingsItems[j] = mDeviceNames[i];
+		mNumSettingsItems++;
+	}
+	mSettingsItems[mNumSettingsItems++] = (char*)mStrOther;
+
+	for (i = 1; cur[0] && i < mNumSettingsItems - 1; i++) {
+		if (!StrCaselessCompare(mSettingsItems[i], cur))
+			sel = i;
+	}
+
+	fp = FrmInitForm(1003);
+	list = uiPrvFrmGetObjectPtrFromId(fp, 1002);
+	LstSetListChoices(list, mSettingsItems, mNumSettingsItems);
+	LstSetHeight(list, mNumSettingsItems < SETTINGS_LIST_VISIBLE ? mNumSettingsItems : SETTINGS_LIST_VISIBLE);
+	LstSetSelection(list, sel);
+	CtlSetLabel(uiPrvFrmGetObjectPtrFromId(fp, 1001), mSettingsItems[sel]);
+	uiPrvSettingsShowSel(fp, sel, false);
+	FrmSetEventHandler(fp, uiPrvSettingsEventHandler);
+
+	if (FrmDoDialog(fp) == 2000) {
+
+		sel = LstGetSelection(list);
+		if (sel == mNumSettingsItems - 1)
+			e = settingsPrvSetDeviceName(uiPrvGetFieldText(fp, 1003));
+		else
+			e = settingsPrvSetDeviceName(sel > 0 ? mSettingsItems[sel] : mStrNothing);
+	}
+	FrmDeleteForm(fp);
+
 	if (e != errNone)
 		uiPrvErrAlert(e);
 }
@@ -713,10 +935,25 @@ static Boolean uiPrvMainFormEventHandler(EventType *e)
 			uiPrvOpRename();
 			uiPrvBackupListAndUiRefresh();
 			break;
+
+		case 1004:
+			uiPrvOpSettings();
+			break;
 		
 		case 9000:
 			FrmCustomAlert(1001, mStrAbout, mStrSpace, mStrSpace);
 			break;
+	}
+	//hardware up/down (and the 5-way on later devices) scroll the backup list a page at a time
+	else if (e->eType == keyDownEvent && (e->data.keyDown.chr == vchrPageUp || e->data.keyDown.chr == vchrPageDown ||
+			e->data.keyDown.chr == vchrRockerUp || e->data.keyDown.chr == vchrRockerDown)) {
+
+		ListPtr list = uiPrvFrmGetObjectPtrFromId(FrmGetFormPtr(1000), 1000);
+		Boolean up = e->data.keyDown.chr == vchrPageUp || e->data.keyDown.chr == vchrRockerUp;
+		Int16 page = LstGetVisibleItems(list) - 1;
+
+		LstScrollList(list, up ? winUp : winDown, page > 0 ? page : 1);
+		return true;
 	}
 	else if (e->eType == EVENT_TYPE_VOLUMES_CHANGED) {
 		

@@ -5,7 +5,7 @@ Everything needed to understand, rebuild, or debug the Palm-specific modes added
 **HotSync mode** (real HotSync install target), **FTP Server mode** (§10 — general-purpose, not
 Palm-specific, but added primarily to support a Palm upload-then-HotSync/SASD workflow via the
 lazyFTP client app, see `apps/lazyFTP.md`), and the two relay modes for Palm apps that need
-HTTPS, **BitWarden Relay** (§11) and **CalDAV Relay** (§13). Internal reference — mirrors the style/purpose of the
+HTTPS, **BitWarden Relay** (§11) and **CalDAV Relay** (§13), and the **Mesh Relay** mode for the Meshtastic client (§17). Internal reference — mirrors the style/purpose of the
 `apps/*.md` docs kept for the PalmOS-SDK side of this project (Datebook35.md etc.): dense, topical,
 every non-obvious gotcha called out explicitly. For the user-facing version, see
 `~/WiRSa/WiRSa/docs/README-Palm.md`.
@@ -34,6 +34,8 @@ each time: `MODE_PLAYBACK` (originally "Text Playback") became SASD; `MODE_FILE`
 ---
 
 ## 2. SASD SDCard mode
+
+> On `improved` the disk SASD serves is the SD card or the 12 MB virtual card (WiRSaCtl Setup "Disk"): §16.3.
 
 ### 2.1 What it is, protocol family
 
@@ -150,6 +152,9 @@ is ever needed. Real, user-confirmed hardware bugs only (not every UI tweak):
 ---
 
 ## 4. HotSync Install mode
+
+> On `improved` HotSync installs from the SD card or the virtual card (same Disk setting) and creates its
+> folders on the disk it mounts: §16.4.
 
 ### 4.1 What it is, protocol family
 
@@ -489,8 +494,6 @@ despite two net-new features once File Transfer/Text Playback were also repurpos
 - **HotSync protocol overview** (background reading, confirmed the general architecture and PADP
   timeout numbers, no byte-level detail): [jichu4n/palm-sync — "How Palm OS HotSync
   Works"](https://github.com/jichu4n/palm-sync/blob/master/docs/how-palm-os-hotsync-works.md)
-- Working plan documents (chronological round-by-round record, kept alongside this topical reference):
-  `~/WiRSa/SASD_PLAN.md`, `~/WiRSa/HOTSYNC_PLAN.md`
 
 ---
 
@@ -501,7 +504,7 @@ deliberately gitignored/machine-specific — as a standing workflow rule. **Comp
 (2026-10):** this environment has the ESP32-S3 toolchain and Arduino core under
 `~/.platformio`, so a scratch copy of `Firmware/` builds with PlatformIO Core 6.1.19 in a
 virtualenv and a stand-in ini (`board = esp32-s3-devkitc-1`, `board_build.partitions =
-min_spiffs.csv`, `lib_deps` Adafruit SSD1306 / ArduinoJson / arduino-timer, plus
+min_spiffs.csv` (since the virtual card, `partitions_vdisk.csv`, §16.1), `lib_deps` Adafruit SSD1306 / ArduinoJson / arduino-timer, plus
 `-Wl,-Map,...` for a map file). It catches compile/link errors and gives size numbers; it
 doesn't replace the user's own build, and nothing is flashed. §14 used it. Everything up to
 §13 was verified by careful manual code review (brace balance,
@@ -574,9 +577,11 @@ project already owns, not in a gitignored, machine-local build setting.
   `enterSasdMode()` (`sasd.cpp`) checks `ftpServerRunning` and refuses with "Cannot start.\nStop FTP
   first"; `ftpServerStart()` checks `menuMode == MODE_PLAYBACK` (SASD's mode slot) and refuses with
   "Cannot start.\nStop SASD first". **User-confirmed working on real hardware**, both directions.
-- **Runs concurrently with HotSync mode**, no interlock needed — HotSync only ever reads the SD card
-  (directory scans, install-source files pushed to the Palm over DLP), never writes, never remounts it.
-  **User-confirmed working on real hardware** ("hotsyncd works with FTP server running").
+- **Runs concurrently with HotSync mode**, no interlock needed. HotSync reads the disk (directory
+  scans, install-source files pushed to the Palm over DLP) and moves each installed file from INSTALL
+  to INSTALLED (`rename`; since 2026-10 it also creates its folders), and never remounts the SD card.
+  **User-confirmed working on real hardware** ("hotsyncd works with FTP server running"). On
+  `improved` both may hold the virtual card: `vdfsMount()`/`vdfsUnmount()` are counted (§16.4).
 - **Self-connect/hairpin loopback through the SLIP Gateway** — see §6's own entry; this was found and
   fixed specifically while testing the FTP server reached via lazyFTP over SLIP, but the fix itself
   lives in the general-purpose NAT relay, not this module.
@@ -587,6 +592,11 @@ Build-verified by the user (at the time this environment had no ESP32 build set 
 directions), HotSync running concurrently with the FTP server, and a full lazyFTP session (login, PASV,
 LIST with correct file sizes) through the SLIP Gateway to WiRSa's own FTP server, after §6's hairpin
 fix. The FTP server's share of flash was later measured at ~20 KB linked (§14).
+
+### 10.5 Two-folder root: SDCard and ESP32 (2026-10-23, `improved`)
+
+The server's `STORAGE_MANAGER` is no longer `SD` but `gFtpRootFs` (`ftp_rootfs.h`/`.cpp`), so the FTP
+root lists the SD card and the virtual card as folders. See §16.6.
 
 ---
 
@@ -993,7 +1003,11 @@ BitWarden Relay's identical idiom. The negotiated rate is **not** reverted after
 connection (`SyncEngineRunOne`'s own `keepOpen` parameter), so a per-request revert would
 desync the Palm's next request. Revert only happens on a real `CDDV_BYE` (the Palm's own true
 last sync, single or batch) or a `CDDV_NEGOTIATE_TIMEOUT_MS` (15s) safety-net if the Palm goes
-silent after negotiating but never follows up.
+silent after negotiating but never follows up. The same 15 s applies between the requests of a
+"Sync All" (the window restarts after each request), so the Palm must not do slow local work
+there: since 2026-10-14 CalDAV Sync only stages each calendar between requests and saves them
+all after its BYE (`CalDAVSync.md` §7 item 10). Saving in between used to outlast the window
+on a large calendar and hang the batch.
 
 ### 13.2 Shared framing (`relay_proto.h`/`.cpp`)
 
@@ -1226,6 +1240,12 @@ menu 12 KB, HotSync 11 KB, SASD 8 KB…); uICAL ~69 KB; mDNS ~24 KB; WebServer ~
 the Google OAuth hand-off listener); MultiFTPServer ~20 KB; OLED (GFX + SSD1306 + Wire)
 ~13 KB.
 
+**2026-10-23 (virtual card, §16):** the scratch build (same stand-in ini, `partitions_vdisk.csv`) is
+1,417,249 / 1,966,080 bytes (72.1%), about 530 KB free in the app slot. The virtual card (vdisk, vdfs,
+ftp_rootfs, the HotSync/SASD changes and the FatFs glue) cost about 45 KB over the 1,372,800 bytes
+the user's own build reported just before it. The partition table is now `partitions_vdisk.csv` (§16.1); the
+app slots are unchanged (0x1E0000 each).
+
 **Done (−31,252 bytes):**
 - `cddvParseRfc3339` (`caldav_relay.cpp`) uses `siscanf`, newlib's integer-only scanner,
   instead of `sscanf`. Those were the firmware's only `sscanf` calls and they only read `%d`,
@@ -1247,3 +1267,242 @@ features, newlib nano printf, core dump, WPA-Enterprise: maybe 80–150 KB, a bi
 change). **Not possible:** `-flto` (fails to link against the precompiled Arduino core); `-Os`
 is already the default; `-fexceptions` must stay (uICAL throws).
 
+
+---
+
+## 15. Palm control link and screenless build (2026-10, `improved` only)
+
+Full design and as-built notes: `apps/WiRSaControl.md`. In short:
+
+- **`WIRSA_FEATURE_PALMCTL`** (default 1): the Palm app WiRSaCtl (`apps/WiRSaControl/`) drives
+  WiRSa over the Palm line with framed commands (0x16 + a RelayProto frame): status, WiFi scan/set,
+  settings, FTP start/stop, enter/exit a mode, reboot, factory reset. `palm_ctl.cpp`.
+- **Burst guard:** every single-letter menu loop reads keys through `menuKey()`; a key from the
+  Palm line counts only if it arrives alone (100 ms quiet either side, CR/LF allowed after it), so
+  stray bytes (e.g. a SASD wake ping) can't start a mode. Text entry is not guarded.
+- **Factory Reset** now always asks first (ENTER/BACK, or `Y` when typed).
+- **Exit hooks:** CalDAV and Bitwarden (between sessions) and HotSync (while waiting) answer
+  PING/STATUS and leave on EXIT. They also leave on their own (Exit Timers, §15.2); SLIP Gateway
+  leaves after a quiet spell (§15.3); SASD ends only with a reset.
+- **`WIRSA_SCREENLESS`** (default 0): no OLED, no buttons - `NullDisplay` stands in for the
+  display, `readSwitches()` reports nothing pressed, button-only prompts return instead of waiting.
+- `relay_proto` gained `setControlLink()`/`readFrameRest()`; the relay modes never switch the
+  control link on, so their wire behaviour is unchanged.
+
+### 15.1 BOOT button = HotSync (2026-10-16)
+
+For a fresh Palm (hard reset, so no WiRSaCtl) on a screenless WiRSa: press WiRSa's **BOOT** button
+(GPIO0, `SWITCH_PIN`), then tap HotSync on the Palm - HotSync Install puts WiRSaCtl and the rest
+back from the SD card. `boot_button.cpp`, `WIRSA_FEATURE_BOOT_HOTSYNC` (default on, both builds).
+- `bootButtonPoll()` runs once per `loop()` pass: one pin read, no blocking. A short press
+  (released after 50 ms - 3 s) in any menu screen starts HotSync through `startHotsyncFromMenu()`
+  - the same function the H key now uses (SD check, then HotSync mode). Another press while
+  HotSync is still waiting leaves it. Every other mode ignores the button.
+- Status LED (`LED_PIN`, GPIO2 by default, active-low, otherwise the WiFi indicator): 3 slow
+  blinks (1 s on, 1 s off) = HotSync started or left, one 2 s blink = not started (no disk for the Disk setting, §16);
+  then back to the WiFi state. On a LilyGO T7-S3 GPIO2 is the battery-sense pin and the on-board
+  LED is GPIO17 (the Palm line's TX), so an external LED needs `LED_PIN` moved to a free pin
+  (3.3 V → resistor → LED → GPIO; e.g. 4-11, 13, 14, 18).
+- Press it only after WiRSa has started: held during reset, GPIO0 selects download mode.
+- The Exit Timers (§15.2) still bring WiRSa back from HotSync.
+
+### 15.2 Exit Timers (2026-10-16)
+
+HotSync, CalDAV Relay and Bitwarden Relay return to the main menu by themselves: **unused** - no
+session within N s of entering (default 45), **after** - N s after a session ended (default 15; BYE,
+the relays' 15 s silence revert, or a finished HotSync). Seconds, 0 = never. Config > **Exit Timers**
+(key E) or WiRSaCtl Setup > Exit Timers.... Shared code: `mode_timer.h/.cpp`; settings in
+`settings.cpp` at EEPROM 440 (marker) / 441 / 442 - the marker is needed because growing the EEPROM
+blob fills the new bytes with 0, which would read as "never". HotSync's old fixed 45 s/15 s are
+these now; `hsRunSession()` returns whether a real session ran (a stray non-WAKE packet no longer
+counts).
+
+### 15.3 SLIP timeout (2026-10-16)
+
+SLIP Gateway returns to the main menu (gateway stopped, same as BACK) after 1, 2, 3 or 5 minutes
+(default 5) with **no traffic either way**: bytes from the Palm, or frames WiRSa sends to it
+(WiFi-side replies - so a Palm waiting quietly on a slow server isn't cut off). Counted from mode
+entry, so a Palm that never connects also times out. `slipLastActivityMs` (slip.h) is set in
+`slipSendFrame()` and on bytes received in `slipActiveLoop()`. Setting: Config > Exit Timers (third
+prompt) or WiRSaCtl Setup > Exit Timers... > "SLIP Timeout:" popup; EEPROM 443 (anything but
+1/2/3/5 reads as 5); a third optional byte on CFG_GET/CFG_SET.
+
+### 15.4 Menu at 9600, Palm-chosen speed (2026-10-18)
+
+For Palms of different speeds on one WiRSa (e.g. 115200 and 57600). `WIRSA_FEATURE_DUAL_BAUD`
+(default 1; 0 = as before). Full notes: `apps/WiRSaControl.md` §2.10.
+- The main menu runs at 9600 after every boot. WiRSaCtl's new SPEED command (0x4C) moves it to the
+  Palm's "Pref Baud" (WiRSaCtl Options → Preferences) for this power-on; nothing is saved. SLIP
+  Gateway starts at the menu's current rate.
+- The configured baud is only the maximum for the modes' negotiation (Config "Baud Rate (Max)").
+- While the menu runs faster than 9600, a second, receive-only UART (UART1) reads the same Palm RX
+  pin at 9600; a valid frame or key there brings the menu back to 9600, so another Palm can get in
+  and raise it to its own speed. Only SPEED moves the menu up.
+- The header's top-right rate shows the menu's current rate.
+
+### 15.5 Leveled log, session log and the System page (2026-10)
+
+`log.h`/`log.cpp`: levels off < warn < info < verbose (`LOGW`/`LOGI`/`LOGV`, `gLogLevel`, default info,
+stored as bit 4 | level in the old USB-debug EEPROM byte 101 so an older settings blob still reads
+right). A line goes to USB serial if its level <= `gLogLevel`, and into a session log in RTC no-init
+memory if its level <= max(`gLogLevel`, warn); nothing goes to flash or the SD card. It survives a
+software reset, crash, watchdog and normally a brownout, not a power loss (discarded by a check
+value). The Palm reads it with LOG (0x4D) (Help → Show Logs; Clear), sets the level in CFG_SET's
+second byte (0 off, 1 info, 2 warn, 3 verbose on the wire; 1 stays "on" for an older app).
+SYSINFO (0x4E, Help → System) returns `buildSysText()` as paged text: chip, CPU/temperature, flash,
+firmware size (`getSketchSize` of `getSketchSize + getFreeSketchSpace`, i.e. used of used+free OTA
+slot), heap and PSRAM, uptime, reset reason, IDF, the virtual card, the partition table.
+
+Delivery logging (2026-10): the BitWarden and CalDAV relays used to log "synced N" when the
+firmware had handed the data to its queue, before the Palm had it. `bwReportDelivery()` /
+the CalDAV equivalent now log after the whole sync has gone to the Palm: `synced N ... to the Palm`
+(info) or `sync incomplete - X of N ... reached the Palm` (warn). BitWarden items whose notes
+exceed 8192 raw (still encrypted) bytes, or are malformed, are sent with empty notes and counted in
+`gBwSkippedItems` (the Palm keeps 512 bytes of notes anyway). The SD mount (`sd_mount.h`) retries at
+4 MHz if 20 MHz fails and logs only when the state changes.
+
+
+## 16. Virtual card (2026-10-23, `improved` only)
+
+A 12 MB flash partition used as a card: SASD serves it to the Palm, HotSync installs from it, the FTP
+server shows it. Why: the T7-S3 has 16 MB flash and the firmware used 4 MB. One disk at a time over SASD
+(§16.7). Palm-side docs: `apps/WiRSaControl.md` (Setup "Disk", the SD row).
+
+### 16.1 Partition and layout
+
+`Firmware/partitions_vdisk.csv` = `min_spiffs.csv` (nvs 0x9000, otadata 0xe000, app0 0x10000 and app1
+0x1F0000 at 0x1E0000 each, spiffs 0x3D0000 128K, coredump 0x3F0000 64K) + `vdisk, data, 0x40,
+0x400000, 0xC00000`. The user's `platformio.ini` (machine-specific, not in the repo) sets
+`board_build.partitions = partitions_vdisk.csv`. A normal upload rewrites the table; NVS and the app
+slots keep their offsets.
+
+`vdisk.cpp`: a 512-byte-sector block device over `esp_partition_*`: MBR (one partition, type 0x06,
+starting at sector 8 so it is 4 KB aligned), FAT16 boot sector, 2 FATs, 512 root entries, 4 sectors per
+cluster: 24,576 sectors, 24,568 in the volume, 6,120 clusters, fatSecs 24, data area from sector 96.
+`vdiskFormat()` writes only the metadata (the data area is not erased); `vdiskIsFormatted()` checks
+the MBR type and "FAT16"; `vdiskEnsureLabel()` writes the volume name `ESP32` to the boot sector and
+the root directory's label entry without disturbing files; `vdiskPrepare()` = open, format if blank,
+else ensure the label; `vdiskUsage()` counts free FAT entries for used/total.
+
+### 16.2 Cache and flash behaviour
+
+Four 4 KB blocks in PSRAM (`heap_caps_malloc` SPIRAM, falling back to heap; allocated by
+`vdiskOpen()`, freed by `vdiskClose()`; nothing is kept between sessions). Write-back: a block is
+written when evicted or on `vdiskFlush()`; an unchanged block is read back and not erased. A whole-
+block write skips the read. Flash is NOR: `esp_partition_erase_range` then write; a host test models
+1->0-only writes. Flushing is the durability rule: SASD flushes before it acknowledges the last
+sector of a WRITE (SASD ends only with a reset, so nothing may stay in the cache), FatFs flushes on
+`CTRL_SYNC` (file close, `f_sync`).
+
+### 16.3 SASD
+
+`sasd.cpp` reads and writes through `sasdRd`/`sasdWr`/`sasdSecCount` (SD card or `vdisk`).
+`enterSasdMode()`: `sdMount()` unless the Disk setting is Virtual; if no card (or Virtual) and the
+`vdisk` partition exists and `vdiskPrepare()` works, `sasdVirtual = true`, and capacity comes from
+`vdiskUsage()`. If nothing can be served (SD card setting and no card, or neither) it does not start:
+"PLEASE INSERT SD CARD", back to the menu. The OLED status line reads `VD:` for the virtual card.
+The main-menu SASD entry (`display_menu.cpp`) and the ENTER check (`palm_ctl.cpp`) follow the same
+rule. The driver tells the Palm VFS "no MBR" in its metrics but mounts MBR cards fine; the virtual card
+has an MBR and mounts (user-confirmed).
+
+### 16.4 FatFs mount (`vdfs.h`/`.cpp`) and HotSync
+
+`vdfsMount()`: `ff_diskio_get_drive`, `vdiskPrepare()`, `ff_diskio_register` with a driver whose
+`read`/`write` call vdisk and whose `ioctl` answers CTRL_SYNC (flush), GET_SECTOR_COUNT,
+GET_SECTOR_SIZE (512; the core's FatFs has `FF_MIN_SS` 512 and `FF_MAX_SS` 4096), GET_BLOCK_SIZE (8);
+`esp_vfs_fat_register("/ESP32")`; `f_mount`. `vdfs()` is an `fs::FS` whose impl is a `VFSImpl` with
+mount point "/ESP32", so code written for `File`/`fs::FS` works unchanged. The mount is
+**counted**: HotSync and the FTP server each take one, and the volume (and the cache) is released
+when the last is given back. Core facts used: FatFs in this core has LFN on (stack, 255 chars),
+`FF_VOLUMES` 2 (SD takes drive 0, the virtual card 1), `FF_MULTI_PARTITION` with auto-detect (the MBR
+is found), `FF_FS_TINY` off (4 KB per open file).
+
+`hotsync.cpp`: `hsFs` points to `SD` or `vdfs()`; `hotsyncPrepareDisk()` (called from
+`startHotsyncFromMenu()` in `display_menu.cpp`, which BOOT and the Palm's ENTER also use) picks the disk
+by the Disk setting (SD card: `sdMount()`; Virtual: `vdfsMount()`; Auto: SD if it mounts, else virtual),
+logs "HotSync: installing from the ...", and creates `/PALM`, `/PALM/PROGRAMS`, `INSTALL`, `SASD`,
+`INSTALLED` with `hsEnsureFolder()` on whichever disk it mounted (SD too). `hsExit()` releases the
+virtual mount. **HotSync is an installer, not a backup**: it reads `/PALM/PROGRAMS/SASD` and `INSTALL`
+and moves done files to `INSTALLED`; Bkp1 backs up to `/PALM/PROGRAMS/BKP1/` and HotSync never
+restores those.
+
+### 16.5 Setting and status
+
+- EEPROM 444 `SASD_DISK_ADDRESS` (`sasdDiskMode`: 0 auto, 1 SD card, 2 virtual; a freshly grown 0 is
+  Auto, so no marker); the last optional byte of CFG_GET/CFG_SET (after `slipMin`).
+- STATUS: `sd` 3 means the virtual card is the disk (Virtual chosen with the partition present, or Auto
+  with no SD card and the partition present; Virtual without the partition reports 2), `sdText` is then
+  the virtual card's used/total or "blank", and a final `sasdDisk` byte follows `sdText`. The Palm
+  refuses HotSync/SASD only for `sd` 2. SYSINFO and STATUS leave the virtual card open if `vdfsMounted()`
+  (otherwise the System page would close the cache from under HotSync or FTP).
+
+### 16.6 FTP root (`ftp_rootfs.h`/`.cpp`)
+
+The MultiFTPServer library's `STORAGE_MANAGER` macro (STORAGE_SD branch in `FtpServer.h`) is
+`gFtpRootFs` when `FtpServerKey.h` defines `FTP_STORAGE_MANAGER_HEADER` (it does; both translation
+units include that one file, see §10.2). `ftp_rootfs.h` is in the library folder because the library's
+own translation unit does not see the project's `include/`. `RootImpl` derives from `VFSImpl` with an
+empty mount point and maps `/SDCard/...` and `/ESP32/...` (case-insensitive names) straight to the real
+VFS mounts; `/` is a synthetic directory listing the volumes that are present (`SD.cardType()` and
+`vdfsMounted()`); the volume folders themselves cannot be created, removed or renamed, and a rename
+between volumes fails. The SD card is now mounted with the name "/SDCard" (`sd_mount.h`), the virtual
+card at "/ESP32". `ftpServerStart()` mounts both (the virtual card whenever the partition exists),
+starts if either is there, and `ftpServerStop()` releases the virtual mount. The Disk setting does not
+apply. Verified: host test of the path mapping; user-confirmed on hardware.
+
+### 16.7 What was ruled out, and why
+
+- **Both disks at once over SASD.** The driver (`serialSD/Src/Slot.c`) registers one slot and keeps the
+  serial port open after connecting. In POSE64 (Palm III ROM, the patched ExpansionMgr, VFS libs, a test
+  app counting slots) two copies of the driver with different creator and database names did register
+  two slots (1, 2), but they cannot both hold the port, each tracks its own baud, and the source does
+  not build with this SDK's gcc 2.95 (header conflict with `stdbool.h`), so the driver cannot be
+  changed here. One slot with two partitions was tried by the user: does not mount as two volumes.
+  Mgr1 itself lists every mounted volume (up to 10) with its label ("Card 0" when unlabelled).
+- A second SASD unit/protocol extension, a composite disk, a file-level SD to virtual copy: not built.
+  The FatFs layer (§16.4) is what a later copy tool would use.
+
+### 16.8 Tests
+
+`Firmware/test_host/vdisk_test.cpp` (g++, no ESP32): format geometry and label, cache and eviction,
+straddling writes, identical rewrite skips the erase, bounds, persistence, `vdiskPrepare`, `vdiskUsage`;
+`VDISK_IMG=file` dumps the image, which `fsck.fat` accepts, and an independent FAT library (pyfatfs)
+read/wrote it with long names (250 files in a folder; the root holds only about 127 long names).
+Compile check of the FatFs glue and the FTP root with the §9 scratch build. Hardware: SASD, HotSync
+(installing from the virtual card and the SD card) and FTP user-confirmed.
+
+
+---
+
+## 17. Mesh Relay mode (Meshtastic client)
+
+Added 2026-10 for `apps/meshtastic_client.md` (the Palm side, with usage notes). Protocol and frame list:
+`~/WiRSa/WiRSa/docs/Mesh-Palm.md`. Main-menu entry `Mesh[T]astic`, WiRSaCtl ENTER letter `T`, switch
+`WIRSA_FEATURE_MESH`.
+
+### 17.1 Architecture
+
+- `mesh_relay.cpp`: the mode and the Palm frames (same framing and encryption as the BitWarden and CalDAV relays).
+  A worker task owns the Bluetooth link (`mesh_ble.cpp`, NimBLE client) and posts results to the loop task (`gBusyOp`
+  says a node operation is running: 1 scan, 2 pair, 3 connect, 4 settings write or action, 5 settings read).
+- `mesh_core.cpp` keeps the node list, channels, settings blobs and messages (`seq` rises per stored message);
+  `mesh_pb.cpp` is the protobuf code written by hand.
+- **Push, not poll:** `pushNews()` sends NEWS (link byte and last seq) when a message, a delivery or the node link
+  changes, repeated every 3 s until the Palm syncs. The Palm reads the link state from the NEWS frame itself.
+- **Settings read (`CFG_GET`)** asks the node for its configuration afresh: `cfgRead()` first forgets the stored
+  settings, then waits up to 40 s for the node's end marker (11 to 20 s is normal on a node that has just connected)
+  and ends "settings missing" when it does not come. Every request therefore costs the worker that long. The
+  Palm app only does it when the user opens Settings. Channel names and slots reach the Palm through SYNC's CHAN
+  frames, which answer from WiRSa's store immediately.
+- **Exit:** with `unusedExit` / `afterExit` seconds (Exit Timers) and a Palm session, a Palm that is quiet for the
+  limit is probed with PING; if no frame arrives within another limit the mode goes back to the main menu
+  (`Mesh: exit timer - back to the main menu`). A running node operation counts as activity.
+- **Background mode** (set from the Palm's Pair Device form): with no Palm session WiRSa reaches the node every
+  1, 5, 15, 30 or 60 minutes, takes what it holds and hangs up after about 12 s.
+
+### 17.2 Notes from bring-up
+
+- A Palm at 38400 showed an irregular bit time (the sixth edge of an 'S' arrives about half a bit late), and now and
+  then a damaged frame (`checksum mismatch`), after which the Palm went silent and the exit timer ended the session.
+  57600 and 19200 were clean.
+- In the Palm OS emulator a sync may stall mid-stream (the serial pty); the real line does not.

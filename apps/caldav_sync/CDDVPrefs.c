@@ -377,28 +377,56 @@ SEC002 void CDDVSavePrefs(const CDDVPrefsType *p)
  * reset and wipe saved slots. kCddvBauds mirrors WiRSa's own bauds[]
  * (main.cpp) order exactly. */
 #define cddvBaudPrefID		1
-#define cddvDefaultBaudIndex	7	/* 57600 */
-static const UInt32 kCddvBauds[] = { 300, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200 };
-#define cddvBaudCount	9
+#define cddvDefaultBaudIndex	5	/* 57600 */
+/* kCddvBauds is WiRSa's own bauds[]: 9600 14400 19200 28800 38400 57600 115200. Pref version 3 stores an index
+ * into it. Version 1 stored one into 300 1200 2400 4800 9600 19200 38400 57600 115200, version 2 into the same
+ * with 14400 and 28800 added; both are converted when read. */
+static const UInt32 kCddvBauds[] = { 9600, 14400, 19200, 28800, 38400, 57600, 115200 };
+#define cddvBaudCount	7
 
 SEC002 UInt8 CDDVGetBaudIndex(void)
 {
 	UInt8 idx;
 	UInt16 sz = sizeof(idx);
-	if (PrefGetAppPreferences(appCreator, cddvBaudPrefID, &idx, &sz, false) == noPreferenceFound
-		|| sz != sizeof(idx) || idx >= cddvBaudCount) {
+	Int16 ver = PrefGetAppPreferences(appCreator, cddvBaudPrefID, &idx, &sz, false);
+	if (ver == noPreferenceFound || sz != sizeof(idx) || ver < 1 || ver > 3) {
 		return cddvDefaultBaudIndex;
 	}
+	if (ver == 3) return idx < cddvBaudCount ? idx : cddvDefaultBaudIndex;
+	if (ver == 2) idx = (UInt8) (idx < 4 ? 0 : idx - 4);			/* 300..4800 become 9600 */
+	else if (idx < 5) idx = 0;										/* 300..9600 */
+	else idx = (UInt8) (idx == 5 ? 2 : idx == 6 ? 4 : idx == 7 ? 5 : 6);
+	if (idx >= cddvBaudCount) idx = cddvDefaultBaudIndex;
+	CDDVSetBaudIndex(idx);
 	return idx;
 }
 
 SEC002 void CDDVSetBaudIndex(UInt8 idx)
 {
 	if (idx >= cddvBaudCount) idx = cddvDefaultBaudIndex;
-	PrefSetAppPreferences(appCreator, cddvBaudPrefID, 1, &idx, sizeof(idx), false);
+	PrefSetAppPreferences(appCreator, cddvBaudPrefID, 3, &idx, sizeof(idx), false);
 }
 
 SEC002 UInt32 CDDVGetBaud(void)
 {
 	return kCddvBauds[CDDVGetBaudIndex()];
+}
+
+/* Screenless Mode - its own pref ID for the same reason as the baud rate. */
+#define cddvScreenlessPrefID	2
+
+SEC002 Boolean CDDVGetScreenless(void)
+{
+	UInt8 v = 0;
+	UInt16 sz = sizeof(v);
+	if (PrefGetAppPreferences(appCreator, cddvScreenlessPrefID, &v, &sz, false) == noPreferenceFound
+		|| sz != sizeof(v))
+		return false;
+	return (Boolean) (v != 0);
+}
+
+SEC002 void CDDVSetScreenless(Boolean on)
+{
+	UInt8 v = on ? 1 : 0;
+	PrefSetAppPreferences(appCreator, cddvScreenlessPrefID, 1, &v, sizeof(v), false);
 }

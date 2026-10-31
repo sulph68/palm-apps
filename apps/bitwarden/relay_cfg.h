@@ -7,8 +7,8 @@
 
 #include "BitWarden.h"
 
-/* 1KB, not larger - datares is essentially full. */
-#define RP_RECV_BUF_SIZE	1024
+/* Frames up to ~1.6 KB arrive back to back (WiRSa streams from a queue); 4 KB fits since Sync.c shares one item buffer. */
+#define RP_RECV_BUF_SIZE	4096
 
 extern UInt32 gBwLastAutoOffResetTick;
 void BwSerialPoll(void);

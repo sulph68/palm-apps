@@ -26,11 +26,18 @@
  * reference).
  */
 #include "CalDAVSync.h"
+#include "SyncEngine.h"	/* SyncScreenlessBegin/End around Google sign-in */
 #include "SlotEditForm.h"
 #include "CDDVSec35.h"
 #include "OAuthRelay.h"
 #include "LongTextDialog.h"
 #include "DAVDb.h"
+#include "ContactDb.h"
+
+/* The contacts types reuse a calendar type's fields: iCloud Contacts the
+ * iCloud ones (no "Cal UUID" row), CardDAV Contacts the CalDAV ones. */
+#define cddvTypeGroup(t)	((t) == cddvTypeICloudContacts ? cddvTypeICloud : \
+							 (t) == cddvTypeCardDAV ? cddvTypeCalDAV : (t))
 
 /* Same reasoning as MainForm.c's own identical arrays used to have: each
  * group's static descriptive LABELs must be listed alongside their FIELD,
@@ -134,8 +141,10 @@ static void ShowHideGroup(const UInt16 *ids, Boolean show)
  * before hiding the others left ragged fragments of its labels behind
  * (found via a real POSE64 screenshot in this app's earlier single-form
  * layout - same hazard applies here). */
-static void ApplyServerTypeVisibility(CDDVServerType t)
+static void ApplyServerTypeVisibility(CDDVServerType type)
 {
+	CDDVServerType t = cddvTypeGroup(type);
+
 	if (t != cddvTypeCalDAV)  ShowHideGroup(gCalDAVFields, false);
 	if (t != cddvTypeICloud)  ShowHideGroup(gICloudFields, false);
 	if (t != cddvTypeGoogle)  ShowHideGroup(gGoogleFields, false);
@@ -146,6 +155,11 @@ static void ApplyServerTypeVisibility(CDDVServerType t)
 	case cddvTypeICloud:  ShowHideGroup(gICloudFields, true); break;
 	case cddvTypeGoogle:  ShowHideGroup(gGoogleFields, true); break;
 	case cddvTypeICSFeed: ShowHideGroup(gIcsFields, true); break;
+	default: break;
+	}
+	if (type == cddvTypeICloudContacts) {	/* the address book is always "card" */
+		FrmHideObject(gFrm, FrmGetObjectIndex(gFrm, fldSlotICloudCal));
+		FrmHideObject(gFrm, FrmGetObjectIndex(gFrm, lblSlotICloudCal));
 	}
 }
 
@@ -164,12 +178,13 @@ static void SetCtlLabel(UInt16 id, const char *text)
  * Fatal Exception on device once that segment isn't resident; POSE64
  * never catches it) - copying into a static buffer here, while SEC001 is
  * still actively executing this call, is safe. */
-static char gTypeTriggerBuf[12];
+static char gTypeTriggerBuf[16];
 static void SetTypeTrigger(CDDVServerType t)
 {
-	StrCopy(gTypeTriggerBuf, t < 4 ?
+	StrCopy(gTypeTriggerBuf, t < cddvNumServerTypes ?
 		(t == cddvTypeCalDAV ? "CalDAV" : t == cddvTypeICloud ? "iCloud" :
-		 t == cddvTypeGoogle ? "Google" : "ICS Feed") : "CalDAV");
+		 t == cddvTypeGoogle ? "Google" : t == cddvTypeICSFeed ? "ICS Feed" :
+		 t == cddvTypeICloudContacts ? "Contacts" : "CardDAV") : "CalDAV");	/* short: Skip sits at x=108 */
 	SetCtlLabel(popSlotType, gTypeTriggerBuf);
 }
 
@@ -408,7 +423,7 @@ static void LoadTypeFields(CDDVServerType t)
 {
 	CDDVSlot *s = &gWorking;
 
-	switch (t) {
+	switch (cddvTypeGroup(t)) {
 	case cddvTypeCalDAV:
 		SetFieldText(fldSlotUrl, gServerPlain);
 		SetFieldText(fldSlotPath, gPathPlain);
@@ -467,7 +482,7 @@ static void SaveTypeFields(CDDVServerType t)
 {
 	CDDVSlot *s = &gWorking;
 
-	switch (t) {
+	switch (cddvTypeGroup(t)) {
 	case cddvTypeCalDAV:
 		GetFieldText(fldSlotUser, gUserPlain, sizeof(gUserPlain));
 		CDDVEncryptSlotField(gSlotIdx, cddvFieldServer, (UInt8 *) s->server, sizeof(s->server), gServerPlain, &s->serverLen);
@@ -552,7 +567,12 @@ static void SaveFromForm(void)
 	SaveTypeFields(s->serverType);
 
 	switch (s->serverType) {
-	case cddvTypeCalDAV: case cddvTypeICloud: break;
+	case cddvTypeCalDAV: case cddvTypeICloud: case cddvTypeCardDAV: break;
+	case cddvTypeICloudContacts:
+		/* no calendar here - a slot duplicated from an iCloud calendar
+		 * would otherwise send its calendar UUID as the address book */
+		MemSet(s->path, sizeof(s->path), 0); s->pathLen = 0;
+		break;
 	case cddvTypeGoogle:
 		MemSet(s->server, sizeof(s->server), 0); s->serverLen = 0;
 		MemSet(s->user, sizeof(s->user), 0); s->userLen = 0;
@@ -589,6 +609,22 @@ static Boolean SlotEditHandleEvent(EventType *e)
 			 * path/user with itself, silently discarding whatever was
 			 * just typed under the old type. */
 			SaveTypeFields(gWorking.serverType);
+			/* iCloud calendar <-> contacts: the host differs only in "-caldav."
+			 * vs "-contacts." (pNN-caldav.icloud.com / pNN-contacts.icloud.com),
+			 * so swap it - shown in the field before Save, still editable. */
+			if (newType == cddvTypeICloudContacts && gWorking.serverType == cddvTypeICloud) {
+				char *c = StrStr(gServerPlain, "-caldav.");
+				if (c && StrLen(gServerPlain) + 2 < sizeof(gServerPlain)) {
+					MemMove(c + 10, c + 8, StrLen(c + 8) + 1);	/* 8 = "-caldav.", 10 = "-contacts." */
+					MemMove(c, "-contacts.", 10);
+				}
+			} else if (newType == cddvTypeICloud && gWorking.serverType == cddvTypeICloudContacts) {
+				char *c = StrStr(gServerPlain, "-contacts.");
+				if (c) {
+					MemMove(c, "-caldav.", 8);
+					MemMove(c + 8, c + 10, StrLen(c + 10) + 1);
+				}
+			}
 			gWorking.serverType = newType;
 			SetTypeTrigger(newType);
 			LoadTypeFields(newType);
@@ -668,7 +704,11 @@ static Boolean SlotEditHandleEvent(EventType *e)
 				 * alert either way, correctly. Only the SUCCESS path was
 				 * silent - nothing told the user the token was actually
 				 * saved, indistinguishable from it quietly doing nothing. */
-				if (OAuthRelayRunGoogleSignIn(&gWorking, gSlotIdx)) {
+				Boolean signedIn = false;
+				if (SyncScreenlessBegin())
+					signedIn = OAuthRelayRunGoogleSignIn(&gWorking, gSlotIdx);
+				SyncScreenlessEnd();
+				if (signedIn) {
 					UpdateGoogleSignInButtonLabel(true);	/* reflect the new state now, not just next time this dialog opens */
 					FrmCustomAlert(altSyncOk, "Signed in to Google successfully.", NULL, NULL);
 				}
@@ -807,6 +847,7 @@ SEC001 Boolean SlotEditFormRun(CDDVSlot *s, UInt8 slotIdx)
 			if (FrmCustomAlert(altConfirmDeleteSlot, gAliasPlain[0] ? gAliasPlain : "(unnamed)", NULL, NULL) == 0) {
 				if (DAVDbBeginSlotRebuild(gSlotIdx) == errNone)
 					DAVDbCommitSlotRebuild();
+				ContactDbDelete(gSlotIdx);		/* its contacts too, whatever its type */
 				MemSet(&gWorking, sizeof(gWorking), 0);
 				ok = true;
 				done = true;
@@ -829,7 +870,15 @@ SEC001 Boolean SlotEditFormRun(CDDVSlot *s, UInt8 slotIdx)
 		FrmDrawForm(prevFrm);
 	}
 
-	if (ok) *s = gWorking;
+	if (ok) {
+		/* a contacts slot that now holds something else (another type, or
+		 * deleted): hide its contacts until the next sync's cleanup removes
+		 * them (ContactDb.h) */
+		if (s->aliasLen && cddvIsContacts(s->serverType) &&
+			(gWorking.aliasLen == 0 || gWorking.serverType != s->serverType))
+			ContactDbMarkStale(gSlotIdx);
+		*s = gWorking;
+	}
 	MemSet(&gWorking, sizeof(gWorking), 0);	/* don't leave a plaintext-adjacent copy sitting in memory longer than needed */
 	MemSet(gSecretPlain, sizeof(gSecretPlain), 0);	/* same reasoning - the typed-password shadow buffer */
 	/* Same reasoning, for every other field's own plaintext shadow buffer. */

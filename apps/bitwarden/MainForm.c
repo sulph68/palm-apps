@@ -194,7 +194,7 @@ static Boolean SyncNowWithChime(void)
 {
 	Boolean ok;
 	BwPlaySyncChime(true);
-	ok = BwSyncRun();
+	ok = BwSyncScreenless();
 	BwPlaySyncChime(false);
 	gBwSyncOkPending = ok;
 	return ok;
@@ -415,15 +415,21 @@ static void MainRebuildMatches(void) SEC001;
 static void MainRebuildMatches(void)
 {
 	UInt16 total = BwStoreGetCachedCount();
-	UInt16 recIndex;
+	UInt16 recIndex, pos;
 	char needleLower[bwNameCacheEntryLen];
 	Boolean findActive = StrLen(gFindTerm) >= bwSearchMinChars;
+	/* The sync saved the name order (Store.c): walk it, and nothing needs sorting or decrypting
+	 * here. No saved order (or it doesn't match this vault): walk in record order and sort below. */
+	UInt16 orderCount = gBwOrderCount;
+	Boolean ordered = orderCount != 0 && gBwOrder != NULL;
 
+	if (ordered) total = orderCount;
 	if (findActive) StrToLower(needleLower, gFindTerm);
 	gMatchCount = 0;
-	for (recIndex = 0; recIndex < total && gMatchCount < bwMaxCachedMatches; recIndex++) {
+	for (pos = 0; pos < total && gMatchCount < bwMaxCachedMatches; pos++) {
 		UInt8 type; UInt16 folder, org; Boolean archived;
 		Boolean passes;
+		recIndex = ordered ? gBwOrder[pos] : pos;
 		if (!BwStoreGetCachedHeader(recIndex, &type, &folder, &org, &archived)) continue;
 		if (archived != gArchiveFilter) continue;
 		if (gFolderFilter != bwFilterAll) {
@@ -460,7 +466,7 @@ static void MainRebuildMatches(void)
 	 * at least shown a "Processing..." toast instead of looking hung. Sorting
 	 * by name is meaningless once every name shows as "******" anyway -
 	 * skip it entirely instead of trying to make the failed lookup cheaper. */
-	if (gMatchCount > 1 && EncKeyPresent() && BwIsUnlocked())
+	if (!ordered && gMatchCount > 1 && EncKeyPresent() && BwIsUnlocked())
 		SysQSort(gMatchIndices, (Int16) gMatchCount, sizeof(UInt16), MatchNameCompare, 0);
 	StrNCopy(gMatchBuiltTerm, gFindTerm, sizeof(gMatchBuiltTerm) - 1);
 	gMatchBuiltTerm[sizeof(gMatchBuiltTerm) - 1] = 0;
@@ -518,9 +524,20 @@ static void MainSearchTermChanged(void)
 static Boolean gSearchPending = false;
 static UInt32 gSearchPendingTick = 0;
 
+/* Idle work between events while the list is up (nilEvent): a few more names for the search cache. SEC001 -
+ * main .text has no room; main -> SEC001 in the same file is the safe direction. */
+static void MainWarmTick(void) SEC001;
+static void MainWarmTick(void)
+{
+	if (BwStoreWarmPending() && EncKeyPresent() && BwIsUnlocked()) BwStoreWarmNames();
+}
+
+Boolean MainHasPendingSearch(void) SEC001;
 Boolean MainHasPendingSearch(void)
 {
-	return gSearchPending;
+	/* also true while the name cache is still being warmed: EventLoop then gives frmMain its short
+	 * nilEvent timeout, which is what drives the warming below */
+	return gSearchPending || (BwStoreWarmPending() && EncKeyPresent() && BwIsUnlocked());
 }
 
 /* Forward decl - defined further down this file, next to MainUpdateScrollBar
@@ -1190,6 +1207,7 @@ Boolean MainFormHandleEvent(EventPtr e)
 	 * the app's normal evtWaitForever specifically so this has a chance to
 	 * run at all. Polls the debounce timer set by keyDownEvent above. */
 	case nilEvent:
+		if (!gSearchPending) MainWarmTick();
 		if (gSearchPending) {
 			UInt32 debounceTicks = ((UInt32) SysTicksPerSecond() * bwSearchDebounceMs) / 1000;
 			if (TimGetTicks() - gSearchPendingTick >= debounceTicks) {

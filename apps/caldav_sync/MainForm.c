@@ -11,6 +11,8 @@
 #include "HelpForm.h"
 #include "SyncEngine.h"
 #include "DAVDb.h"
+#include "DupSlot.h"
+#include "ContactDb.h"
 
 static CDDVPrefsType gPrefs;
 static UInt8 gCurrentSlot = 0;
@@ -117,7 +119,8 @@ static void UpdateSummaryDisplay(void)
 
 	SetFieldText(fldMainTypeDisplay,
 		s->serverType == cddvTypeCalDAV ? "CalDAV" : s->serverType == cddvTypeICloud ? "iCloud" :
-		s->serverType == cddvTypeGoogle ? "Google" : "ICS Feed");
+		s->serverType == cddvTypeGoogle ? "Google" : s->serverType == cddvTypeICSFeed ? "ICS Feed" :
+		s->serverType == cddvTypeICloudContacts ? "iCloud Contacts" : "CardDAV Contacts");
 
 	if (s->lastSyncTime == 0) {
 		SetFieldText(fldMainStatusDisplay, "Never synced");
@@ -127,7 +130,8 @@ static void UpdateSummaryDisplay(void)
 		TimSecondsToDateTime(s->lastSyncTime, &dt);
 		StrPrintF(dateBuf, "%d/%d/%d %d:%02d", dt.month, dt.day, dt.year, dt.hour, dt.minute);
 		if (s->lastSyncOk) {
-			StrPrintF(gStatusBuf, "OK - %u event(s) synced\n%s", (unsigned int) s->lastSyncEventCount, dateBuf);
+			StrPrintF(gStatusBuf, cddvIsContacts(s->serverType) ? "OK - %u contact(s) synced\n%s" :
+				"OK - %u event(s) synced\n%s", (unsigned int) s->lastSyncEventCount, dateBuf);
 		} else {
 			StrPrintF(gStatusBuf, "Failed: %s\n%s",
 				s->lastSyncErrMsg[0] ? s->lastSyncErrMsg : "(unknown error)", dateBuf);
@@ -223,17 +227,25 @@ SEC001 Boolean MainFormHandleEvent(EventType *e)
 		if (e->data.ctlSelect.controlID == btnMainEditSlot) {
 			if (SlotEditFormRun(&gPrefs.slots[gCurrentSlot], gCurrentSlot)) {
 				RefreshSlotListLabels();
-				UpdateSummaryDisplay();
+				LoadSlot(gCurrentSlot);		/* the popup's own label too, not just the list */
 				MainPersist();
 			}
 			handled = true;
 		} else if (e->data.ctlSelect.controlID == btnMainSyncNow) {
+			Boolean ran = false;
 			PlaySyncChime(true);
-			SyncEngineRunOne(&gPrefs, gCurrentSlot, false, false);
+			ContactDbCleanup(&gPrefs);		/* data left over from changed/deleted slots */
+			if (SyncScreenlessBegin()) {
+				SyncEngineRunOne(&gPrefs, gCurrentSlot, false, false);
+				ran = true;
+			}
+			SyncScreenlessEnd();
 			PlaySyncChime(false);
 			CDDVSavePrefs(&gPrefs);
 			UpdateSummaryDisplay();
-			ShowSyncResultAlert(gCurrentSlot);
+			/* Screenless Mode couldn't start the mode: no sync ran, so don't
+			 * show the slot's previous result as if it were this one. */
+			if (ran) ShowSyncResultAlert(gCurrentSlot);
 			handled = true;
 		} else if (e->data.ctlSelect.controlID == btnMainClearDB) {
 			/* Clears only this slot's own synced entries, leaving its
@@ -243,8 +255,11 @@ SEC001 Boolean MainFormHandleEvent(EventType *e)
 				char aliasPlain[cddvAliasLen];
 				CDDVDecryptSlotField(gCurrentSlot, cddvFieldAlias, (UInt8 *) cs->alias, cs->aliasLen, aliasPlain, sizeof(aliasPlain));
 				if (FrmCustomAlert(altConfirmClearSlotDB, aliasPlain, NULL, NULL) == 0) {
-					if (DAVDbBeginSlotRebuild(gCurrentSlot) == errNone)
+					if (cddvIsContacts(cs->serverType)) {
+						ContactDbDelete(gCurrentSlot);		/* its own Address35DAV_<n> */
+					} else if (DAVDbBeginSlotRebuild(gCurrentSlot) == errNone) {
 						DAVDbCommitSlotRebuild();
+					}
 				}
 			}
 			handled = true;
@@ -256,6 +271,7 @@ SEC001 Boolean MainFormHandleEvent(EventType *e)
 		case mniMainSyncAll: {
 			UInt8 i;
 			UInt8 okCount = 0, totalCount = 0, doneCount = 0;
+			Boolean go;
 			char msg[64];
 			/* Pre-count eligible slots so only the true last one passes
 			 * keepOpen=false - every earlier slot reuses one negotiated
@@ -265,10 +281,13 @@ SEC001 Boolean MainFormHandleEvent(EventType *e)
 				if (gPrefs.slots[i].ignoreOnSyncAll) continue;
 				totalCount++;
 			}
+			ContactDbCleanup(&gPrefs);		/* data left over from changed/deleted slots */
 			/* One chime per batch, not per-calendar - play start only if
 			 * there's actually something to sync. */
 			if (totalCount > 0) PlaySyncChime(true);
-			for (i = 0; i < cddvMaxSlots; i++) {
+			/* Screenless Mode: WiRSa into CalDAV Relay once for the whole batch */
+			go = (Boolean) (totalCount > 0 && SyncScreenlessBegin());
+			for (i = 0; i < cddvMaxSlots && go; i++) {
 				Boolean keepOpen;
 				if (gPrefs.slots[i].aliasLen == 0) continue;
 				if (gPrefs.slots[i].ignoreOnSyncAll) continue;
@@ -278,6 +297,12 @@ SEC001 Boolean MainFormHandleEvent(EventType *e)
 				 * batch behind a modal alert. */
 				if (SyncEngineRunOne(&gPrefs, i, true, keepOpen)) okCount++;
 			}
+			/* The last slot's SyncEngineRunOne (keepOpen=false) normally
+			 * commits every staged calendar; this covers it returning early
+			 * (Sec35 locked) before reaching that point. No-op otherwise. */
+			DAVDbCommitStaged();
+			ContactDbCommitStaged();
+			SyncScreenlessEnd();
 			/* End chime plays regardless of per-slot outcome - marks "the
 			 * batch is done", same as the summary alert below which already
 			 * reports partial success rather than treating it as silence. */
@@ -286,7 +311,7 @@ SEC001 Boolean MainFormHandleEvent(EventType *e)
 			UpdateSummaryDisplay();
 			if (totalCount == 0) {
 				FrmCustomAlert(altSyncOk, "No calendars to sync (all empty or ignored).", NULL, NULL);
-			} else {
+			} else if (go) {
 				StrPrintF(msg, "%d of %d calendar(s) synced successfully.", okCount, totalCount);
 				FrmCustomAlert(altSyncOk, msg, NULL, NULL);
 			}
@@ -298,6 +323,16 @@ SEC001 Boolean MainFormHandleEvent(EventType *e)
 			MainPersist();
 			handled = true;
 			break;
+		case mniMainDuplicate: {
+			UInt8 t;
+			if (DupSlotRun(&gPrefs, gCurrentSlot, &t)) {
+				RefreshSlotListLabels();
+				LoadSlot(t);			/* show the new copy */
+				MainPersist();
+			}
+			handled = true;
+			break;
+		}
 		case mniMainRecompute:
 			if (FrmAlert(altConfirmRecompute) == 0) {
 				DAVDbRecomputeLocalTimes();
@@ -305,6 +340,16 @@ SEC001 Boolean MainFormHandleEvent(EventType *e)
 				 * only correctly restores the screen if nothing else (the
 				 * confirm alert above) drew over that region in between. */
 				FrmDrawForm(frm);
+			}
+			handled = true;
+			break;
+		case mniMainResort:
+			/* contacts in Address35's current sort order (it lives in
+			 * Address35DB's AppInfo; a sync applies it too) */
+			if (FrmAlert(altConfirmResort) == 0) {
+				ContactDbResort();
+				FrmDrawForm(frm);
+				FrmCustomAlert(altInfo, "Contacts sorted in Address35's order.", NULL, NULL);
 			}
 			handled = true;
 			break;

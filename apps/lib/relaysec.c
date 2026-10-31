@@ -23,6 +23,7 @@
 #define rpIdleTicks		(SysTicksPerSecond() * 180)	/* relayproto.c's default frame wait */
 
 Boolean gRpSecured = false;
+UInt32 gRpKexReplyTicks = 0;
 UInt32 gRpTxSeq = 0;
 static struct AES_ctx gRpAes;
 
@@ -249,13 +250,22 @@ RP_SECTION static UInt8 Exchange(RpKexWork *w, UInt32 *ctr, Boolean *sawData)
 	if (!RpSendFrame(RP_KEX_REQ, w->key, 4)) return rpSecNoReply;
 
 	/* A reply carrying another request's id is a leftover from an earlier,
-	 * abandoned attempt - skip it and keep waiting. */
+	 * abandoned attempt - skip it and keep waiting. gRpKexReplyTicks, if
+	 * set, bounds the wait so a lost KEX_REQ is retried (relaysec.h). */
+	savedIdle = gRpIdleOverrideTicks;
+	if (gRpKexReplyTicks) gRpIdleOverrideTicks = gRpKexReplyTicks;
 	for (tries = 0; ; tries++) {
-		if (!RecvNoted(&t, w->rx, sizeof(w->rx), &len, sawData))
+		if (!RecvNoted(&t, w->rx, sizeof(w->rx), &len, sawData)) {
+			gRpIdleOverrideTicks = savedIdle;
 			return RP_APP_CANCELLED() ? rpSecCancelled : rpSecNoReply;
+		}
 		if (len >= 4 && Get32(w->rx) == id) break;
-		if (tries >= rpMaxStrayFrames) return rpSecNoReply;
+		if (tries >= rpMaxStrayFrames) {
+			gRpIdleOverrideTicks = savedIdle;
+			return rpSecNoReply;
+		}
 	}
+	gRpIdleOverrideTicks = savedIdle;
 	if (t != RP_KEX_PUB || len < 6) return rpSecFailed;		/* RP_KEX_FAIL or garbage */
 	k = (UInt16) (((UInt16) w->rx[4] << 8) | w->rx[5]);
 	if (k < rpMinModBytes || k > rpMaxModBytes || (k & 1) || len != (UInt16) (6 + 2 * k + 16)) return rpSecFailed;
@@ -302,7 +312,8 @@ RP_SECTION static UInt8 Exchange(RpKexWork *w, UInt32 *ctr, Boolean *sawData)
 /* Up to rpKexAttempts exchanges: stray or corrupt bytes on the line (a
  * known WiRSa trait) must not cost the sync, so any failure where
  * something did arrive restarts the exchange on a flushed line with a new
- * id. A WiRSa that never answers, or a Cancel, ends it at once. */
+ * id. A WiRSa that never answers, or a Cancel, ends it at once - unless
+ * gRpKexReplyTicks is set (WiRSa known to be there), then silence retries. */
 RP_SECTION UInt8 RpSecure(void)
 {
 	RpKexWork *w;
@@ -323,7 +334,10 @@ RP_SECTION UInt8 RpSecure(void)
 		if (sawNow) saw = true;
 		if (res == rpSecOk || res == rpSecCancelled) break;
 		RpSecWipe();
-		if (!sawNow) break;
+		/* Total silence normally means no WiRSa - stop. With a short reply
+		 * wait (gRpKexReplyTicks) WiRSa is known to be there, so silence
+		 * means the KEX_REQ was lost: try again. */
+		if (!sawNow && !gRpKexReplyTicks) break;
 		SysTaskDelay(SysTicksPerSecond() / 2);
 		RpFlushInput();
 	}
