@@ -14,7 +14,7 @@
 
    DEFINES = -DPALMOS4
 
-  INCLUDES = $(shell find /home/cnrai/palmos_sdk/palm-os-sdk/sdk-4/include -type d | sed 's/^/-I/' | tr '\n' ' ') -I../lib
+  INCLUDES = $(shell find $(HOME)/palmos_sdk/palm-os-sdk/sdk-4/include -type d | sed 's/^/-I/' | tr '\n' ' ') -I../lib
 
 PALMOS_FLAG ?= -palmos4
 

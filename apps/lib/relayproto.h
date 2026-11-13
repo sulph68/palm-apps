@@ -68,5 +68,20 @@ UInt32 RpPending(void) RP_SECTION;
 /* false on timeout, cancel, line error, oversized (drained) frame or
  * checksum mismatch; never partial. */
 Boolean RpRecvFrame(UInt8 *typeOut, UInt8 *body, UInt16 bodyCap, UInt16 *bodyLenOut);
+#ifdef RP_WITH_HUNT
+/* One encrypted frame of type wantType, found by hunting: bytes in front of it, and line errors while looking, are skipped (the cleared
+ * errors are counted in gRpLastLineErrs). A candidate counts only when its length is plausible (the body at most bodyCap) and its
+ * checksum holds; otherwise the search goes on from the next byte. For a reply that has no lead byte and no retry, on a line that may
+ * carry noise in front of it (the HELLO_ACK over a wireless TTL link). False on silence (the idle wait, or a cancel), never partial. */
+Boolean RpRecvFrameHunt(UInt8 wantType, UInt8 *body, UInt16 bodyCap, UInt16 *bodyLenOut) RP_SECTION;
+/* Non-zero: RpRecvFrame, on a secured link, skips leading bytes that cannot start an encrypted frame (the encrypted flag and a type from 1 to
+ * this value) instead of taking the first byte for the type. Cleared when the port closes. */
+extern UInt8 gRpSkipJunkMax;
+#ifdef RP_WITH_HUNT_GAP
+/* Non-zero (with gRpSkipJunkMax): the frame is hunted (RecvHunted): a candidate whose bytes stop for this many ticks, whose length cannot be right or
+ * whose checksum fails is dropped and the search goes on, instead of being waited for. Cleared when the port closes. */
+extern UInt8 gRpSkipGapTicks;
+#endif
+#endif
 
 #endif

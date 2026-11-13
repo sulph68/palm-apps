@@ -14,9 +14,9 @@
              Serial.o Store.o BitwardenSec35.o relayproto.o relaywire.o relaysec.o wirsactl.o Screenless.o \
              enccore.o aes.o totp.o $(EXE)-sections.o
 
-   DEFINES = -DPALMOS4
+   DEFINES = -DPALMOS4 -DRP_WITH_HUNT
 
-  INCLUDES = $(shell find /home/cnrai/palmos_sdk/palm-os-sdk/sdk-4/include -type d | sed 's/^/-I/' | tr '\n' ' ') -I../lib
+  INCLUDES = $(shell find $(HOME)/palmos_sdk/palm-os-sdk/sdk-4/include -type d | sed 's/^/-I/' | tr '\n' ' ') -I../lib
 
 # Defaults to -palmos4 (the intended build). Without it, main->sec001 far
 # calls in new object files become near bsr.w (DISP16) -> wild jump. See

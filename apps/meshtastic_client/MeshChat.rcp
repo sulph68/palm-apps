@@ -10,6 +10,7 @@ VERSION ID 1 "0.1"
 
 ICON "icons/meshchat_large.bmp"
 SMALLICON "icons/meshchat_small.bmp"
+BITMAP ID bmpKey "icons/key.bmp"
 
 MENU ID mnuEdit
 BEGIN
@@ -39,7 +40,7 @@ BEGIN
 	END
 	PULLDOWN "Settings"
 	BEGIN
-		MENUITEM "Pair Device..."	ID mniMainPair		"P"
+		MENUITEM "Device..."		ID mniMainPair		"P"
 		MENUITEM SEPARATOR
 		MENUITEM "Preferences..."	ID mniMainPrefs
 	END
@@ -103,16 +104,20 @@ BEGIN
 	LIST "Channels" "Direct Msg" "Nodes" ID lstMainCat AT (89 1 71 36) VISIBLEITEMS 3 NONUSABLE
 	POPUPLIST ID popMainCat lstMainCat
 
-	FIELD ID fldMainInfo AT (2 16 104 11) NONEDITABLE SINGLELINE FONT 0 MAXCHARS 40
-	GADGET ID gadMainBatt AT (108 17 50 10) USABLE
+	FIELD ID fldMainInfo AT (2 16 101 11) NONEDITABLE SINGLELINE FONT 0 MAXCHARS 40
+	GADGET ID gadMainBatt AT (103 17 55 10) USABLE
 	GADGET ID gadMainLine AT (0 27 160 1) USABLE
 
 	TABLE ID tblMain AT (0 29 152 121) ROWS 11 COLUMNS 1 COLUMNWIDTHS 152
 	SCROLLBAR ID sclMain AT (153 29 7 121) VALUE 0 MIN 0 MAX 0 PAGESIZE 10
 
 	LABEL "Find:" ID lblMainFind AT (3 147) FONT 0
-	FIELD ID fldMainFind AT (28 147 90 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 30
-	BUTTON "Clear" ID btnMainClear AT (123 145 34 12)
+	FIELD ID fldMainFind AT (28 147 55 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 30
+	BUTTON "Clr" ID btnMainClear AT (86 145 30 12)
+	BUTTON "Nodes" ID btnMainNodeSync AT (120 145 36 12)
+
+	BUTTON "Connect" ID btnMainConn AT (4 144 72 12) USABLE
+	BUTTON "Sync Now" ID btnMainSync AT (92 144 64 12) USABLE
 END
 
 /* ---- frmChat: one conversation. Messages are drawn by hand in a gadget (variable height rows, the time on
@@ -126,12 +131,12 @@ BEGIN
 	LIST "Main" ID lstChatConv AT (60 1 100 99) VISIBLEITEMS 1 NONUSABLE
 	POPUPLIST ID popChatConv lstChatConv
 
-	FIELD ID fldChatInfo AT (2 16 104 11) NONEDITABLE SINGLELINE FONT 0 MAXCHARS 40
-	GADGET ID gadChatBatt AT (108 17 50 10) USABLE
+	FIELD ID fldChatInfo AT (2 16 101 11) NONEDITABLE SINGLELINE FONT 0 MAXCHARS 40
+	GADGET ID gadChatBatt AT (103 17 55 10) USABLE
 	GADGET ID gadChatLine AT (0 27 160 1) USABLE
 
-	GADGET ID gadChatList AT (0 28 152 91) USABLE
-	SCROLLBAR ID sclChat AT (153 28 7 91) VALUE 0 MIN 0 MAX 0 PAGESIZE 8
+	GADGET ID gadChatList AT (0 30 152 92) USABLE
+	SCROLLBAR ID sclChat AT (153 28 7 93) VALUE 0 MIN 0 MAX 0 PAGESIZE 8
 
 	GADGET ID gadChatSep AT (0 122 160 1) USABLE
 	GADGET ID gadChatCnt AT (121 129 38 11) USABLE
@@ -155,7 +160,7 @@ BEGIN
 
 	TABLE ID tblNodeInfo AT (0 31 148 99) ROWS 9 COLUMNS 1
 		COLUMNWIDTHS 148
-	SCROLLBAR ID sclNodeInfo AT (149 31 7 99) VALUE 0 MIN 0 MAX 0 PAGESIZE 9
+	SCROLLBAR ID sclNodeInfo AT (148 31 7 99) VALUE 0 MIN 0 MAX 0 PAGESIZE 9
 
 	BUTTON "Done"		ID btnNodeBack		AT (4 140 34 12)
 	BUTTON "DM"			ID btnNodeMsg		AT (118 140 30 12)
@@ -169,8 +174,9 @@ SAVEBEHIND
 BEGIN
 	TITLE "Message"
 
-	FIELD ID fldMsgText AT (4 17 138 118) NONEDITABLE MULTIPLELINES FONT 0 MAXCHARS 600
-	SCROLLBAR ID sclMsg AT (145 17 7 118) VALUE 0 MIN 0 MAX 0 PAGESIZE 10
+	FIELD ID fldMsgHead AT (4 17 138 44) NONEDITABLE MULTIPLELINES FONT 0 MAXCHARS 200
+	FIELD ID fldMsgText AT (4 65 138 70) NONEDITABLE MULTIPLELINES FONT 0 MAXCHARS 900
+	SCROLLBAR ID sclMsg AT (145 65 7 70) VALUE 0 MIN 0 MAX 0 PAGESIZE 10
 
 	BUTTON "Done"		ID btnMsgDone		AT (4 140 34 12)
 END
@@ -202,6 +208,16 @@ BEGIN
 	BUTTON "Cancel" ID btnBusyCancel AT (58 43 40 12)
 END
 
+/* ---- frmConnect: shown while the node is connecting (Bluetooth pairing, then its settings, channels and nodes arrive): a form of
+ * its own, so nothing else can be asked of the node meanwhile. "Connecting" turns to "Connected" and it closes. ------------- */
+FORM ID frmConnect AT (2 50 156 60)
+FRAME MODAL SAVEBEHIND
+BEGIN
+	TITLE "Connecting"
+	FIELD ID fldConnText AT (6 18 144 22) NONEDITABLE MULTIPLELINES FONT 0 MAXCHARS 60
+	BUTTON "Cancel" ID btnConnCancel AT (58 43 40 12)
+END
+
 /* ---- frmSetup: the node's settings as a card, one row for each; a tap on a row opens its form, which
  * changes a buffer. Save sends the changed parts to the node in one go. ------------------------------- */
 FORM ID frmSetup AT (2 2 156 156)
@@ -213,7 +229,7 @@ BEGIN
 
 	FIELD ID fldSetupNode AT (4 16 148 12) NONEDITABLE SINGLELINE FONT 0 MAXCHARS 48
 	GADGET ID gadSetupLine AT (2 29 152 1) USABLE
-	TABLE ID tblSetup AT (2 32 152 78) ROWS 6 COLUMNS 1 COLUMNWIDTHS 152
+	TABLE ID tblSetup AT (2 32 152 91) ROWS 7 COLUMNS 1 COLUMNWIDTHS 152
 
 	BUTTON "Save"			ID btnSetupDone		AT (4 140 34 12)
 	BUTTON "Reboot Node"	ID btnSetupReboot	AT (42 140 66 12)
@@ -336,11 +352,51 @@ BEGIN
 	POPUPLIST ID popChRole lstChRole
 
 	FIELD ID fldChKeyNote AT (4 58 148 22) NONEDITABLE MULTIPLELINES FONT 0
-	FIELD ID fldChKey AT (4 80 148 24) EDITABLE UNDERLINED MULTIPLELINES MAXCHARS 44
-	BUTTON "New key"	ID btnChNewKey		AT (4 110 50 14)
+	FIELD ID fldChKey AT (4 85 148 24) EDITABLE UNDERLINED MULTIPLELINES MAXCHARS 44
+	BUTTON "New key"	ID btnChNewKey		AT (4 115 50 14)
+	LABEL "MQTT Up:"	AUTOID AT (61 117) FONT 0
+	CHECKBOX ""	ID ckChUplink AT (104 117 12 12)
+	LABEL "Dn:"	AUTOID AT (119 117) FONT 0
+	CHECKBOX ""	ID ckChDownlink AT (136 117 12 12)
 
 	BUTTON "OK"		ID btnChOk			AT (4 138 40 14)
 	BUTTON "Cancel"	ID btnChCancel		AT (48 138 44 14)
+	GRAFFITISTATEINDICATOR AT (140 141)
+END
+
+/* ---- frmMqtt: the node's MQTT module. Colons at 60, values at 63; two columns of checkboxes below. ------------ */
+FORM ID frmMqtt AT (2 2 156 156)
+FRAME
+MODAL
+SAVEBEHIND
+MENUID mnuEdit
+BEGIN
+	TITLE "MQTT"
+
+	LABEL "Enabled:"	AUTOID AT (RIGHT@60 19) FONT 1
+	CHECKBOX ""	ID ckMqEnabled AT (63 18 16 12)
+	LABEL "Address:"	AUTOID AT (RIGHT@60 33) FONT 1
+	FIELD ID fldMqAddr AT (63 33 90 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 62
+	LABEL "Username:"	AUTOID AT (RIGHT@60 47) FONT 1
+	FIELD ID fldMqUser AT (63 47 90 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 30
+	LABEL "Password:"	AUTOID AT (RIGHT@60 61) FONT 1
+	FIELD ID fldMqPass AT (63 61 90 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 30
+	LABEL "Root topic:"	AUTOID AT (RIGHT@60 75) FONT 1
+	FIELD ID fldMqRoot AT (63 75 90 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 30
+
+	LABEL "Encrypted:"	AUTOID AT (RIGHT@60 92) FONT 1
+	CHECKBOX ""	ID ckMqEncrypt AT (63 91 16 12)
+	LABEL "TLS:"	AUTOID AT (RIGHT@118 92) FONT 1
+	CHECKBOX ""	ID ckMqTls AT (121 91 16 12)
+	LABEL "JSON:"	AUTOID AT (RIGHT@60 106) FONT 1
+	CHECKBOX ""	ID ckMqJson AT (63 105 16 12)
+	LABEL "Proxy:"	AUTOID AT (RIGHT@118 106) FONT 1
+	CHECKBOX ""	ID ckMqProxy AT (121 105 16 12)
+	LABEL "Map:"	AUTOID AT (RIGHT@60 120) FONT 1
+	CHECKBOX ""	ID ckMqMap AT (63 119 16 12)
+
+	BUTTON "OK"		ID btnMqOk			AT (4 138 40 14)
+	BUTTON "Cancel"	ID btnMqCancel		AT (48 138 44 14)
 	GRAFFITISTATEINDICATOR AT (140 141)
 END
 
@@ -380,25 +436,32 @@ MODAL
 SAVEBEHIND
 MENUID mnuRelay
 BEGIN
-	TITLE "Pair Device"
+	TITLE "Device"
 
 	LABEL "Paired:"	AUTOID AT (4 17) FONT 1
-	FIELD ID fldRelayNode AT (44 17 108 12) NONEDITABLE SINGLELINE FONT 0 MAXCHARS 40
+	POPUPTRIGGER "none" ID popRelayNode AT (44 17 108 12) LEFTANCHOR
+	LIST "" ID lstRelayNode AT (44 17 108 44) VISIBLEITEMS 4 NONUSABLE
+	POPUPLIST ID popRelayNode lstRelayNode
 	GADGET ID gadRelayLine AT (0 30 156 1) USABLE
 
 	LABEL "Found nearby"	ID lblRelayFound AT (4 34) FONT 1
 	LABEL "dBm"	ID lblRelayDbm AT (122 34) FONT 1
 	LIST "" ID lstScan AT (4 46 148 44) VISIBLEITEMS 4
 
-	LABEL "Mode:"	AUTOID AT (RIGHT@80 96) FONT 1
-	POPUPTRIGGER "Session" ID popRelayMode AT (83 96 66 12) LEFTANCHOR
-	LIST "Session" "Background" ID lstRelayMode AT (83 96 66 22) VISIBLEITEMS 2 NONUSABLE
+	LABEL "Mode:"	AUTOID AT (RIGHT@80 93) FONT 1
+	POPUPTRIGGER "Session" ID popRelayMode AT (83 93 66 12) LEFTANCHOR
+	LIST "Session" "Background" ID lstRelayMode AT (83 93 66 22) VISIBLEITEMS 2 NONUSABLE
 	POPUPLIST ID popRelayMode lstRelayMode
 
-	LABEL "Bg Chk Every:"	ID lblRelayEvery AT (RIGHT@80 112) FONT 1
-	POPUPTRIGGER "15 min" ID popRelayEvery AT (83 112 60 12) LEFTANCHOR
-	LIST "1 min" "5 min" "15 min" "30 min" "1 hour" ID lstRelayEvery AT (83 112 60 55) VISIBLEITEMS 5 NONUSABLE
+	LABEL "Bg Chk Every:"	ID lblRelayEvery AT (RIGHT@80 108) FONT 1
+	POPUPTRIGGER "15 min" ID popRelayEvery AT (83 108 60 12) LEFTANCHOR
+	LIST "1 min" "5 min" "15 min" "30 min" "1 hour" ID lstRelayEvery AT (83 108 60 55) VISIBLEITEMS 5 NONUSABLE
 	POPUPLIST ID popRelayEvery lstRelayEvery
+
+	LABEL "SD Flush:"	ID lblRelayFlush AT (RIGHT@80 123) FONT 1
+	POPUPTRIGGER "When full" ID popRelayFlush AT (83 123 60 12) LEFTANCHOR
+	LIST "Every time" "3 cycles" "5 cycles" "10 cycles" "When full" ID lstRelayFlush AT (83 123 60 55) VISIBLEITEMS 5 NONUSABLE
+	POPUPLIST ID popRelayFlush lstRelayFlush
 
 	BUTTON "Done"	ID btnRelayDone		AT (4 140 32 12)
 	BUTTON "Scan"	ID btnRelayScan		AT (39 140 34 12)
@@ -434,14 +497,16 @@ SAVEBEHIND
 BEGIN
 	TITLE "Preferences"
 
-	LABEL "Baud:"	AUTOID AT (RIGHT@70 22) FONT 1
+	LABEL "Baud:"	ID lblPrefBaud AT (4 22) FONT 1
 	POPUPTRIGGER "57600" ID popPrefBaud AT (73 22 50 12) LEFTANCHOR
 	LIST "9600" "14400" "19200" "28800" "38400" "57600" "115200" ID lstPrefBaud AT (73 22 50 77) VISIBLEITEMS 7 NONUSABLE
 	POPUPLIST ID popPrefBaud lstPrefBaud
 
 	LABEL "Screenless Mode:"	AUTOID AT (4 42) FONT 1
 	CHECKBOX ""	ID ckPrefAuto AT (90 41 16 12)
-	FIELD ID fldPrefNote1 AT (4 58 148 22) NONEDITABLE MULTIPLELINES FONT 0
+	LABEL "SD History:"	ID lblPrefHist AT (4 58) FONT 1
+	CHECKBOX ""	ID ckPrefHist AT (90 57 16 12)
+	FIELD ID fldPrefNote1 AT (4 76 148 44) NONEDITABLE MULTIPLELINES FONT 0
 
 	BUTTON "OK"		ID btnPrefOk		AT (4 138 40 14)
 	BUTTON "Cancel"	ID btnPrefCancel	AT (48 138 44 14)
@@ -479,6 +544,30 @@ BEGIN
 	TITLE "Meshtastic"
 	MESSAGE "^1^2^3"
 	BUTTONS "OK"
+END
+
+ALERT ID altConnecting
+INFORMATION
+BEGIN
+	TITLE "Connecting"
+	MESSAGE "^1^2^3"
+	BUTTONS "OK"
+END
+
+ALERT ID altSend
+CONFIRMATION
+BEGIN
+	TITLE "Meshtastic"
+	MESSAGE "^1^2^3"
+	BUTTONS "OK" "Cancel"
+END
+
+ALERT ID altUnpair
+CONFIRMATION
+BEGIN
+	TITLE "Unpair"
+	MESSAGE "^1^2^3"
+	BUTTONS "Keep" "Delete" "Cancel"
 END
 
 ALERT ID altAsk

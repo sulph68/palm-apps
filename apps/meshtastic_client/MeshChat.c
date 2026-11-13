@@ -6,9 +6,11 @@
 
 static UInt32 gNextCheck;				/* tick of the next look at the serial buffer */
 static UInt32 gNextFill;				/* tick of the next fetch while the lists are still empty */
+static UInt32 gNodesAt;
 Boolean gNodesRefresh;			/* the Nodes list asks for the node list once it is on screen */
 static Boolean gPollFailed;			/* the last background sync failed */
 static void RedrawActive(void);
+MC_UI static void IdleWork(UInt16 fid) MC_UI;
 
 /* ---- helpers ---------------------------------------------------------------------------- */
 
@@ -85,24 +87,61 @@ Boolean EditMenu(UInt16 id)
 	case mniEditCopy:		if (fld) FldCopy(fld); return true;
 	case mniEditPaste:		if (fld) FldPaste(fld); return true;
 	case mniEditSelectAll:	if (fld) FldSetSelection(fld, 0, FldGetTextLength(fld)); return true;
-	case mniEditKeyboard:	SysKeyboardDialog(kbdDefault); return true;
-	case mniEditGraffiti:	SysGraffitiReferenceDialog(referenceDefault); return true;
+	case mniEditKeyboard:	LinkHold(); SysKeyboardDialog(kbdDefault); return true;
+	case mniEditGraffiti:	LinkHold(); SysGraffitiReferenceDialog(referenceDefault); return true;
 	}
 	return false;
 }
 
 void Info(const char *a, const char *b, const char *c)
 {
+	LinkHold();
 	FrmCustomAlert(altInfo, a, b ? b : "", c ? c : "");
 	RedrawActive();
 }
 
+/* The same, titled "Connecting": what went wrong while Connect was running. */
+static void InfoConnecting(const char *a)
+{
+	LinkHold();
+	FrmCustomAlert(altConnecting, a, "", "");
+	RedrawActive();
+}
+
+static Boolean gConnecting;
+
 Boolean Ask(const char *a, const char *b, const char *c)
 {
-	Boolean yes = FrmCustomAlert(altAsk, a, b ? b : "", c ? c : "") == 0;
+	Boolean yes;
+
+	LinkHold();
+	yes = FrmCustomAlert(altAsk, a, b ? b : "", c ? c : "") == 0;
 
 	RedrawActive();
 	return yes;
+}
+
+/* Unpair: 0 keep the messages, 1 delete everything, 2 cancel. */
+Int16 AskUnpair(const char *name)
+{
+	Int16 choice;
+
+	LinkHold();
+	choice = FrmCustomAlert(altUnpair, name, "\nKeep: its messages stay here, read only.\nDelete: everything of it goes.", "");
+	RedrawActive();
+	return choice;
+}
+
+/* The same with OK and Cancel (what is about to be sent to the node). */
+Boolean AskOk(const char *a, const char *b, const char *c)
+{
+	Boolean ok;
+
+	LinkHold();
+	ok = FrmCustomAlert(altSend, a, b ? b : "", c ? c : "") == 0;
+
+	RedrawActive();
+	return ok;
 }
 
 /* The save-behind of an alert or box can leave the form half repainted, so repaint the whole form. */
@@ -228,9 +267,22 @@ static Boolean Updating(void)
 		(gFillTries < 40 && (gCfgStable < 3 || gNConv == 0 || gNNodes == 0 || gWantNodes || gWantChans)));
 }
 
+/* The node link has been up in this connection: before that "down" only means it has not come up yet. */
+static Boolean gLinkSeen;
+
+/* The node is restarting after a setting that does that: until WiRSa has it again the line reads Initialising... */
+void LinkRestarting(void)
+{
+	gLinkSeen = false;
+	gLinkState = 1;
+}
+
 void StatusLine(char *gInfoLine, Int16 px)
 {
 	char t[32];
+
+	if (! gWirsaUp) gLinkSeen = false;
+	else if (gLinkState == 2) gLinkSeen = true;
 
 	if (gPollFailed) {
 		StrCopy(gInfoLine, gLinkText);
@@ -240,40 +292,105 @@ void StatusLine(char *gInfoLine, Int16 px)
 		StrCopy(gInfoLine, "No node paired");
 	} else if (gLinkState == 2) {
 		if (Updating()) {
-			StrCopy(gInfoLine, "Updating...");
+			StrCopy(gInfoLine, gSyncPending ? "Fetching messages..." : gCfgPending ? "Reading settings..." : "Updating...");
 		} else {
-			StrCopy(gInfoLine, "Linked ");
+			StrCopy(gInfoLine, "Connected @ ");
 			FmtClock(gLastSync, t);
 			StrCat(gInfoLine, t);
 		}
 	} else {
-		StrCopy(gInfoLine, gLinkState == 3 ? "Link failed" : "Disconnected");
+		StrCopy(gInfoLine, gLinkState == 3 ? "Link failed" : gLinkSeen ? "Disconnected" : "Initialising...");
 	}
 	FitWidth(gInfoLine, px);
 }
 
-/* Battery of the paired node: a bar and the percentage, right aligned in the gadget. */
+/* The status line alone, redrawn at once: a fetch has just started. */
+static char gStatusBuf[44];
+static Boolean gHistDue;
+
+/* A menu pulled down is drawn over the form; whatever the app draws meanwhile lands on top of it. The app has no call that
+ * asks whether a menu is up, so it follows the events: the menu handler taking a pen-down or a key opens it, a chosen item or
+ * a pen-down it does not take closes it, and the state is forgotten after a few seconds in case a dismissal went unseen.
+ * Redraws wait until it is gone. */
+static Boolean gMenuUp, gRedrawPending;
+static Boolean gConnUp;						/* the Connecting form is open (below): the screens under it are not redrawn */
+static UInt32 gMenuTick;
+
+static Boolean MenuIsUp(void)
+{
+	if (gMenuUp && (Int32) (TimGetTicks() - gMenuTick) > 6 * SysTicksPerSecond()) gMenuUp = false;
+	return gMenuUp;
+}
+
+/* The form shows the new state - now, or when the menu has gone. */
+static void Redraw(UInt16 fid)
+{
+	if (fid != frmMain && fid != frmChat) return;
+	if (MenuIsUp() || gConnUp) { gRedrawPending = true; return; }
+	FrmUpdateForm(fid, updRefresh);
+}
+
+static void StatusRedraw(void)
+{
+	if (FrmGetActiveFormID() != frmMain) return;
+	if (MenuIsUp() || gConnUp) { gRedrawPending = true; return; }
+	StatusLine(gStatusBuf, STATUS_PX);
+	SetFieldPtr(fldMainInfo, gStatusBuf);
+	BattRedraw(gadMainBatt);
+}
+
+static Boolean StartSync(void)
+{
+	Boolean ok = LinkSyncStart();
+
+	StatusRedraw();
+	return ok;
+}
+
+/* Right of the status line: the battery of the paired node (a bar and the percentage, right aligned) and, left of the
+ * bar, a note when conversations hold unread messages. With no battery to show the note takes the right end. */
 Boolean BattGadget(FormGadgetType *g, UInt16 cmd, void *param)
 {
 	RectangleType r, bar;
 	char t[8];
-	Int16 w, pct;
+	Int16 w, pct, noteX;
+	Boolean batt = gWirsaUp && gLinkState == 2 && gMyBatt >= 0;
 
-	if (cmd != formGadgetDrawCmd || ! gWirsaUp || gLinkState != 2 || gMyBatt < 0) return true;
-	pct = gMyBatt > 100 ? 100 : gMyBatt;
-	t[0] = '\0';
-	PutNum(t, pct);
-	StrCat(t, "%");
-	FntSetFont(stdFont);
-	w = FntCharsWidth(t, (Int16) StrLen(t));
+	if (cmd != formGadgetDrawCmd) return true;
 	r = g->rect;
 	WinEraseRectangle(&r, 0);
-	WinDrawChars(t, (Int16) StrLen(t), (Coord) (r.topLeft.x + r.extent.x - w), r.topLeft.y - 1);
-	RctSetRectangle(&bar, (Coord) (r.topLeft.x + r.extent.x - w - 28), (Coord) (r.topLeft.y + 2), 24, 5);
-	WinDrawRectangleFrame(simpleFrame, &bar);
-	RctSetRectangle(&bar, (Coord) (bar.topLeft.x + 1), (Coord) (bar.topLeft.y + 1), (Coord) (22 * pct / 100), 3);
-	WinDrawRectangle(&bar, 0);
+	noteX = (Int16) (r.topLeft.x + r.extent.x - 9);
+	if (batt) {
+		pct = gMyBatt > 100 ? 100 : gMyBatt;
+		t[0] = '\0';
+		PutNum(t, pct);
+		StrCat(t, "%");
+		FntSetFont(stdFont);
+		w = FntCharsWidth(t, (Int16) StrLen(t));
+		WinDrawChars(t, (Int16) StrLen(t), (Coord) (r.topLeft.x + r.extent.x - w), r.topLeft.y - 1);
+		RctSetRectangle(&bar, (Coord) (r.topLeft.x + r.extent.x - w - 20), (Coord) (r.topLeft.y + 2), 16, 5);
+		WinDrawRectangleFrame(simpleFrame, &bar);
+		RctSetRectangle(&bar, (Coord) (bar.topLeft.x + 1), (Coord) (bar.topLeft.y + 1), (Coord) (14 * pct / 100), 3);
+		WinDrawRectangle(&bar, 0);
+		noteX = (Int16) (r.topLeft.x + r.extent.x - w - 20 - 11);
+	}
+	if (TotalUnread() > 0) {
+		char n = 0x0B;							/* the Symbol font's note */
+
+		FntSetFont(symbolFont);
+		WinDrawChars(&n, 1, noteX, (Coord) (r.topLeft.y - 1));
+		FntSetFont(stdFont);
+	}
 	return true;
+}
+
+/* Draws the gadget again alone (the form is not redrawn). */
+void BattRedraw(UInt16 gadgetId)
+{
+	FormPtr frm = FrmGetActiveForm();
+
+	if (! FrmVisible(frm)) return;
+	BattGadget((FormGadgetType *) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, gadgetId)), formGadgetDrawCmd, NULL);
 }
 
 /* Bring the link up (first time) or fetch what WiRSa holds. Says what went wrong unless quiet. */
@@ -282,14 +399,18 @@ static Boolean RunLink(Boolean quiet)
 	Boolean ok = true;
 
 	if (! gWirsaUp) {
-		if (! quiet) BusyCancel("Finding WiRSa and starting Mesh mode...");
+		if (! quiet) BusyCancel("Starting Meshtastic Mode...");
 		ok = LinkOpen();
 	}
-	if (ok) ok = LinkSyncStart();				/* the answer is read in the event loop: the screen stays free */
+	if (ok) ok = StartSync();				/* the answer is read in the event loop: the screen stays free */
 	if (! quiet) BusyDone();
 	if (ok) CacheSave();
 	gPollFailed = ! ok;
-	if (! ok && ! quiet && ! McCancelled()) Info(gLinkText[0] ? gLinkText : "WiRSa did not answer.", NULL, NULL);
+	if (! ok && ! quiet && ! McCancelled()) {
+		const char *why = gLinkText[0] ? gLinkText : "WiRSa did not answer.";
+
+		if (gConnecting) InfoConnecting(why); else Info(why, NULL, NULL);
+	}
 	return ok;
 }
 
@@ -299,8 +420,8 @@ void DoSync(void)
 {
 	Boolean ok;
 
-	if (! gWirsaUp) { Info("Not connected.", "Use Options > Connect first.", NULL); return; }
-	BusyCancel("Asking the node for news...");		/* WiRSa looks at the node now; its own schedule goes on */
+	if (! gWirsaUp) { Info("Not connected. Connect first.", NULL, NULL); return; }
+	BusyCancel("Updating from the node...");		/* WiRSa looks at the node now; its own schedule goes on */
 	ok = LinkNodeNow();
 	BusyDone();
 	if (! ok && McCancelled()) return;
@@ -309,13 +430,40 @@ void DoSync(void)
 	FrmUpdateForm(FrmGetActiveFormID(), updRefresh);
 }
 
+/* A request for the node (its node list, its settings) made while it is still pairing or loading is answered only when it is done, up to 45 s
+ * later, and the link is tied up meanwhile: so it is not made. False after saying so. */
+static Boolean NodeAsk(void)
+{
+	if (gLinkState == 2 && ! gSyncPending && ! gCfgPending) return true;
+	Info("The node is still connecting.", "Try again when the status", "line reads Connected.");
+	return false;
+}
+
+/* The Nodes list's Sync: the node sends its node list again, then it is fetched. */
+void DoNodeSync(void)
+{
+	Boolean ok;
+
+	if (! gWirsaUp) { Info("Not connected. Connect first.", NULL, NULL); return; }
+	if (! NodeAsk()) return;
+	BusyCancel("Updating nodes list...");
+	ok = LinkNodeList();
+	if (ok) { gWantNodes = true; ok = LinkSync(); }
+	BusyDone();
+	if (! ok && McCancelled()) return;
+	if (! ok) { Info(gLinkText[0] ? gLinkText : "WiRSa did not answer.", NULL, NULL); return; }
+	CacheSave();
+	FrmUpdateForm(FrmGetActiveFormID(), updRefresh);
+}
+
 /* The node's settings come from WiRSa first, so the pages show what the node has now. */
 void OpenSetup(void)
 {
 	Boolean ok;
 
-	if (! gWirsaUp) { Info("Not connected.", "Use Options > Connect first.", NULL); return; }
-	BusyCancel("Updating settings from the node...");
+	if (! gWirsaUp) { Info("Not connected. Connect first.", NULL, NULL); return; }
+	if (! NodeAsk()) return;
+	BusyCancel("Getting settings from the node...");
 	ok = LinkCfgGet();
 	BusyDone();
 	if (! ok && McCancelled()) return;
@@ -323,11 +471,105 @@ void OpenSetup(void)
 	FrmPopupForm(frmSetup);
 }
 
+/* ---- frmConnect ------------------------------------------------------------------------------ */
+
+/* After the link is up, WiRSa connects to the node over Bluetooth and the node hands over its settings, channels and nodes (30 s and
+ * more). A request made meanwhile waits for the node and ties the link up, so this form holds the screen until the node is loaded:
+ * "Connecting..." turns to "Connected", and the form closes. The main loop goes on under it (IdleWork), the screens below are not
+ * redrawn until it has closed. Cancel hangs up (the same as Disconnect). */
+static UInt16 gConnUnder;					/* the form it was opened over */
+static UInt32 gConnUntil, gConnDoneAt;		/* give up waiting at; "Connected" shown until (0 = not yet) */
+static char gConnTitle[16];
+
+MC_UI static Boolean NodeLoaded(void)
+{
+	return gLinkState == 2 && ! gSyncPending && ! gCfgPending && (! Updating() || (gCfgStable >= 3 && gNNodes > 0));
+}
+
+MC_UI static void ConnectText(const char *title, const char *msg)
+{
+	FormPtr frm = FrmGetActiveForm();
+	FieldPtr fld;
+
+	if (FrmGetActiveFormID() != frmConnect) return;
+	StrCopy(gConnTitle, title);
+	FrmSetTitle(frm, gConnTitle);
+	fld = (FieldPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, fldConnText));
+	FldSetTextPtr(fld, (char *) msg);
+	FldRecalculateField(fld, true);
+}
+
+MC_UI static void ConnectClose(void)
+{
+	UInt16 under = gConnUnder;
+
+	gConnUp = false;
+	if (FrmGetActiveFormID() == frmConnect) {
+		FldSetTextPtr((FieldPtr) FrmGetObjectPtr(FrmGetActiveForm(), FrmGetObjectIndex(FrmGetActiveForm(), fldConnText)), NULL);
+		FrmReturnToForm(under);
+	}
+	FrmUpdateForm(under, updRefresh);
+}
+
+MC_UI Boolean ConnectHandleEvent(EventPtr e)
+{
+	switch (e->eType) {
+	case frmOpenEvent:
+		ConnectText("Connecting", "Connecting to the node...");
+		FrmDrawForm(FrmGetActiveForm());
+		return true;
+	case ctlSelectEvent:
+		if (e->data.ctlSelect.controlID == btnConnCancel) {
+			CacheSave();
+			LinkClose();						/* Cancel hangs up: the node is not left half connected */
+			gPollFailed = false;
+			ConnectClose();
+			Info("Not connected.", "The connection was cancelled.", NULL);
+			return true;
+		}
+		break;
+	default: break;
+	}
+	return false;
+}
+
+/* Called by the loop while no event is waiting: is the node loaded, has the wait run out, has "Connected" been shown long enough. */
+MC_UI static void ConnectTick(void)
+{
+	if (! gConnUp || FrmGetActiveFormID() != frmConnect) return;	/* not open yet */
+	if (gConnDoneAt) {
+		if ((Int32) (TimGetTicks() - gConnDoneAt) >= 0) {
+			if (gWirsaUp && gLinkState == 2 && gConnUnder == frmRelay) LinkRelayGet();	/* a node switched to in Pair Device: its relay settings */
+			ConnectClose();
+		}
+	} else if (! gWirsaUp || gLinkState == 3 || gPollFailed || (Int32) (TimGetTicks() - gConnUntil) >= 0) {
+		Boolean failed = gWirsaUp && gLinkState == 3;
+
+		ConnectClose();
+		if (failed) Info("The node link failed.", "Check the node and try again.", NULL);
+	} else if (NodeLoaded()) {
+		ConnectText("Connected", "Connected");
+		FldDrawField((FieldPtr) FrmGetObjectPtr(FrmGetActiveForm(), FrmGetObjectIndex(FrmGetActiveForm(), fldConnText)));
+		gConnDoneAt = TimGetTicks() + SysTicksPerSecond() * 3 / 4;
+	}
+}
+
+MC_UI void ConnectOpen(void)
+{
+	gConnUnder = FrmGetActiveFormID();
+	gConnUntil = TimGetTicks() + 90 * SysTicksPerSecond();
+	gConnDoneAt = 0;
+	gConnUp = true;
+	FrmPopupForm(frmConnect);
+}
+
 void DoConnect(void)
 {
 	if (gWirsaUp) { Info("Already connected.", NULL, NULL); return; }
-	RunLink(false);
-	FrmUpdateForm(FrmGetActiveFormID(), updRefresh);
+	gConnecting = true;
+	if (RunLink(false) && gWirsaUp) ConnectOpen();
+	gConnecting = false;
+	if (! gConnUp) FrmUpdateForm(FrmGetActiveFormID(), updRefresh);
 }
 
 /* Hangs up: Bye to WiRSa (in Session mode that ends Mesh mode), the serial port is released. */
@@ -369,15 +611,38 @@ static Boolean PageList(WChar chr)
 
 static char gBaudLabel[8];
 
+static void Place(FormPtr frm, UInt16 id, Coord x, Coord y)
+{
+	FrmSetObjectPosition(frm, FrmGetObjectIndex(frm, id), x, y);
+}
+
+/* The three labels end in a colon at the same x - the colon of the longest, "Screenless Mode:" - and the values start just after. */
+static void PrefsAlign(FormPtr frm)
+{
+	FontID prev = FntSetFont(boldFont);
+	Coord colon = (Coord) (4 + FntCharsWidth("Screenless Mode:", 16));
+	Coord wBaud = FntCharsWidth("Baud:", 5), wHist = FntCharsWidth("SD History:", 11);
+
+	FntSetFont(prev);
+	Place(frm, lblPrefBaud, (Coord) (colon - wBaud), 22);
+	Place(frm, lblPrefHist, (Coord) (colon - wHist), 58);
+	Place(frm, popPrefBaud, (Coord) (colon + 3), 22);
+	Place(frm, lstPrefBaud, (Coord) (colon + 3), 22);
+	Place(frm, ckPrefAuto, (Coord) (colon + 3), 41);
+	Place(frm, ckPrefHist, (Coord) (colon + 3), 57);
+}
+
 Boolean PrefsHandleEvent(EventPtr e)
 {
 	FormPtr frm;
 	switch (e->eType) {
 	case frmOpenEvent:
 		frm = FrmGetActiveForm();
+		PrefsAlign(frm);
 		SetPopup(popPrefBaud, lstPrefBaud, gPrefs.baud % 7, gBaudLabel, sizeof(gBaudLabel));
 		CtlSetValue((ControlPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, ckPrefAuto)), gPrefs.autoMode ? 1 : 0);
-		SetFieldPtr(fldPrefNote1, "Finds WiRSa, picks the speed and starts the mode on its own.");
+		CtlSetValue((ControlPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, ckPrefHist)), gPrefs.sdHist ? 1 : 0);
+		SetFieldPtr(fldPrefNote1, "Screenless: finds WiRSa and starts the mode itself. SD History: keep texts on WiRSa's SD card.");
 		FrmDrawForm(frm);
 		return true;
 
@@ -402,6 +667,7 @@ Boolean PrefsHandleEvent(EventPtr e)
 
 				gPrefs.baud = (UInt8) GetListSel(lstPrefBaud);
 				gPrefs.autoMode = CtlGetValue((ControlPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, ckPrefAuto))) != 0;
+				gPrefs.sdHist = CtlGetValue((ControlPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, ckPrefHist))) != 0;
 				PrefsSave();
 				if (gWirsaUp && (gPrefs.baud != oldBaud || gPrefs.autoMode != oldAuto)) {
 					LinkClose();				/* the next Sync connects again with the new settings */
@@ -409,7 +675,7 @@ Boolean PrefsHandleEvent(EventPtr e)
 				}
 			}
 			FrmReturnToForm(frmMain);
-			FrmUpdateForm(frmMain, updRefresh);
+			FrmUpdateForm(frmMain, updFull);
 			return true;
 		case btnPrefCancel:
 			FrmReturnToForm(frmMain);
@@ -602,9 +868,11 @@ static Boolean AppHandleEvent(EventPtr e)
 		case frmDevice:		FrmSetEventHandler(frm, DeviceHandleEvent); break;
 		case frmChList:		FrmSetEventHandler(frm, ChListHandleEvent); break;
 		case frmChEdit:		FrmSetEventHandler(frm, ChEditHandleEvent); break;
+		case frmMqtt:		FrmSetEventHandler(frm, MqttHandleEvent); break;
 		case frmActions:	FrmSetEventHandler(frm, ActionsHandleEvent); break;
 		case frmRelay:		FrmSetEventHandler(frm, RelayHandleEvent); break;
 		case frmClear:		FrmSetEventHandler(frm, ClearHandleEvent); break;
+		case frmConnect:	FrmSetEventHandler(frm, ConnectHandleEvent); break;
 		}
 		return true;
 	}
@@ -621,6 +889,69 @@ static UInt32 Signature(void)
 	return v + gLinkState * 1000;
 }
 
+/* What is done while no event is waiting: the link kept alive, a failed fetch noticed, what is missing asked for again, the node list fetched, and what WiRSa sends read. */
+MC_UI static void IdleWork(UInt16 fid)
+{
+	if (! gWirsaUp) return;
+	LinkKeepAlive();
+	if (LinkAsyncCheck()) { gPollFailed = true; if (fid == frmMain || fid == frmChat) Redraw(fid); else FrmUpdateForm(fid, updRefresh); }
+	if (Updating() && ! gSyncPending && ! gCfgPending && (fid == frmMain || fid == frmChat) && (Int32) (TimGetTicks() - gNextFill) >= 0) {
+		Coord px, py;
+		Boolean down;
+
+		gNextFill = TimGetTicks() + 3 * SysTicksPerSecond();
+		EvtGetPen(&px, &py, &down);
+		if (down || EvtEventAvail()) return;
+		gFillTries++;						/* asked again, a few times, without waiting for the answer */
+		gPollFailed = ! StartSync();
+		return;
+	}
+	if (gNodesRefresh && fid == frmMain) {		/* the page is drawn: now fetch the node list */
+		gNodesRefresh = false;
+		if (gNNodes == 0 || (Int32) (TimGetSeconds() - gNodesAt) > 300) {	/* a list the Palm holds is not fetched again at every switch */
+			gWantNodes = true;
+			if (! gSyncPending && ! gCfgPending) { gNodesAt = TimGetSeconds(); StartSync(); }
+		}
+		return;
+	}
+	/* EvtGetEvent can return early (the serial driver wakes it), so look at the clock too */
+	if ((Int32) (TimGetTicks() - gNextCheck) >= 0) {
+		UInt16 got;
+		Coord px, py;
+		Boolean down;
+
+		gNextCheck = TimGetTicks() + 10;
+		EvtGetPen(&px, &py, &down);
+		if (down || EvtEventAvail()) return;		/* never start work while the user is touching the screen */
+		if (RpPending() == 0) return;
+		{
+			UInt32 before = Signature();
+
+			got = LinkPump();
+			if (got & 16) gPollFailed = true;
+			if (got & 8) gPollFailed = false;
+			if (got & 1) gNewsAgain = true;
+			if (gNewsAgain && ! gSyncPending && ! gCfgPending) {	/* WiRSa has news: fetch just that */
+				gNewsAgain = false;
+				gPollFailed = ! StartSync();
+			}
+			if (got & 12) { CacheSave(); Redraw(fid); }	/* settings, channels, nodes: kept for the next launch */
+			else if (got & 32) {					/* the link to the node changed: say so at once */
+				Redraw(fid);
+			}
+			else if (got && ! gSyncPending && Signature() != before) {	/* a fetch under way is saved and drawn once, when it is done */
+				CacheSave();
+				Redraw(fid);
+			}
+			if (got & 8) gHistDue = true;
+			if (gHistDue && ! gSyncPending && ! gCfgPending) {	/* saved above, and no fetch running (a frame in the middle of one is lost) */
+				gHistDue = false;
+				LinkHistSend();					/* WiRSa may empty its SD copy */
+			}
+		}
+	}
+}
+
 static void EventLoop(void)
 {
 	EventType e;
@@ -630,65 +961,23 @@ static void EventLoop(void)
 		UInt16 fid = FrmGetActiveFormID();
 
 		McClearCancel();
+		if (! MenuIsUp()) MainConnSync();
 		/* With the link up the wait is short only to look at the local serial buffer: nothing is asked of
 		 * WiRSa, it tells the Palm when there is news. */
 		EvtGetEvent(&e, gWirsaUp ? 20 : evtWaitForever);
 		if (e.eType == nilEvent) {
-			if (! gWirsaUp) continue;
-			if (LinkAsyncCheck()) { gPollFailed = true; FrmUpdateForm(fid, updRefresh); }
-			if (Updating() && ! gSyncPending && ! gCfgPending && (fid == frmMain || fid == frmChat) && (Int32) (TimGetTicks() - gNextFill) >= 0) {
-				Coord px, py;
-				Boolean down;
-
-				gNextFill = TimGetTicks() + 3 * SysTicksPerSecond();
-				EvtGetPen(&px, &py, &down);
-				if (down || EvtEventAvail()) continue;
-				gFillTries++;						/* asked again, a few times, without waiting for the answer */
-				gPollFailed = ! LinkSyncStart();
-				continue;
-			}
-			if (gNodesRefresh && fid == frmMain) {		/* the page is drawn: now fetch the node list */
-				gNodesRefresh = false;
-				gWantNodes = true;
-				if (! gSyncPending && ! gCfgPending) LinkSyncStart();
-				continue;
-			}
-			/* EvtGetEvent can return early (the serial driver wakes it), so look at the clock too */
-			if ((Int32) (TimGetTicks() - gNextCheck) >= 0) {
-				UInt16 got;
-				Coord px, py;
-				Boolean down;
-
-				gNextCheck = TimGetTicks() + 10;
-				EvtGetPen(&px, &py, &down);
-				if (down || EvtEventAvail()) continue;		/* never start work while the user is touching the screen */
-				if (RpPending() == 0) continue;
-				{
-					UInt32 before = Signature();
-
-					got = LinkPump();
-					if (got & 16) gPollFailed = true;
-					if (got & 8) gPollFailed = false;
-					if (got & 1) gNewsAgain = true;
-					if (gNewsAgain && ! gSyncPending && ! gCfgPending) {	/* WiRSa has news: fetch just that */
-						gNewsAgain = false;
-						gPollFailed = ! LinkSyncStart();
-					}
-					if (got & 12) { CacheSave(); if (fid == frmMain || fid == frmChat) FrmUpdateForm(fid, updRefresh); }	/* settings, channels, nodes: kept for the next launch */
-					else if (got & 32) {					/* the link to the node changed: say so at once */
-						if (fid == frmMain || fid == frmChat) FrmUpdateForm(fid, updRefresh);
-					}
-					else if (got && Signature() != before) {
-						CacheSave();
-						if (fid == frmMain || fid == frmChat) FrmUpdateForm(fid, updRefresh);
-					}
-				}
-			}
+			if (gRedrawPending && ! MenuIsUp()) { gRedrawPending = false; Redraw(fid); }	/* what arrived while a menu was down */
+			IdleWork(gConnUp ? frmMain : fid);
+			if (gConnUp) ConnectTick();
 			continue;
 		}
 		if (e.eType == keyDownEvent && PageList(e.data.keyDown.chr)) continue;
 		if (SysHandleEvent(&e)) continue;
-		if (MenuHandleEvent(0, &e, &err)) continue;
+		if (MenuHandleEvent(0, &e, &err)) {
+			if (e.eType == penDownEvent || e.eType == keyDownEvent || e.eType == menuOpenEvent) { gMenuUp = true; gMenuTick = TimGetTicks(); }
+			continue;
+		}
+		if (e.eType == penDownEvent || e.eType == menuEvent) gMenuUp = false;		/* a tap the menu did not take, or an item chosen */
 		if (AppHandleEvent(&e)) continue;
 		FrmDispatchEvent(&e);
 		/* the field posts no change event for a one-line edit, so the counters follow the keys and menu */

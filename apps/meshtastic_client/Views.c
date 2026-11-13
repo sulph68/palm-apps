@@ -87,7 +87,7 @@ static MC_UI UInt16 Total(void)
 
 static MC_UI UInt16 Visible(void)
 {
-	return gCat == 2 ? NODE_ROWS : MAIN_ROWS;
+	return NODE_ROWS;							/* all three views leave the bottom for the Find row or the Connect and Sync Now buttons */
 }
 
 static MC_UI TableType *MainTable(void)
@@ -102,8 +102,8 @@ static MC_UI void DrawMainRow(void *table, Int16 row, Int16 column, RectangleTyp
 {
 	UInt16 k = (UInt16) (gTop + row);
 	char name[56], t[32], cnt[8];
-	Int16 right = (Int16) (b->topLeft.x + b->extent.x - 2), tw, nameW;
-	Boolean bold;
+	Int16 right = (Int16) (b->topLeft.x + b->extent.x - 2), tw, nameW, textX;
+	Boolean bold, key = false;
 	FontID old;
 
 	if (k >= Total()) return;
@@ -113,23 +113,8 @@ static MC_UI void DrawMainRow(void *table, Int16 row, Int16 column, RectangleTyp
 
 		StrCopy(name, n->longName);
 		bold = n->fav;
-		{	/* the time text is worked out once for a node and day, not on every redraw */
-			static Stamp sHeard[MAX_NODE];
-			static Int32 sDay = -1;
-			static char sTxt[MAX_NODE][14];
-			static Boolean sOk[MAX_NODE];
-			UInt16 ni = gNodeView[k];
-			Int32 today = DayOf(NowUtc());
-
-			if (today != sDay) { sDay = today; MemSet(sOk, sizeof(sOk), 0); }
-			if (! sOk[ni] || sHeard[ni] != n->heard) {
-				FmtListTime(n->heard, t);
-				StrNCopy(sTxt[ni], t, 13);
-				sTxt[ni][13] = '\0';
-				sHeard[ni] = n->heard; sOk[ni] = true;
-			}
-			StrCopy(t, sTxt[ni]);
-		}
+		key = n->hasKey;
+		FmtListTime(n->heard, t);
 	} else {
 		const Conv *v = &gConv[gView[k]];
 
@@ -142,6 +127,7 @@ static MC_UI void DrawMainRow(void *table, Int16 row, Int16 column, RectangleTyp
 			ConvLabel(gView[k], name);
 		}
 		bold = v->unread != 0;
+		key = ! v->isChan && gNodes[v->index].hasKey;
 		FmtListTime(v->last, t);
 		if (v->unread) {
 			StrCopy(cnt, "(");
@@ -156,8 +142,10 @@ static MC_UI void DrawMainRow(void *table, Int16 row, Int16 column, RectangleTyp
 		StrCat(name, " - ");
 		StrCat(name, cnt);						/* the count sits beside the name */
 	}
-	nameW = (Int16) (right - tw - (b->topLeft.x + 2) - 4);
-	WinDrawTruncChars(name, (Int16) StrLen(name), (Coord) (b->topLeft.x + 2), b->topLeft.y, nameW);
+	textX = (Int16) (b->topLeft.x + 2 + (gCat != 0 ? 10 : 0));		/* Direct Msg and Nodes keep a column on the left for the key icon */
+	nameW = (Int16) (right - tw - textX - 4);
+	if (key) DrawKeyIcon((Coord) (b->topLeft.x + 2), b->topLeft.y);
+	DrawName(name, (Int16) StrLen(name), (Coord) textX, b->topLeft.y, nameW);
 	FntSetFont(old);
 }
 
@@ -232,9 +220,15 @@ static MC_UI void FindRedraw(void)
 		k = (UInt16) (gTop + r);
 		id = k < gNNodeView ? gNodeView[k] : 0xFFFF;
 		if (id == gShownNode[r]) continue;
-		TblGetItemBounds(t, r, 0, &b);
+		/* The rectangle is worked out from the table, not asked of it: a row that is not in use has none, and what it showed stayed on screen. */
+		FrmGetObjectBounds(FrmGetActiveForm(), FrmGetObjectIndex(FrmGetActiveForm(), tblMain), &b);
+		b.topLeft.y = (Coord) (b.topLeft.y + r * 11);
+		b.extent.y = 11;
 		WinEraseRectangle(&b, 0);
-		if (id != 0xFFFF) DrawMainRow(t, (Int16) r, 0, &b);
+		if (id != 0xFFFF) {
+			TblGetItemBounds(t, r, 0, &b);
+			DrawMainRow(t, (Int16) r, 0, &b);
+		}
 		gShownNode[r] = id;
 	}
 }
@@ -282,15 +276,55 @@ static MC_UI void ShowFind(Boolean on)
 	UInt16 ix = FrmGetObjectIndex(frm, sclMain);
 	RectangleType r;
 
-	ShowOne(lblMainFind, on);
-	ShowOne(fldMainFind, on);
-	ShowOne(btnMainClear, on);
+	/* Hiding an object erases its rectangle, and the two sets overlap: take the old ones away before the new ones are drawn. */
+	if (on) {
+		ShowOne(btnMainConn, false);							/* the other two views have Connect and Sync Now down there */
+		ShowOne(btnMainSync, false);
+		ShowOne(lblMainFind, true);
+		ShowOne(fldMainFind, true);
+		ShowOne(btnMainClear, true);
+		ShowOne(btnMainNodeSync, true);
+	} else {
+		ShowOne(lblMainFind, false);
+		ShowOne(fldMainFind, false);
+		ShowOne(btnMainClear, false);
+		ShowOne(btnMainNodeSync, false);
+		ShowOne(btnMainConn, true);
+		ShowOne(btnMainSync, true);
+	}
 	FrmGetObjectBounds(frm, ix, &r);
-	r.extent.y = on ? 112 : 121;
+	r.extent.y = 112;
 	FrmSetObjectBounds(frm, ix, &r);
 	FrmGetObjectBounds(frm, FrmGetObjectIndex(frm, tblMain), &r);		/* the table too, or its first draw covers the Find row */
-	r.extent.y = on ? 110 : 121;
+	r.extent.y = 110;
 	TblSetBounds(MainTable(), &r);
+}
+
+/* The Connect / Disconnect button says what a tap does. It is kept in step with the link at every pass of the event loop, and a tap
+ * does what the label says (a stale label must not turn Disconnect into Connect). */
+static Boolean gConnShown, gConnKnown;
+
+static MC_UI void ConnLabel(FormPtr frm)
+{
+	CtlSetLabel((ControlPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, btnMainConn)), gWirsaUp ? "Disconnect" : "Connect");
+	gConnShown = gWirsaUp;
+	gConnKnown = true;
+}
+
+MC_UI void MainConnSync(void)
+{
+	FormPtr frm;
+	UInt16 ix;
+
+	if (FrmGetActiveFormID() != frmMain || (gConnKnown && gConnShown == gWirsaUp)) return;
+	frm = FrmGetActiveForm();
+	if (gCat == 2) { ConnLabel(frm); return; }				/* the Nodes list has the Find row there: the button is hidden, only its label changes */
+	/* The button is taken away, relabelled and shown again: changing the label of a drawn button left bits of the old one now and then
+	 * when it was toggled quickly, and the hide erases the whole button first. */
+	ix = FrmGetObjectIndex(frm, btnMainConn);
+	FrmHideObject(frm, ix);
+	ConnLabel(frm);
+	FrmShowObject(frm, ix);
 }
 
 /* Everything the form shows, from the data. */
@@ -299,7 +333,8 @@ static MC_UI void MainFill(void)
 	FormPtr frm = FrmGetActiveForm();
 	UInt16 total, vis;
 
-	StatusLine(gInfo, 100);
+	StatusLine(gInfo, STATUS_PX);
+	ConnLabel(frm);
 	StrCopy(gTitle, gRelay.node[0] ? gRelay.node : "Meshtastic");
 	FrmSetTitle(frm, gTitle);
 	SetPopup(popMainCat, lstMainCat, gCat, gCatLabel, sizeof(gCatLabel));
@@ -342,8 +377,15 @@ MC_UI void MainFindPoll(void)
 	StrNCopy(gFindShown, p, sizeof(gFindShown) - 1);
 	gFindShown[sizeof(gFindShown) - 1] = '\0';
 	gTop = 0;
-	BuildView();
-	FindRedraw();
+	{
+		static UInt16 sCount = 0xFFFF;
+		UInt16 before = sCount;
+
+		BuildView();
+		sCount = gNNodeView;
+		if (before != gNNodeView) TableRedraw();				/* a shorter or longer list: the whole area is drawn again, nothing of the old one stays */
+		else FindRedraw();
+	}
 }
 
 static MC_UI void PageBy(Int16 dir)
@@ -380,6 +422,7 @@ MC_UI Boolean MainHandleEvent(EventPtr e)
 		return true;
 
 	case frmUpdateEvent:
+		if (e->data.frmUpdate.updateCode == updFull) FrmEraseForm(FrmGetActiveForm());		/* what the closed forms left behind */
 		MainFill();
 		FrmDrawForm(FrmGetActiveForm());
 		NoteShown();
@@ -427,6 +470,14 @@ MC_UI Boolean MainHandleEvent(EventPtr e)
 		if (e->data.ctlSelect.controlID == btnMainClear) {
 			SetFieldEdit(fldMainFind, "");
 			MainFindPoll();
+			return true;
+		}
+		if (e->data.ctlSelect.controlID == btnMainSync) { DoSync(); return true; }
+		if (e->data.ctlSelect.controlID == btnMainNodeSync) { DoNodeSync(); return true; }
+		if (e->data.ctlSelect.controlID == btnMainConn) {
+			if (gConnShown) { if (gWirsaUp) DoDisconnect(); }		/* the label said Disconnect */
+			else if (! gWirsaUp) DoConnect();					/* the label said Connect */
+			MainConnSync();									/* whichever it was, the label is the truth again */
 			return true;
 		}
 		break;
@@ -491,7 +542,7 @@ static MC_UI const char *NiLabel(UInt16 i)
 
 static MC_UI void NodeInfoFill(void)
 {
-	const Node *n = &gNodes[gCurNode];
+	const NodeFull *n = &gCard;
 	UInt16 i, dm, count = 0;
 	Int16 maxw = 0, w;
 
@@ -543,7 +594,7 @@ static MC_UI void NodeInfoFill(void)
 static MC_UI Boolean NiTappable(UInt16 i)
 {
 	if (i == NI_CHATS) return gCurNode != 0;
-	if (i == NI_POS) return gNodes[gCurNode].pos[0] != '\0';
+	if (i == NI_POS) return gCard.pos[0] != '\0';
 	return false;
 }
 
@@ -567,9 +618,11 @@ static MC_UI void NiDrawLine(void *table, Int16 row, Int16 column, RectangleType
 	WinDrawChars(":", 1, (Coord) (x + gNiColonX), y);
 	vx = (Int16) (x + gNiValueX);
 	if (len > 0 && vx < right) {
-		Int16 room = (Int16) (right - vx), vw = FntCharsWidth(gNiVal[i], len);
+		Int16 room = (Int16) (right - vx), vw = NameWidth(gNiVal[i], len);
 
-		WinDrawTruncChars(gNiVal[i], len, vx, y, room);
+		DrawName(gNiVal[i], len, vx, y, room);
+		if (i == 1 && gCard.hasKey && vw + 3 + 7 <= room)		/* the short name: a key after it when the public key is known */
+			DrawKeyIcon((Coord) (vx + vw + 4), y);
 		if (NiTappable(i))							/* a line that does something: underlined */
 			WinDrawLine(vx, (Coord) (y + FntLineHeight() - 1), (Coord) (vx + (vw < room ? vw : room)),
 				(Coord) (y + FntLineHeight() - 1));
@@ -623,7 +676,7 @@ static MC_UI void NodeInfoAct(UInt16 row)
 		gCat = 1;
 		FrmGotoForm(frmChat);
 	} else if (row == NI_POS) {
-		if (gNodes[gCurNode].pos[0])
+		if (gCard.pos[0])
 			Info("Opening this position in a map app is planned.", NULL, NULL);
 		else
 			Info("This node has not reported a position.", NULL, NULL);
@@ -638,8 +691,10 @@ MC_UI Boolean NodeHandleEvent(EventPtr e)
 	switch (e->eType) {
 	case frmOpenEvent:
 		frm = FrmGetActiveForm();
+		LinkNodeGet(gCurNode);					/* the card: WiRSa sends the node in full */
 		NodeInfoFill();
-		StrCopy(gNodeTitle, gNodes[gCurNode].longName);
+		StrCopy(gNodeTitle, gCard.longName);
+		FlatName(gNodeTitle);
 		FrmSetTitle(frm, gNodeTitle);
 		FrmSetGadgetHandler(frm, FrmGetObjectIndex(frm, gadNodeLine), LineGadget);
 		gNiTop = 0;
@@ -692,8 +747,11 @@ MC_UI Boolean NodeHandleEvent(EventPtr e)
 		switch (e->data.ctlSelect.controlID) {
 		case ckNodeFav:
 			gNodes[gCurNode].fav = e->data.ctlSelect.on != 0;
-			if (gWirsaUp && ! LinkFav(gNodes[gCurNode].num, gNodes[gCurNode].fav))
+			if (gWirsaUp && ! LinkFav(gNodes[gCurNode].num, gNodes[gCurNode].fav)) {	/* the node did not take it: no mark that a refresh would wipe */
+				gNodes[gCurNode].fav = ! gNodes[gCurNode].fav;
+				CtlSetValue((ControlPtr) FrmGetObjectPtr(FrmGetActiveForm(), FrmGetObjectIndex(FrmGetActiveForm(), ckNodeFav)), gNodes[gCurNode].fav ? 1 : 0);
 				Info(gLinkText[0] ? gLinkText : "The node was not told.", NULL, NULL);
+			}
 			CacheSave();
 			return true;
 		case btnNodeMsg:

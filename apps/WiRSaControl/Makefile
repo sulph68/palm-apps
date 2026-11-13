@@ -8,7 +8,7 @@
       OBJS = $(B)/WiRSaControl.o $(B)/Modes.o $(B)/Wifi.o $(B)/Setup.o $(B)/Log.o \
              $(B)/wirsactl.o $(B)/relayproto.o $(B)/relaywire.o $(B)/relaysec.o $(B)/aes.o
 
-  INCLUDES = $(shell find /home/cnrai/palmos_sdk/palm-os-sdk/sdk-4/include -type d | sed 's/^/-I/' | tr '\n' ' ') -I../lib -I.
+  INCLUDES = $(shell find $(HOME)/palmos_sdk/palm-os-sdk/sdk-4/include -type d | sed 's/^/-I/' | tr '\n' ' ') -I../lib -I.
     CFLAGS = -palmos4 -Os -Wall -Wno-unknown-pragmas -Wno-multichar $(INCLUDES)
 
      PILRC = pilrc

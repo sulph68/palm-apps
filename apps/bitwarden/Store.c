@@ -109,7 +109,7 @@ SEC001 UInt32 BwGetBaud(void)
 /* Record header layout (big-endian on-disk convention, matches this
  * project's own AddressDB35.c rdU16/wrU16 idiom):
  *   [0]           itemType (0=folder marker, bwOrgMarkerType=org marker,
- *                 else a real PROTOCOL.md itemType 1..4)
+ *                 else a real Protocol-wire.md (WiRSa docs/protocol) itemType 1..4)
  *   [1..2]        folderIndex (plaintext - fast filtering without
  *                 decrypting every record). For a folder/org MARKER record,
  *                 this instead holds the marker's own sequence index
@@ -177,7 +177,7 @@ typedef struct {
 	char serverURL[128];
 	char email[80];
 	UInt8 formatVersion;	/* bwStoreFormatVersion - see BwStoreInit */
-	/* Bitwarden's own "remember this device for 2FA" token (PROTOCOL.md's
+	/* Bitwarden's own "remember this device for 2FA" token (Protocol-wire.md (WiRSa docs/protocol)'s
 	 * SYNC/SYNC_DONE) - credential-adjacent (lets a future sync skip a real
 	 * auth factor), so encrypted at rest, unlike the plaintext fields above
 	 * which don't grant access to anything by themselves. See
@@ -213,7 +213,7 @@ typedef struct {
  * old on-disk record is off by one byte under the new layout (same failure
  * mode as the v2->v3 bump: content bytes misread as length-prefix bytes and
  * vice versa). At the time of THIS bump, WiRSa didn't send the flag yet
- * (see PROTOCOL.md's own SYNC_ITEM note for when that changed) - this wipe
+ * (see Protocol-wire.md (WiRSa docs/protocol)'s own SYNC_ITEM note for when that changed) - this wipe
  * still applies the same mechanical safety net regardless. */
 #define bwStoreFormatVersion	4
 
@@ -674,7 +674,7 @@ void BwTouchSessionKeys(void)
 }
 
 /* ------------------------------------------------------------------ *
- *  persisted "remember this device for 2FA" token (PROTOCOL.md's SYNC/
+ *  persisted "remember this device for 2FA" token (Protocol-wire.md (WiRSa docs/protocol)'s SYNC/
  *  SYNC_DONE) - lets a future sync skip Bitwarden's own interactive 2FA
  *  challenge, matching every real Bitwarden client's own behavior. Unlike
  *  gCachedPwEnc above (RAM-only, session-scoped, TTL-backstopped), this

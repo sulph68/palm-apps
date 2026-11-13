@@ -16,6 +16,9 @@
 #define lblMainFind				1009
 #define fldMainFind				1014
 #define btnMainClear			1013
+#define btnMainConn				1015
+#define btnMainSync				1016
+#define btnMainNodeSync			1017
 #define mnuMain					1000
 #define mniMainSync				1020
 #define mniMainConnect			1030
@@ -57,6 +60,7 @@
 #define fldMsgText				3401
 #define sclMsg					3402
 #define btnMsgDone				3403
+#define fldMsgHead				3404
 
 #define frmPos					3500
 #define fldPosLat				3501
@@ -77,6 +81,9 @@
 #define frmBusy					3300
 #define fldBusyText				3301
 #define btnBusyCancel			3302
+#define frmConnect				3310
+#define fldConnText				3311
+#define btnConnCancel			3312
 
 #define frmSetup				1400
 #define lstSetup				1401
@@ -126,6 +133,21 @@
 #define btnChBack				1811
 
 #define frmChEdit				1900
+#define ckChUplink				1980
+#define ckChDownlink			1981
+#define frmMqtt					1950
+#define fldMqAddr				1951
+#define fldMqUser				1952
+#define fldMqPass				1953
+#define fldMqRoot				1954
+#define ckMqEnabled				1955
+#define ckMqEncrypt				1956
+#define ckMqTls					1957
+#define ckMqJson				1958
+#define ckMqProxy				1959
+#define ckMqMap					1960
+#define btnMqOk					1961
+#define btnMqCancel				1962
 #define fldChName				1901
 #define popChRole				1902
 #define lstChRole				1903
@@ -144,7 +166,8 @@
 #define btnActDone				2012
 
 #define frmRelay				2100
-#define fldRelayNode			2101
+#define popRelayNode			2119
+#define lstRelayNode			2122
 #define popRelayMode			2102
 #define lstRelayMode			2103
 #define popRelayEvery			2104
@@ -152,6 +175,9 @@
 #define btnRelayScan			2110
 #define btnRelayDone			2113
 #define lblRelayEvery			2107
+#define popRelayFlush			2116
+#define lstRelayFlush			2117
+#define lblRelayFlush			2118
 
 #define lstScan					2201
 #define btnScanPair				2210
@@ -177,6 +203,9 @@
 #define lstPrefTest				2505
 #define fldPrefNote1			2506
 #define fldPrefNote2			2507
+#define ckPrefHist				2508
+#define lblPrefBaud				2509
+#define lblPrefHist				2512
 #define btnPrefOk				2510
 #define btnPrefCancel			2511
 
@@ -196,8 +225,13 @@
 #define btnKeyOk				2622
 #define btnKeyCancel			2623
 
+#define bmpKey					3500
+
 #define altInfo					3000
 #define altAsk					3001
+#define altUnpair				3009
+#define altConnecting			3002
+#define altSend					3003
 
 #define mnuEdit					3100
 #define mniEditUndo				3101

@@ -71,6 +71,9 @@
 #define lblSetupSleep			1330
 #define popSetupSleep			1331
 #define lstSetupSleep			1332
+#define lblSetupPulse			1333
+#define popSetupPulse			1334
+#define lstSetupPulse			1335
 #define btnSetupOk				1320
 #define btnSetupCancel			1321
 
@@ -90,6 +93,9 @@
 #define popTimersSlip			1503
 #define lstTimersSlip			1504
 #define lblTimersSlip			1505
+#define popTimersSasd			1506
+#define lstTimersSasd			1507
+#define lblTimersSasd			1508
 #define btnTimersOk				1510
 #define btnTimersCancel			1511
 

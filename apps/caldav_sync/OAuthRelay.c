@@ -64,12 +64,13 @@ SEC004 Boolean OAuthRelayRunGoogleSignIn(CDDVSlot *slot, UInt8 slotIndex)
 		return false;
 	}
 
-	if (rxType == CDDV_SYNC_ERROR) {
+	if (rxType == CDDV_ERR) {
 		/* WiRSa declined to start (e.g. no Client ID configured there yet) -
 		 * the body is the error message it wants shown. */
 		char msg[128];
 		CDDVR r;
 		r.buf = gOAuthBody; r.len = rxLen; r.pos = 0; r.ok = true;
+		cr8(&r);	/* the code */
 		crStr(&r, msg, sizeof(msg));
 		FrmCustomAlert(altErr, r.ok && msg[0] ? msg : "WiRSa reported an error.", NULL, NULL);
 		CDDVSerialClose();
@@ -134,10 +135,11 @@ SEC004 Boolean OAuthRelayRunGoogleSignIn(CDDVSlot *slot, UInt8 slotIndex)
 			MemSet(token, sizeof(token), 0);
 			break;
 		}
-		if (rxType == CDDV_SYNC_ERROR) {
+		if (rxType == CDDV_ERR) {
 			char msg[128];
 			CDDVR r;
 			r.buf = gOAuthBody; r.len = rxLen; r.pos = 0; r.ok = true;
+			cr8(&r);	/* the code */
 			crStr(&r, msg, sizeof(msg));
 			SyncProgressHide();
 			FrmCustomAlert(altErr, r.ok && msg[0] ? msg : "WiRSa reported an error.", NULL, NULL);

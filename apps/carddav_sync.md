@@ -160,21 +160,16 @@ working. The conversion applies only to fields that are displayed.
 4 = iCloud Contacts (URL `https://{server}/{uuid = DSID}/carddavhome/{path or "card"}/`), 5 =
 CardDAV Contacts (`joinUrl(server, path)`); one `addressbook-query` REPORT, streamed through
 the calendar multistatus reader with its tag switched to `address-data`; each card goes
-through `CardDav::trimCard` (`carddav_card.cpp`). Frames, both acked with `CDDV_ITEM_ACK`:
+through `CardDav::trimCard` (`carddav_card.cpp`). Frames, both acked with `CDDV_ACK`:
 
-- `CDDV_CONTACT_ITEM` (0x0C): uid str, displayName str, sortName str, nDates u8,
-  {year u16 (0 = unknown), month u8, day u8, kind u8 (0 birthday, 1 engagement, 2 remembrance,
-  3 wedding, 4 work, 5 other), name str}×nDates (max 8), nCategories u8, {str}×n (max 16),
-  text str (trimmed vCard lines, `\n`-separated; cut at a line break if it would not fit the
-  3,192-byte frame).
-- `CDDV_GROUP_ITEM` (0x0D): uid str, name str, nMembers u8, {member uid str}×n - a big group
-  comes as several frames with the same uid.
+- `CDDV_CONTACT_ITEM` (0x0C) and `CDDV_GROUP_ITEM` (0x0D): the bodies are defined in the WiRSa repository's `docs/protocol/Protocol-wire.md`, section 10 (the only place they are written down; this
+  document does not repeat them). A big group comes as several `GROUP_ITEM` frames with the same uid.
 
 All text Palm Latin. Flash: +23 KB with it on (C++ containers), +0.1 KB with it off.
 
 | Frame | Body | Notes |
 |---|---|---|
-| Contact | UID, display name, sort name, dates, trimmed vCard text | Large cards are split into pieces. Each frame is acknowledged, like events (`CDDV_EVENT_ITEM` / `CDDV_ITEM_ACK`). **Dates:** birthday and each anniversary as `YYYYMMDD` (`0000` = year unknown) + kind (Birthday, Engagement, Remembrance, Wedding, Work, Other + name), already extracted, so CalDAV Sync can build the birthday index (§3.6) without parsing the vCard. |
+| Contact | UID, display name, sort name, dates, trimmed vCard text | Large cards are split into pieces. Each frame is acknowledged, like events (`CDDV_EVENT_ITEM` / `CDDV_ACK`). **Dates:** birthday and each anniversary as `YYYYMMDD` (`0000` = year unknown) + kind (Birthday, Engagement, Remembrance, Wedding, Work, Other + name), already extracted, so CalDAV Sync can build the birthday index (§3.6) without parsing the vCard. |
 | Group | Group name, member UIDs | iCloud only. Groups can arrive before or after their members, so the Palm applies them at the end. Member lines are `X-ADDRESSBOOKSERVER-MEMBER:urn:uuid:<UID>` (iCloud) or `MEMBER:urn:uuid:<UID>` on a `KIND:group` card (vCard 4 servers): strip `urn:uuid:` so they match the contacts' `UID` exactly. Many generic servers use `CATEGORIES:` inside each vCard instead (or as well). |
 
 Sync done, sync error and BYE are unchanged.

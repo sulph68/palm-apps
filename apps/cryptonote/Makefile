@@ -14,7 +14,7 @@
 #   DEFINES = -DDEBUG
    DEFINES = -D_MULTISEGMENT -DCATSYNC_MULTISEG 
 
-  INCLUDES = $(shell palm-includes 2>/dev/null || find /home/cnrai/palmos_sdk/palm-os-sdk/sdk-4/include -type d | sed 's/^/-I/' | tr '\n' ' ')
+  INCLUDES = $(shell palm-includes 2>/dev/null || find $(HOME)/palmos_sdk/palm-os-sdk/sdk-4/include -type d | sed 's/^/-I/' | tr '\n' ' ')
 
 # Target-OS flag. Defaults to -palmos4 (a native prc-tools install with
 # palmdev-prep-written specs, the intended/correct build). Override to empty on

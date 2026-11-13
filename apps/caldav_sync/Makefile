@@ -15,7 +15,7 @@
 
    DEFINES = -DPALMOS4
 
-  INCLUDES = $(shell find /home/cnrai/palmos_sdk/palm-os-sdk/sdk-4/include -type d | sed 's/^/-I/' | tr '\n' ' ') -I../lib
+  INCLUDES = $(shell find $(HOME)/palmos_sdk/palm-os-sdk/sdk-4/include -type d | sed 's/^/-I/' | tr '\n' ' ') -I../lib
 
 PALMOS_FLAG ?= -palmos4
 
@@ -25,7 +25,7 @@ PALMOS_FLAG ?= -palmos4
 # ../lib/enccore.c's own "#include sects.h" resolves relative to ITS OWN
 # directory and needs ENCCORE_SECTION already defined to skip the
 # single-segment fallback.
-    CFLAGS = $(PALMOS_FLAG) -Os $(DEFINES) $(INCLUDES) -I../lib -I. -include cddv_seg.h
+    CFLAGS = $(PALMOS_FLAG) -Os $(DEFINES) -DRP_WITH_HUNT $(INCLUDES) -I../lib -I. -include cddv_seg.h
 
      PILRC = pilrc
         CC = m68k-palmos-gcc

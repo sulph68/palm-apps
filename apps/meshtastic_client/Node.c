@@ -20,7 +20,7 @@ MC_SEC static void SetupLine(void)
 	if (gFirmware[0]) { StrCat(gSetupLine, "  fw "); StrCat(gSetupLine, gFirmware); }
 }
 
-#define ST_ROWS		6
+#define ST_ROWS		7
 static UInt16 gMask, gChanMask;			/* what differs from the node's own values, as CfgMask says */
 static UInt8 gDevWhich;					/* 0 the role, 1 the Bluetooth pairing: what frmDevice shows */
 static char gVal[ST_ROWS][40];
@@ -37,8 +37,11 @@ MC_SEC static UInt16 CfgMask(UInt16 *chanMask)
 	if (gNodeCfg.btMode != gSnap.btMode || (gNodeCfg.btMode == 1 && StrCompare(gNodeCfg.pin, gSnap.pin))) mask |= 8;
 	for (i = 0; i < MAX_CHAN; i++)
 		if (StrCompare(gNodeCfg.chan[i].name, gSnap.chan[i].name) || StrCompare(gNodeCfg.chan[i].key, gSnap.chan[i].key) ||
-			gNodeCfg.chan[i].role != gSnap.chan[i].role) *chanMask |= (UInt16) (1 << i);
+			gNodeCfg.chan[i].role != gSnap.chan[i].role || gNodeCfg.chan[i].link != gSnap.chan[i].link) *chanMask |= (UInt16) (1 << i);
 	if (*chanMask) mask |= 16;
+	if (gNodeCfg.mqtt.have != gSnap.mqtt.have || gNodeCfg.mqtt.flags != gSnap.mqtt.flags ||
+		StrCompare(gNodeCfg.mqtt.address, gSnap.mqtt.address) || StrCompare(gNodeCfg.mqtt.user, gSnap.mqtt.user) ||
+		StrCompare(gNodeCfg.mqtt.pass, gSnap.mqtt.pass) || StrCompare(gNodeCfg.mqtt.root, gSnap.mqtt.root)) mask |= 32;
 	return mask;
 }
 
@@ -50,6 +53,7 @@ MC_SEC static const char *RowLabel(UInt16 i)
 	case 2:		return "Role";
 	case 3:		return "Bluetooth";
 	case 4:		return "Channels";
+	case 5:		return "MQTT";
 	}
 	return "Node clock";
 }
@@ -70,7 +74,10 @@ MC_SEC static void SetupValues(void)
 	gVal[4][0] = '\0';
 	PutNum(gVal[4], n);
 	StrCat(gVal[4], " configured");
-	NodeClockShort(gVal[5]);
+	if (! gNodeCfg.mqtt.have) StrCopy(gVal[5], "not read");
+	else if (! (gNodeCfg.mqtt.flags & 1)) StrCopy(gVal[5], "Off");
+	else StrNCopy(gVal[5], gNodeCfg.mqtt.address[0] ? gNodeCfg.mqtt.address : "default server", sizeof(gVal[5]) - 1);
+	NodeClockShort(gVal[6]);
 }
 
 MC_SEC static void SetupDrawRow(void *table, Int16 row, Int16 column, RectangleType *b)
@@ -115,7 +122,8 @@ MC_SEC static void SetupOpenPage(UInt16 row)
 	case 2: gDevWhich = 0; FrmPopupForm(frmDevice); break;
 	case 3: gDevWhich = 1; FrmPopupForm(frmDevice); break;
 	case 4: FrmPopupForm(frmChList); break;
-	case 5: FrmPopupForm(frmActions); break;
+	case 5: FrmPopupForm(frmMqtt); break;
+	case 6: FrmPopupForm(frmActions); break;
 	}
 }
 
@@ -126,16 +134,20 @@ MC_SEC static void SetupSave(void)
 	Boolean ok;
 
 	if (! mask) { Info("Nothing was changed.", NULL, NULL); return; }
+	if ((mask & 32) && (mask & 31)) {				/* the node turns its Bluetooth off as soon as it takes the MQTT settings */
+		Info("MQTT is saved on its own,", "because the node restarts.", "Save the other changes first.");
+		return;
+	}
 	if (! Ask("Send the changes to the node?\n", "The node restarts to take them.", NULL)) return;
-	if (! gWirsaUp) { Info("Not connected.", "Use Options > Connect first.", NULL); return; }
+	if (! gWirsaUp) { Info("Not connected. Connect first.", NULL, NULL); return; }
 	Busy("Updating the node...", 0);
 	ok = LinkCfgSet(mask, chanMask);
 	BusyDone();
 	if (! ok) { Info(gLinkText[0] ? gLinkText : "The node did not take the changes.", NULL, NULL); return; }
-	Info("Sent. The node is restarting;", "it comes back in a few seconds.", NULL);
+	Info("Sent. Node restarting. It will reconnect shortly...", NULL, NULL);
 	gWantChans = true;				/* the chat list takes the channel names from the next sync */
 	FrmReturnToForm(frmMain);
-	FrmUpdateForm(frmMain, updRefresh);
+	FrmUpdateForm(frmMain, updFull);
 }
 
 MC_SEC Boolean SetupHandleEvent(EventPtr e)
@@ -176,13 +188,13 @@ MC_SEC Boolean SetupHandleEvent(EventPtr e)
 			return true;
 		case btnSetupReboot:
 			if (Ask("Restart the node?\n", "It is off the air for a few seconds.", NULL))
-				ActRun(1, "Restarting the node...", "Sent. The node is restarting.");
+				ActRun(1, "Restarting the node...", "Sent. Node restarting. It will reconnect shortly...");
 			return true;
 		case btnSetupCancel:
-			if (CfgMask(&gChanMask) && ! Ask("Throw away the changes?", NULL, NULL)) return true;
+			if (CfgMask(&gChanMask) && ! Ask("Discard changes?", NULL, NULL)) return true;
 			gNodeCfg = gSnap;
 			FrmReturnToForm(frmMain);
-			FrmUpdateForm(frmMain, updRefresh);
+			FrmUpdateForm(frmMain, updFull);
 			return true;
 		}
 		break;
@@ -395,8 +407,11 @@ MC_SEC static void DrawChanRow(Int16 i, RectangleType *b, Char **unused)
 		WinDrawChars("(not used)", 10, (Coord) (b->topLeft.x + 14), b->topLeft.y);
 		return;
 	}
-	WinDrawTruncChars(gNodeCfg.chan[i].name, (Int16) StrLen(gNodeCfg.chan[i].name),
-		(Coord) (b->topLeft.x + 14), b->topLeft.y, 70);
+	if (! gNodeCfg.chan[i].name[0])
+		WinDrawChars("(default)", 9, (Coord) (b->topLeft.x + 14), b->topLeft.y);	/* an empty name is the default channel */
+	else
+		WinDrawTruncChars(gNodeCfg.chan[i].name, (Int16) StrLen(gNodeCfg.chan[i].name),
+			(Coord) (b->topLeft.x + 14), b->topLeft.y, 70);
 	WinDrawChars(role, (Int16) StrLen(role), (Coord) (b->topLeft.x + 90), b->topLeft.y);
 }
 
@@ -467,7 +482,9 @@ MC_SEC Boolean ChEditHandleEvent(EventPtr e)
 		SetFieldEdit(fldChName, gNodeCfg.chan[gChanSel].name);
 		SetPopup(popChRole, lstChRole, gNodeCfg.chan[gChanSel].role, gLabel1, sizeof(gLabel1));
 		SetFieldEdit(fldChKey, gNodeCfg.chan[gChanSel].key);
-		SetFieldPtr(fldChKeyNote, "Key (base64): everyone on this channel needs the same one.");
+		CtlSetValue((ControlPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, ckChUplink)), gNodeCfg.chan[gChanSel].link & 1 ? 1 : 0);
+		CtlSetValue((ControlPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, ckChDownlink)), gNodeCfg.chan[gChanSel].link & 2 ? 1 : 0);
+		SetFieldPtr(fldChKeyNote, "Empty key = AQ== (default). Primary name may be empty.");
 		FrmDrawForm(frm);
 		FrmSetFocus(frm, FrmGetObjectIndex(frm, fldChName));
 		return true;
@@ -496,11 +513,15 @@ MC_SEC Boolean ChEditHandleEvent(EventPtr e)
 			Int16 role = GetListSel(lstChRole);
 			GetFieldEdit(fldChName, name, sizeof(name));
 			GetFieldEdit(fldChKey, key, sizeof(key));
-			if (role != 0 && ! name[0]) { Info("The channel needs a name.", NULL, NULL); return true; }
+			if (role != 0 && gChanSel != 0 && ! name[0]) { Info("The channel needs a name.", NULL, NULL); return true; }	/* the primary's may be empty */
+			if (role != 0 && ! key[0]) StrCopy(key, "AQ==");								/* an empty key is the default one */
 			if (gChanSel == 0 && role != 1) { Info("Slot 0 is the primary channel.", NULL, NULL); return true; }
 			if (gChanSel != 0 && role == 1) { Info("Only slot 0 can be the primary channel.", NULL, NULL); return true; }
 			StrCopy(gNodeCfg.chan[gChanSel].name, name);
 			StrCopy(gNodeCfg.chan[gChanSel].key, key);
+			frm = FrmGetActiveForm();
+			gNodeCfg.chan[gChanSel].link = (UInt8) ((CtlGetValue((ControlPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, ckChUplink))) ? 1 : 0) |
+				(CtlGetValue((ControlPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, ckChDownlink))) ? 2 : 0));
 			gNodeCfg.chan[gChanSel].role = (UInt8) role;
 			gNodeCfg.dirty = true;
 			FrmReturnToForm(frmChList);
@@ -509,6 +530,94 @@ MC_SEC Boolean ChEditHandleEvent(EventPtr e)
 		}
 		case btnChCancel:
 			FrmReturnToForm(frmChList);
+			return true;
+		}
+		break;
+
+	default:
+		break;
+	}
+	return false;
+}
+
+/* ---- frmMqtt ------------------------------------------------------------------------------- */
+
+MC_SEC static void MqCheck(FormPtr frm, UInt16 id, Boolean on)
+{
+	CtlSetValue((ControlPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, id)), on ? 1 : 0);
+}
+
+MC_SEC static UInt8 MqBit(FormPtr frm, UInt16 id, UInt8 bit)
+{
+	return CtlGetValue((ControlPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, id))) ? bit : 0;
+}
+
+MC_SEC Boolean MqttHandleEvent(EventPtr e)
+{
+	FormPtr frm;
+
+	switch (e->eType) {
+	case frmOpenEvent:
+		frm = FrmGetActiveForm();
+		SetFieldEdit(fldMqAddr, gNodeCfg.mqtt.address);
+		SetFieldEdit(fldMqUser, gNodeCfg.mqtt.user);
+		SetFieldEdit(fldMqPass, gNodeCfg.mqtt.pass);
+		SetFieldEdit(fldMqRoot, gNodeCfg.mqtt.root);
+		MqCheck(frm, ckMqEnabled, gNodeCfg.mqtt.flags & 1);
+		MqCheck(frm, ckMqEncrypt, gNodeCfg.mqtt.flags & 2);
+		MqCheck(frm, ckMqJson, gNodeCfg.mqtt.flags & 4);
+		MqCheck(frm, ckMqTls, gNodeCfg.mqtt.flags & 8);
+		MqCheck(frm, ckMqProxy, gNodeCfg.mqtt.flags & 16);
+		MqCheck(frm, ckMqMap, gNodeCfg.mqtt.flags & 32);
+		FrmDrawForm(frm);
+		FrmSetFocus(frm, FrmGetObjectIndex(frm, fldMqAddr));
+		return true;
+
+	case menuEvent:
+		return EditMenu(e->data.menu.itemID);
+
+	case ctlSelectEvent:
+		switch (e->data.ctlSelect.controlID) {
+		case btnMqOk: {
+			Boolean ok;
+
+			frm = FrmGetActiveForm();
+			GetFieldEdit(fldMqAddr, gNodeCfg.mqtt.address, sizeof(gNodeCfg.mqtt.address));
+			GetFieldEdit(fldMqUser, gNodeCfg.mqtt.user, sizeof(gNodeCfg.mqtt.user));
+			GetFieldEdit(fldMqPass, gNodeCfg.mqtt.pass, sizeof(gNodeCfg.mqtt.pass));
+			GetFieldEdit(fldMqRoot, gNodeCfg.mqtt.root, sizeof(gNodeCfg.mqtt.root));
+			gNodeCfg.mqtt.flags = (UInt8) (MqBit(frm, ckMqEnabled, 1) | MqBit(frm, ckMqEncrypt, 2) | MqBit(frm, ckMqJson, 4) |
+				MqBit(frm, ckMqTls, 8) | MqBit(frm, ckMqProxy, 16) | MqBit(frm, ckMqMap, 32));
+			gNodeCfg.mqtt.have = 1;
+			if (gNodeCfg.mqtt.flags == gSnap.mqtt.flags && gSnap.mqtt.have && ! StrCompare(gNodeCfg.mqtt.address, gSnap.mqtt.address) &&
+				! StrCompare(gNodeCfg.mqtt.user, gSnap.mqtt.user) && ! StrCompare(gNodeCfg.mqtt.pass, gSnap.mqtt.pass) &&
+				! StrCompare(gNodeCfg.mqtt.root, gSnap.mqtt.root)) {		/* nothing changed: nothing to send */
+				FrmReturnToForm(frmSetup);
+				return true;
+			}
+			/* The node turns its Bluetooth off and restarts when it takes the MQTT settings, so they go on their own, now. */
+			if (! AskOk("Send config and reboot now?", NULL, NULL)) {
+				MemMove(&gNodeCfg.mqtt, &gSnap.mqtt, sizeof(gNodeCfg.mqtt));		/* cancelled: the old settings stay */
+				FrmReturnToForm(frmSetup);
+				FrmUpdateForm(frmSetup, updRefresh);
+				return true;
+			}
+			if (! gWirsaUp) { Info("Not connected.", "Use Connect first.", NULL); return true; }
+			Busy("Updating the node...", 0);
+			ok = LinkCfgSet(32, 0);
+			BusyDone();
+			if (! ok) { Info(gLinkText[0] ? gLinkText : "The node did not take the changes.", NULL, NULL); return true; }
+			MemMove(&gSnap.mqtt, &gNodeCfg.mqtt, sizeof(gNodeCfg.mqtt));			/* sent: no longer a pending change */
+			Info("Sent. Node restarting. It will reconnect shortly...", NULL, NULL);
+			LinkRestarting();
+			gWantChans = true;
+			gWantNodes = true;
+			FrmReturnToForm(frmMain);					/* both forms close; the main screen shows the link coming back */
+			FrmUpdateForm(frmMain, updFull);
+			return true;
+		}
+		case btnMqCancel:
+			FrmReturnToForm(frmSetup);
 			return true;
 		}
 		break;
@@ -534,7 +643,7 @@ MC_SEC static void ActRun(UInt8 action, const char *busy, const char *done)
 {
 	Boolean ok;
 
-	if (! gWirsaUp) { Info("Not connected.", "Use Options > Connect first.", NULL); return; }
+	if (! gWirsaUp) { Info("Not connected. Connect first.", NULL, NULL); return; }
 	Busy(busy, 0);
 	ok = LinkAct(action);
 	BusyDone();

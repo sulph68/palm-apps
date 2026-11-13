@@ -181,10 +181,16 @@ BEGIN
 	LIST "Off" "1 min" "3 min" "5 min" "15 min" ID lstSetupSleep AT (71 70 60 55) VISIBLEITEMS 5 NONUSABLE
 	POPUPLIST ID popSetupSleep lstSetupSleep
 
-	BUTTON "FTP Setup..."		ID btnSetupFtp		AT (4 86 72 12)
-	BUTTON "AP Setup..."		ID btnSetupAp		AT (80 86 72 12)
-	BUTTON "SLIP Address..."	ID btnSetupSlip		AT (4 101 72 12)
-	BUTTON "Exit Timers..."		ID btnSetupTimers	AT (80 101 72 12)
+	/* The blue LED while the WiFi or BLE is up: steady, a blip every 15 s / 30 s / minute, or none. Shown when the firmware sends it. */
+	LABEL "Wifi Pulse:"	ID lblSetupPulse AT (RIGHT@68 83) FONT 1
+	POPUPTRIGGER "30s" ID popSetupPulse AT (71 83 60 12) LEFTANCHOR
+	LIST "Always On" "15s" "30s" "1min" "Never" ID lstSetupPulse AT (71 83 60 55) VISIBLEITEMS 5 NONUSABLE
+	POPUPLIST ID popSetupPulse lstSetupPulse
+
+	BUTTON "FTP Setup..."		ID btnSetupFtp		AT (4 99 72 12)
+	BUTTON "AP Setup..."		ID btnSetupAp		AT (80 99 72 12)
+	BUTTON "SLIP Address..."	ID btnSetupSlip		AT (4 114 72 12)
+	BUTTON "Exit Timers..."		ID btnSetupTimers	AT (80 114 72 12)
 
 	GRAFFITISTATEINDICATOR AT (140 141)
 	BUTTON "OK"			ID btnSetupOk		AT (4 138 40 14)
@@ -256,7 +262,7 @@ END
 
 /* ---- frmTimers: Exit Timers - when HotSync / CalDAV Relay / Bitwarden Relay
  * go back to WiRSa's main menu by themselves. Colons at 78, values at 81. */
-FORM ID frmTimers AT (2 60 156 98)
+FORM ID frmTimers AT (2 46 156 112)
 FRAME
 MODAL
 SAVEBEHIND
@@ -277,11 +283,18 @@ BEGIN
 	LIST "1 min" "2 min" "3 min" "5 min" ID lstTimersSlip AT (81 44 44 44) VISIBLEITEMS 4 NONUSABLE
 	POPUPLIST ID popTimersSlip lstTimersSlip
 
-	LABEL "Seconds, 0 = never." AUTOID AT (4 60) FONT 0
+	/* SASD: back to the main menu after this long with nothing heard from the Palm (the Palm's SASD driver holds the serial port, so
+	 * WiRSaCtl cannot end it). Hidden when WiRSa's firmware doesn't report it. */
+	LABEL "SASD Timeout:"	ID lblTimersSasd AT (RIGHT@78 58) FONT 1
+	POPUPTRIGGER "3 min" ID popTimersSasd AT (81 58 44 12) LEFTANCHOR
+	LIST "3 min" "5 min" "10 min" "15 min" ID lstTimersSasd AT (81 58 44 44) VISIBLEITEMS 4 NONUSABLE
+	POPUPLIST ID popTimersSasd lstTimersSasd
 
-	GRAFFITISTATEINDICATOR AT (140 83)
-	BUTTON "OK"			ID btnTimersOk		AT (4 80 40 14)
-	BUTTON "Cancel"		ID btnTimersCancel	AT (48 80 44 14)
+	LABEL "Seconds, 0 = never." AUTOID AT (4 74) FONT 0
+
+	GRAFFITISTATEINDICATOR AT (140 97)
+	BUTTON "OK"			ID btnTimersOk		AT (4 94 40 14)
+	BUTTON "Cancel"		ID btnTimersCancel	AT (48 94 44 14)
 END
 
 /* ---- frmPrefs: this app's own preferences, kept on this Palm. Colon at
@@ -371,19 +384,19 @@ STRINGTABLE ID strModeNames ""
 
 /* Guidance under "Select Mode:" (3 lines of about 30 characters). */
 STRINGTABLE ID strModeNotes ""
-	"Back to WiRSa's main menu, from HotSync, CalDAV or Bitwarden. SASD and SLIP need a reset."
+	"Back to the main menu. SASD and SLIP leave by themselves when quiet (Setup > Exit Timers)."
 	"Exits by itself 15 seconds after the HotSync finishes."
-	"Stays on until WiRSa is reset. After the reset, switch the Palm off and on."
-	"Stays on until WiRSa is reset. Disconnect the Palm's network first."
+	"Leaves by itself after the SASD timeout (Setup > Exit Timers), or reset WiRSa."
+	"Leaves by itself after the SLIP timeout (Setup > Exit Timers), or reset WiRSa."
 	"Stays on until you choose Main Menu here, or CalDAV Sync ends it (Screenless Mode)."
 	"Stays on until you choose Main Menu here, or Bitwarden ends it (Screenless Mode)."
 	"WiRSa keeps the Bluetooth link to your Meshtastic node and collects messages. Stays on until you choose Main Menu here."
 
-/* Confirmation for the modes that only a reset ends (others are empty). */
+/* Confirmation for the modes that cannot be ended from here (others are empty): they leave by themselves when quiet. */
 STRINGTABLE ID strModeConfirm ""
 	"" ""
-	"WiRSa stays in SASD SD Card mode until it is reset. Continue?"
-	"WiRSa stays in SLIP Gateway mode until it is reset. Continue?"
+	"SASD mode cannot be ended from here: it leaves by itself after a quiet time. Set the SASD Timeout in Setup > Exit Timers. Continue?"
+	"SLIP mode cannot be ended from here: it leaves by itself after a quiet time. Set the SLIP Timeout in Setup > Exit Timers. Continue?"
 	"" "" ""
 
 /* frmMain guidance, 3 lines of about 30 characters each:
@@ -391,9 +404,9 @@ STRINGTABLE ID strModeConfirm ""
  * 3 no answer (never found), 4 after Reboot / Factory Reset, 5 a mode
  * just started from Modes, 6 no answer (last known mode shown). */
 STRINGTABLE ID strMainNotes ""
-	"In SASD mode. Reset WiRSa, switch the Palm off and on, then tap Refresh."
-	"In SLIP mode. Disconnect the network, reset WiRSa, then tap Refresh."
-	"Used by a SASD card or SLIP link. Reset WiRSa or disconnect, then tap Refresh."
+	"In SASD mode: it leaves when quiet, or reset WiRSa. Then tap Refresh."
+	"In SLIP mode: it leaves when quiet, or reset WiRSa. Then tap Refresh."
+	"Used by a SASD card or SLIP link. Wait for its timeout, or reset WiRSa, then tap Refresh."
 	"No answer. Check the cable and power, or reset WiRSa, then tap Refresh."
 	"Tap Refresh once WiRSa has restarted."
 	"Mode started from here. WiRSa is asked again every 15 seconds."

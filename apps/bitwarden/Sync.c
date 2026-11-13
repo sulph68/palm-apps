@@ -1,6 +1,6 @@
 /*
  * Sync.c - orchestrates one HELLO / (TRUST) / SYNC exchange with WiRSa's
- * BitWarden Relay mode over Serial.c, following PROTOCOL.md exactly (this
+ * BitWarden Relay mode over Serial.c, following Protocol-wire.md (WiRSa docs/protocol) exactly (this
  * file's frame body encode/decode is the Palm-side twin of
  * bitwarden_relay.cpp's BwWriter/BwReader and mock_wirsa.py's
  * FrameWriter/FrameReader - all three were built against the same spec).
@@ -15,32 +15,39 @@
 #include "Wire.h"
 #include "relaysec.h"
 
+/* The type numbers follow Protocol-wire.md (WiRSa docs/protocol), section 6: the
+ * common frames at 0x01-0x06, BitWarden's own in 0x30-0x3F. */
 #define BW_HELLO		0x01
 #define BW_HELLO_ACK	0x02
-#define BW_TRUST		0x03
-#define BW_TRUST_RESULT	0x04
-#define BW_SYNC			0x05
-#define BW_FOLDER		0x0C
-#define BW_ORG			0x0D
-#define BW_SYNC_ITEM	0x06
-#define BW_SYNC_DONE	0x07
-#define BW_SYNC_ERROR	0x08
-#define BW_BYE			0x0B
+#define BW_BYE			0x03
 /* Palm -> WiRSa, empty body - flow-control ack for FOLDER/ORG/SYNC_ITEM.
  * WiRSa blocks after each one until this ack comes back (see
  * bitwarden_relay.cpp's bwWriteFrameAcked) - sent here only after the
  * corresponding BwStoreAdd* call has durably written the record, so a lost
  * ack on the wire never means "WiRSa thinks this was saved but it wasn't." */
-#define BW_ITEM_ACK		0x0E
-#define BW_TWO_FACTOR_REQUIRED	0x0F	/* WiRSa -> Palm */
-#define BW_TWO_FACTOR_SUBMIT	0x10	/* Palm -> WiRSa */
+#define BW_ACK			0x04
+#define BW_SYNC_DONE	0x05
+#define BW_ERR			0x06
+#define BW_TRUST		0x30
+#define BW_SYNC			0x31
+#define BW_TWO_FACTOR_SUBMIT	0x32	/* Palm -> WiRSa */
+#define BW_TRUST_RESULT	0x33
+#define BW_SYNC_ITEM	0x34
+#define BW_FOLDER		0x35
+#define BW_ORG			0x36
+#define BW_TWO_FACTOR_REQUIRED	0x37	/* WiRSa -> Palm */
 /* WiRSa -> Palm, body: `string statusText`. Purely cosmetic live status-
  * label update for the one long stretch (prelogin/PBKDF2/login/api-sync-
  * fetch) between sending SYNC and the first real FOLDER/ORG/SYNC_ITEM/
- * SYNC_ERROR/TWO_FACTOR_REQUIRED frame - see the receive loop below. */
-#define BW_SYNC_STATUS	0x11
+ * ERR/TWO_FACTOR_REQUIRED frame - see the receive loop below. */
+#define BW_SYNC_STATUS	0x38
 
-/* PROTOCOL.md SYNC_ERROR code - bad email/master password. */
+/* The HELLO_ACK version this app needs: 2 = the numbers above. An older WiRSa
+ * reports less and uses the old numbers, so the app stops with a message
+ * instead of waiting for frames that never come. */
+#define BW_WIRE_VERSION	2
+
+/* Protocol-wire.md (WiRSa docs/protocol) ERR code - bad email/master password. */
 #define BW_ERR_AUTH_FAILED	5
 
 /* Sized to the true worst-case SYNC_ITEM (an Identity item: 18
@@ -63,7 +70,7 @@ BwItemFull gBwItemShared;
 #define gSyncItem gBwItemShared
 static char gSyncNameBuf[bwMaxField];
 /* Shared scratch for whatever updatedTwoFactorToken SYNC_DONE or
- * SYNC_ERROR carries - datares has no room for a second full-size copy;
+ * ERR carries - datares has no room for a second full-size copy;
  * the two are mutually exclusive branches of the same receive loop. */
 static char gNewTokenBuf[bwTwoFactorRememberMax];
 /* Sized for the SYNC frame's true worst case: serverURL(160) +
@@ -106,11 +113,12 @@ static Boolean BwNegotiateBaud(void) SEC001;
 
 static Boolean BwNegotiateBaud(void)
 {
-	UInt8 rxType;
 	UInt16 rxLen;
 	BwW w;
 	BwR r;
-	UInt32 negotiatedBaud;
+	UInt32 negotiatedBaud, sentAt;
+	UInt8 cap = 0, tries;
+	Boolean acked = false;
 
 	/* Secure the serial link before anything else goes over it (no
 	 * plaintext fallback). No reply at all keeps the existing message. */
@@ -126,12 +134,26 @@ static Boolean BwNegotiateBaud(void)
 
 	BwProgressSetStatus("Negotiating rate...");
 
-	w.buf = gSyncWBuf; w.cap = sizeof(gSyncWBuf); w.len = 0;
-	wU32(&w, BwGetBaud());
-
-	if (!BwSerialSendFrame(BW_HELLO, gSyncWBuf, w.len) ||
-	    !BwSerialRecvFrame(&rxType, gWireBody, bwWireBodyCap, &rxLen) ||
-	    rxType != BW_HELLO_ACK) {
+	/* The HELLO offers a confirmed switch (bwHelloOffer): a WiRSa that supports it answers at this rate and moves only when the
+	 * HELLO_CONFIRM below arrives, so a reply that is lost or damaged on the way costs nothing: the HELLO is sent again, and both ends
+	 * are still at the idle rate. The reply is read by hunting for it (RpRecvFrameHunt): noise can arrive in front of it. An older WiRSa
+	 * ignores the extra byte, answers without bwCapHelloConfirm and moves at once, as before. */
+	for (tries = 0; tries < bwHelloTries && !acked; tries++) {
+		if (tries) {
+			if (BwProgressCancelled()) break;
+			SysTaskDelay(SysTicksPerSecond() / 4);		/* what WiRSa sent for the lost reply has all arrived */
+			RpFlushInput();
+		}
+		w.buf = gSyncWBuf; w.cap = sizeof(gSyncWBuf); w.len = 0;
+		wU32(&w, BwGetBaud());
+		wU8(&w, bwHelloOffer);
+		if (!BwSerialSendFrame(BW_HELLO, gSyncWBuf, w.len)) break;
+		sentAt = TimGetTicks();
+		acked = RpRecvFrameHunt(BW_HELLO_ACK, gWireBody, bwWireBodyCap, &rxLen);
+		/* Only a reply that came back damaged is tried again; an answer that never came took the whole idle wait already. */
+		if (!acked && (Int32) (TimGetTicks() - sentAt) > (Int32) (SysTicksPerSecond() * 20)) break;
+	}
+	if (!acked) {
 		BwProgressHide();
 		/* A cancel tap can abort this wait directly (Serial.c's ReadExact
 		 * checks BwProgressCancelled() every ~1s poll) - distinguish that
@@ -155,7 +177,12 @@ static Boolean BwNegotiateBaud(void)
 		version = rU8(&r);
 		capFlags = rU8(&r);
 		rStr(&r, agentBuf, sizeof(agentBuf));
-		(void) version; (void) capFlags;	/* not used by this side today - just consumed to reach the baud field below */
+		cap = capFlags;
+		if (r.ok && version < BW_WIRE_VERSION) {	/* an older WiRSa speaks the old type numbers: stop here, no frame it would understand */
+			BwProgressHide();
+			FrmCustomAlert(altErr, "This WiRSa is older than the app. Update WiRSa's firmware.", NULL, NULL);
+			return false;
+		}
 	}
 	negotiatedBaud = rU32(&r);
 	if (!r.ok || negotiatedBaud == 0) {
@@ -164,7 +191,22 @@ static Boolean BwNegotiateBaud(void)
 		return false;
 	}
 
+	if (cap & bwCapHelloConfirm) {
+		/* WiRSa is waiting at the idle rate: tell it the reply was read (the same rate again), then move. WiRSa moves when it gets this,
+		 * so the pause keeps this end's first frame at the new rate from arriving before it has. */
+		w.buf = gSyncWBuf; w.cap = sizeof(gSyncWBuf); w.len = 0;
+		wU32(&w, BwGetBaud());
+		wU8(&w, bwHelloConfirm);
+		if (!BwSerialSendFrame(BW_HELLO, gSyncWBuf, w.len)) {
+			BwProgressHide();
+			FrmCustomAlert(altErr, "WiRSa did not respond. Check the connection and try again.", NULL, NULL);
+			return false;
+		}
+		SysTaskDelay(SysTicksPerSecond() / 10);
+	}
+
 	BwSerialSetBaud(negotiatedBaud);
+	gRpSkipJunkMax = bwMaxRxType;		/* noise ahead of a frame is skipped from here on */
 	StrPrintF(gSyncNameBuf, "Negotiated %ld baud", (Int32) negotiatedBaud);
 	BwProgressSetStatus(gSyncNameBuf);
 	return true;
@@ -208,10 +250,10 @@ static void HandleSyncStatusFrame(BwR *r)
  * own login (which may have rotated the 2FA-remember token) already
  * succeeded before whatever mid-sync failure triggered this abort, and
  * WiRSa's own error-reporting path (sendErr, bitwarden_relay.cpp) tries to
- * report that fresh token via SYNC_ERROR regardless of why the sync
+ * report that fresh token via ERR regardless of why the sync
  * failed - but only if the Palm is still listening. Call this right after
  * sending BW_BYE, before closing - one short (3s), best-effort attempt to
- * catch a trailing SYNC_ERROR and pull its token out, reusing gNewTokenBuf
+ * catch a trailing ERR and pull its token out, reusing gNewTokenBuf
  * (never live at the same time as the main loop's own use of it). If
  * nothing arrives in time, this is a silent no-op. */
 static void TryCatchTrailingToken(void) SEC001;
@@ -221,7 +263,7 @@ static void TryCatchTrailingToken(void)
 	UInt8 rxType; UInt16 rxLen;
 	UInt32 saved = gBwIdleOverrideTicks;
 	gBwIdleOverrideTicks = SysTicksPerSecond() * 3;
-	if (BwSerialRecvFrame(&rxType, gWireBody, bwWireBodyCap, &rxLen) && rxType == BW_SYNC_ERROR) {
+	if (BwSerialRecvFrame(&rxType, gWireBody, bwWireBodyCap, &rxLen) && rxType == BW_ERR) {
 		BwR r;
 		r.buf = gWireBody; r.len = rxLen; r.pos = 0; r.ok = true;
 		(void) rU8(&r);				/* errorCode - not needed here */
@@ -246,7 +288,7 @@ static Boolean SendItemAckWithRetry(void)
 	UInt16 attempt;
 	for (attempt = 0; attempt < 5; attempt++) {
 		if (attempt > 0) SysTaskDelay(SysTicksPerSecond() / 2);
-		if (BwSerialSendFrame(BW_ITEM_ACK, NULL, 0)) return true;
+		if (BwSerialSendFrame(BW_ACK, NULL, 0)) return true;
 	}
 	return false;
 }
@@ -421,7 +463,7 @@ Boolean BwSyncRun(void)
 		static char rememberedToken[bwTwoFactorRememberMax];
 		/* Bitwarden's own "remember this device for 2FA" token, if cached
 		 * from a previous successful 2FA login - lets WiRSa skip the
-		 * interactive 2FA challenge this time (PROTOCOL.md's SYNC/
+		 * interactive 2FA challenge this time (Protocol-wire.md (WiRSa docs/protocol)'s SYNC/
 		 * TWO_FACTOR_REQUIRED). Empty if never completed, or Sec35 is
 		 * unexpectedly locked - WiRSa falls back to a normal prompt either way. */
 		if (!BwGetTwoFactorRemember(rememberedToken, sizeof(rememberedToken))) rememberedToken[0] = 0;
@@ -483,7 +525,7 @@ Boolean BwSyncRun(void)
 	 * this one request - this label is just the initial guess; WiRSa now
 	 * sends its own BW_SYNC_STATUS updates (e.g. "Iterating..." while
 	 * PBKDF2 runs) as it moves through that work, handled in the receive
-	 * loop below alongside FOLDER/SYNC_ITEM/SYNC_ERROR. */
+	 * loop below alongside FOLDER/SYNC_ITEM/ERR. */
 	BwProgressSetStatus("Fetching vault...");
 
 	if (!BwStoreBeginSync()) {
@@ -609,7 +651,7 @@ Boolean BwSyncRun(void)
 			gSyncItem.archived = (Boolean) (rU8(&r) != 0);
 			rStr(&r, gSyncItem.name, sizeof(gSyncItem.name));
 			rStr(&r, gSyncItem.notes, sizeof(gSyncItem.notes));
-			/* Type-specific tail - see PROTOCOL.md's own SYNC_ITEM section.
+			/* Type-specific tail - see Protocol-wire.md (WiRSa docs/protocol)'s own SYNC_ITEM section.
 			 * Nothing in the frame itself says how many strings follow;
 			 * both sides derive it from itemType, already read above. */
 			switch (gSyncItem.itemType) {
@@ -704,7 +746,7 @@ Boolean BwSyncRun(void)
 				BwProgressBar(itemCount);
 			}
 		} else if (rxType == BW_TWO_FACTOR_REQUIRED) {
-			/* Vaultwarden 2FA challenge mid-sync - see PROTOCOL.md's own
+			/* Vaultwarden 2FA challenge mid-sync - see Protocol-wire.md (WiRSa docs/protocol)'s own
 			 * TWO_FACTOR_REQUIRED/TWO_FACTOR_SUBMIT section. WiRSa/mock
 			 * keeps its TLS connection + derived keys alive across this
 			 * pause; this is a detour in the same sync attempt, not a new
@@ -750,7 +792,7 @@ Boolean BwSyncRun(void)
 			}
 			MemSet(code, sizeof(code), 0);
 			/* Loop continues - WiRSa responds with either another
-			 * TWO_FACTOR_REQUIRED (wrong code), SYNC_ERROR, or the normal
+			 * TWO_FACTOR_REQUIRED (wrong code), ERR, or the normal
 			 * FOLDER/SYNC_ITEM/SYNC_DONE flow. */
 		} else if (rxType == BW_SYNC_DONE) {
 			/* itemCount/folderCount/orgCount aren't read here - the
@@ -764,7 +806,7 @@ Boolean BwSyncRun(void)
 			MemSet(gNewTokenBuf, sizeof(gNewTokenBuf), 0);
 			ok = true;
 			break;
-		} else if (rxType == BW_SYNC_ERROR) {
+		} else if (rxType == BW_ERR) {
 			UInt8 code = rU8(&r);
 			char msg[128];
 			rStr(&r, msg, sizeof(msg));
@@ -807,7 +849,7 @@ Boolean BwSyncRun(void)
 		BwProgressHide();
 	} else {
 		/* Shared exit for every "ok=false; break;" path (2FA malformed,
-		 * 2FA-submit send failure, SYNC_ERROR) - the handful of direct
+		 * 2FA-submit send failure, ERR) - the handful of direct
 		 * `return false;` sites elsewhere in this function each call this
 		 * same cleanup themselves, since they bypass this shared ending. */
 		BwStoreAbortSync();

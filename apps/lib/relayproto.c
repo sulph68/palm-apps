@@ -22,6 +22,12 @@ UInt32 gRpIdleOverrideTicks = 0;
 UInt8 gRpLeadByte = 0;
 Boolean gRpAllowPlain = false;
 Err gRpOpenErr = 0;
+#ifdef RP_WITH_HUNT
+UInt8 gRpSkipJunkMax = 0;
+#endif
+#ifdef RP_WITH_HUNT_GAP
+UInt8 gRpSkipGapTicks = 0;
+#endif
 
 /* Explicit receive buffer - the Serial Manager default overruns on a burst. */
 static UInt8 gSerialRecvBuf[RP_RECV_BUF_SIZE];
@@ -57,6 +63,12 @@ void RpClose(void)
 	if (!gOpen) return;
 	SrmClose(gPortId);
 	gOpen = false;
+#ifdef RP_WITH_HUNT
+	gRpSkipJunkMax = 0;
+#endif
+#ifdef RP_WITH_HUNT_GAP
+	gRpSkipGapTicks = 0;
+#endif
 	RpSecWipe();
 }
 
@@ -222,6 +234,76 @@ RP_SECTION Boolean RpSendFrame(UInt8 type, const UInt8 *body, UInt16 bodyLen)
 }
 #endif
 
+#ifdef RP_WITH_HUNT
+/* The next byte for the hunt: false when nothing came for timeoutTicks, or on a cancel. A line error (framing, overrun) is cleared and
+ * counted, and the byte read with it, if any, is kept: noise in front of a frame must not end the wait. */
+static Boolean HuntByte(UInt8 *b, Int32 timeoutTicks) RP_SECTION;
+
+static Boolean HuntByte(UInt8 *b, Int32 timeoutTicks)
+{
+	UInt32 deadline = TimGetTicks() + timeoutTicks;
+
+	for (;;) {
+		Err err;
+		Int32 remaining = (Int32) (deadline - TimGetTicks());
+		UInt32 n;
+
+		if (remaining <= 0) return false;
+		n = SrmReceive(gPortId, b, 1, (remaining < rpPollTicks) ? remaining : rpPollTicks, &err);
+		RP_APP_POLL();
+		if (RP_APP_CANCELLED()) return false;
+		if (err != errNone && err != serErrTimeOut) {
+			gRpLastRecvErr = err;
+			SrmGetStatus(gPortId, NULL, &gRpLastLineErrs);
+			SrmClearErr(gPortId);
+		}
+		if (n > 0) return true;
+	}
+}
+/* The first byte of an encrypted frame: its type (1 to gRpSkipJunkMax) with the encrypted flag. Anything else is skipped. */
+static Boolean SkipToStart(UInt8 *b) RP_SECTION;
+
+static Boolean SkipToStart(UInt8 *b)
+{
+	for (;;) {
+		if (!HuntByte(b, gRpIdleOverrideTicks ? (Int32) gRpIdleOverrideTicks : rpIdleTimeoutTicks)) return false;
+		if ((*b & RP_ENC_FLAG) && (*b & (UInt8) ~RP_ENC_FLAG) >= 1 && (*b & (UInt8) ~RP_ENC_FLAG) <= gRpSkipJunkMax) return true;
+	}
+}
+
+#ifdef RP_WITH_HUNT_GAP
+/* A frame found among noise (gRpSkipGapTicks non-zero): a candidate start is followed through with a short gap allowed between its bytes,
+ * and dropped when the bytes stop (noise ahead of a reply is followed by silence, then the reply), when its length cannot be right or when
+ * its checksum fails; the search goes on from there. The ordinary reader takes such a candidate's length at its word and waits for that
+ * many bytes, up to 3 s for each, so the reply and everything after it went into it. */
+static Boolean RecvHunted(UInt8 *typeOut, UInt8 *body, UInt16 bodyCap, UInt16 *bodyLenOut) RP_SECTION;
+
+static Boolean RecvHunted(UInt8 *typeOut, UInt8 *body, UInt16 bodyCap, UInt16 *bodyLenOut)
+{
+	UInt8 hdr[7], rxChk, chk;
+	UInt16 len, i;
+
+	for (;;) {
+		if (!SkipToStart(hdr)) return false;
+		if (!ReadExact(hdr + 1, 6, gRpSkipGapTicks)) continue;
+		len = (UInt16) (((UInt16) hdr[1] << 8) | hdr[2]);
+		if (len < 4 || (UInt16) (len - 4) > bodyCap) continue;
+		len = (UInt16) (len - 4);
+		if (len && !ReadExact(body, len, gRpSkipGapTicks)) continue;
+		if (!ReadExact(&rxChk, 1, gRpSkipGapTicks)) continue;
+		chk = 0;
+		for (i = 0; i < 7; i++) chk ^= hdr[i];
+		for (i = 0; i < len; i++) chk ^= body[i];
+		if (chk == rxChk) break;
+	}
+	if (len) RpSecXcrypt(body, len, rpDirWirsa, ((UInt32) hdr[3] << 24) | ((UInt32) hdr[4] << 16) | ((UInt32) hdr[5] << 8) | hdr[6], 0);
+	*typeOut = (UInt8) (hdr[0] & (UInt8) ~RP_ENC_FLAG);
+	*bodyLenOut = len;
+	return true;
+}
+#endif
+#endif
+
 /* Strict: a plaintext frame is accepted only if it is a key-exchange
  * frame; an encrypted one only once the link is secured. Anything else is
  * dropped (returns false, like a corrupt frame). */
@@ -235,13 +317,24 @@ Boolean RpRecvFrame(UInt8 *typeOut, UInt8 *body, UInt16 bodyCap, UInt16 *bodyLen
 	Boolean enc;
 
 	if (!gOpen) return false;
+#ifdef RP_WITH_HUNT_GAP
+	if (gRpSkipGapTicks && gRpSkipJunkMax && gRpSecured && !gRpLeadByte) return RecvHunted(typeOut, body, bodyCap, bodyLenOut);
+#endif
 	if (gRpLeadByte) {
 		/* Skip menu text and anything else up to the lead byte. */
 		do {
 			if (!ReadExact(hdr, 1, gRpIdleOverrideTicks ? (Int32) gRpIdleOverrideTicks : rpIdleTimeoutTicks)) return false;
 		} while (hdr[0] != gRpLeadByte);
 		if (!ReadExact(hdr, 1, rpByteTimeoutTicks)) return false;
-	} else if (!ReadExact(hdr, 1, gRpIdleOverrideTicks ? (Int32) gRpIdleOverrideTicks : rpIdleTimeoutTicks)) return false;
+	}
+#ifdef RP_WITH_HUNT
+	else if (gRpSkipJunkMax && gRpSecured) {
+		/* An encrypted frame starts with its type and the encrypted flag. Bytes that cannot be one (noise ahead of a frame, a line error
+		 * with it) are skipped instead of being taken for the type, which made the frame behind them unreadable. */
+		if (!SkipToStart(hdr)) return false;
+	}
+#endif
+	else if (!ReadExact(hdr, 1, gRpIdleOverrideTicks ? (Int32) gRpIdleOverrideTicks : rpIdleTimeoutTicks)) return false;
 	if (!ReadExact(hdr + 1, 2, rpByteTimeoutTicks)) return false;
 	len = (UInt16) (((UInt16) hdr[1] << 8) | hdr[2]);
 	chk = hdr[0] ^ hdr[1] ^ hdr[2];
@@ -284,3 +377,50 @@ Boolean RpRecvFrame(UInt8 *typeOut, UInt8 *body, UInt16 bodyCap, UInt16 *bodyLen
 	*bodyLenOut = len;
 	return true;
 }
+
+#ifdef RP_WITH_HUNT
+#define rpHuntMaxWire	96		/* the longest frame body (seq included) a candidate may claim */
+
+RP_SECTION Boolean RpRecvFrameHunt(UInt8 wantType, UInt8 *body, UInt16 bodyCap, UInt16 *bodyLenOut)
+{
+	UInt8 buf[3 + rpHuntMaxWire + 1];		/* a candidate frame and, after a failed one, the bytes read past its first */
+	UInt8 start = (UInt8) (wantType | RP_ENC_FLAG);
+	UInt16 n = 0, len, total, i;
+	UInt8 chk;
+	UInt32 seq;
+
+	if (!gOpen || !gRpSecured) return false;
+	for (;;) {
+		/* drop everything in front of a possible start */
+		while (n > 0 && buf[0] != start) { MemMove(buf, buf + 1, n - 1); n--; }
+		if (n == 0) {
+			if (!HuntByte(buf, gRpIdleOverrideTicks ? (Int32) gRpIdleOverrideTicks : rpIdleTimeoutTicks)) return false;
+			n = 1;
+			continue;
+		}
+		while (n < 3) { if (!HuntByte(buf + n, rpByteTimeoutTicks)) return false; n++; }
+		len = (UInt16) (((UInt16) buf[1] << 8) | buf[2]);
+		if (len < 4 || len > rpHuntMaxWire || (UInt16) (len - 4) > bodyCap) {		/* not a frame start after all */
+			MemMove(buf, buf + 1, n - 1); n--;
+			continue;
+		}
+		total = (UInt16) (3 + len + 1);
+		while (n < total) { if (!HuntByte(buf + n, rpByteTimeoutTicks)) return false; n++; }
+		chk = 0;
+		for (i = 0; i < total - 1; i++) chk ^= buf[i];
+		if (chk != buf[total - 1]) {		/* junk that looked like a start: go on from the next byte, the real frame may be in what is read */
+			MemMove(buf, buf + 1, n - 1); n--;
+			continue;
+		}
+		break;
+	}
+	seq = ((UInt32) buf[3] << 24) | ((UInt32) buf[4] << 16) | ((UInt32) buf[5] << 8) | buf[6];
+	len = (UInt16) (len - 4);
+	if (len) {
+		MemMove(body, buf + 7, len);
+		RpSecXcrypt(body, len, rpDirWirsa, seq, 0);
+	}
+	*bodyLenOut = len;
+	return true;
+}
+#endif

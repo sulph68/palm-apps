@@ -1,0 +1,6 @@
+SASD.elf
+SASD.bin
+SASD_log.elf
+SASD_log.bin
+*.68k.o
+build_drvswap/

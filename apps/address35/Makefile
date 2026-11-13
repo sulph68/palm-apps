@@ -7,7 +7,7 @@
              AddrCard.o DavView.o RecField.o Lookup.o hackcheck.o catsync.o enccore.o aes.o $(EXE)-sections.o
 
    DEFINES = -DCATSYNC_MULTISEG
-  INCLUDES = $(shell find /home/cnrai/palmos_sdk/palm-os-sdk/sdk-4/include -type d | sed 's/^/-I/' | tr '\n' ' ') -I../lib
+  INCLUDES = $(shell find $(HOME)/palmos_sdk/palm-os-sdk/sdk-4/include -type d | sed 's/^/-I/' | tr '\n' ' ') -I../lib
 
 # Defaults to -palmos4 (the intended build). Without it, main->secNNN far calls in
 # new object files become near bsr.w (DISP16) -> wild jump. See the family memory.

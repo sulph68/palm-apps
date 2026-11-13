@@ -1,7 +1,7 @@
 /*
  * SyncEngine.c - per-slot sync orchestration: negotiate baud, send
  * SYNC_REQUEST, receive+ACK EVENT_ITEM frames into DAVDb.c, until
- * SYNC_DONE/SYNC_ERROR/timeout.
+ * SYNC_DONE/ERR/timeout.
  */
 #include "SyncEngine.h"
 #include "wirsactl.h"
@@ -50,7 +50,7 @@ static Boolean SendAckWithRetry(void)
 {
 	UInt8 i;
 	for (i = 0; i < cddvItemAckRetries; i++) {
-		if (CDDVSerialSendFrame(CDDV_ITEM_ACK, NULL, 0)) return true;
+		if (CDDVSerialSendFrame(CDDV_ACK, NULL, 0)) return true;
 		SysTaskDelay(cddvItemAckDelayTicks);
 	}
 	return false;
@@ -137,6 +137,10 @@ SEC004 Boolean SyncEngineRunOne(CDDVPrefsType *p, UInt8 slotIdx, Boolean silent,
 	 * (Sync All reusing an open connection). */
 	if (!gCddvConnNegotiated) {
 		UInt32 negotiatedBaud;
+		UInt32 sentAt;
+		UInt8 wireVersion = 0;
+		UInt8 cap = 0, tries;
+		Boolean acked;
 
 		/* Secure the serial link before anything else goes over it (no
 		 * plaintext fallback). No reply or a cancel keeps the existing
@@ -153,17 +157,34 @@ SEC004 Boolean SyncEngineRunOne(CDDVPrefsType *p, UInt8 slotIdx, Boolean silent,
 
 		SyncProgressSetStatus("Negotiating rate...");
 
-		w.buf = body; w.cap = sizeof(gSyncBody); w.len = 0;
-		cw32(&w, (UInt32) CDDVGetBaud());
+		/* The HELLO offers a confirmed switch (cddvHelloOffer): a WiRSa that supports it answers at this rate and moves only when
+		 * the HELLO_CONFIRM below arrives, so a reply that is lost or damaged on the way costs nothing: the HELLO is sent again, and
+		 * both ends are still at the idle rate. An older WiRSa ignores the extra byte, answers without cddvCapHelloConfirm and
+		 * moves at once, as before. */
+		acked = false;
+		for (tries = 0; tries < cddvHelloTries && !acked; tries++) {
+			if (tries) {
+				if (SyncProgressCancelled()) break;
+				SysTaskDelay(SysTicksPerSecond() / 4);		/* what WiRSa sent for the lost reply has all arrived */
+				CDDVSerialFlushInput();
+			}
+			w.buf = body; w.cap = sizeof(gSyncBody); w.len = 0;
+			cw32(&w, (UInt32) CDDVGetBaud());
+			cw8(&w, cddvHelloOffer);
 
-		if (!CDDVSerialSendFrame(CDDV_HELLO, body, w.len)) {
-			SyncProgressHide();
-			StrCopy(gSyncErrMsg, "Lost contact with WiRSa negotiating baud rate.");
-			if (!silent) FrmCustomAlert(altErr, gSyncErrMsg, NULL, NULL);
-			goto finish;
+			if (!CDDVSerialSendFrame(CDDV_HELLO, body, w.len)) {
+				SyncProgressHide();
+				StrCopy(gSyncErrMsg, "Lost contact with WiRSa negotiating baud rate.");
+				if (!silent) FrmCustomAlert(altErr, gSyncErrMsg, NULL, NULL);
+				goto finish;
+			}
+
+			sentAt = TimGetTicks();
+			acked = CDDVSerialRecvHelloAck(body, sizeof(gSyncBody), &rxLen);
+			/* Only a reply that came back damaged is tried again; an answer that never came took the whole idle wait already. */
+			if (!acked && (Int32) (TimGetTicks() - sentAt) > (Int32) (SysTicksPerSecond() * 20)) break;
 		}
-
-		if (!CDDVSerialRecvFrame(&rxType, body, sizeof(gSyncBody), &rxLen) || rxType != CDDV_HELLO_ACK) {
+		if (!acked) {
 			SyncProgressHide();
 			StrCopy(gSyncErrMsg, "Lost contact with WiRSa negotiating baud rate.");
 			if (!silent) FrmCustomAlert(altErr, gSyncErrMsg, NULL, NULL);
@@ -171,6 +192,21 @@ SEC004 Boolean SyncEngineRunOne(CDDVPrefsType *p, UInt8 slotIdx, Boolean silent,
 		}
 
 		gSyncR.buf = body; gSyncR.len = rxLen; gSyncR.pos = 0; gSyncR.ok = true;
+		/* WiRSa's reply is version u8, capability u8, server name str, then the rate (the same layout as BitWarden's and Mesh's). Firmware
+		 * from before that sent the rate alone: 4 bytes. */
+		if (rxLen > 4) {
+			char agent[24];
+
+			wireVersion = cr8(&gSyncR);
+			cap = cr8(&gSyncR);
+			crStr(&gSyncR, agent, sizeof(agent));
+		}
+		if (wireVersion < cddvWireVersion) {	/* an older WiRSa speaks the old type numbers: stop here, no frame it would understand */
+			SyncProgressHide();
+			StrCopy(gSyncErrMsg, "This WiRSa is older than the app. Update WiRSa's firmware.");
+			if (!silent) FrmCustomAlert(altErr, gSyncErrMsg, NULL, NULL);
+			goto finish;
+		}
 		negotiatedBaud = cr32(&gSyncR);
 		if (!gSyncR.ok || negotiatedBaud == 0) {
 			SyncProgressHide();
@@ -179,7 +215,23 @@ SEC004 Boolean SyncEngineRunOne(CDDVPrefsType *p, UInt8 slotIdx, Boolean silent,
 			goto finish;
 		}
 
+		if (cap & cddvCapHelloConfirm) {
+			/* WiRSa is waiting at the idle rate: tell it the reply was read (the same rate again), then move. WiRSa moves when it gets
+			 * this, so the pause keeps this end's first frame at the new rate from arriving before it has. */
+			w.buf = body; w.cap = sizeof(gSyncBody); w.len = 0;
+			cw32(&w, (UInt32) CDDVGetBaud());
+			cw8(&w, cddvHelloConfirm);
+			if (!CDDVSerialSendFrame(CDDV_HELLO, body, w.len)) {
+				SyncProgressHide();
+				StrCopy(gSyncErrMsg, "Lost contact with WiRSa negotiating baud rate.");
+				if (!silent) FrmCustomAlert(altErr, gSyncErrMsg, NULL, NULL);
+				goto finish;
+			}
+			SysTaskDelay(SysTicksPerSecond() / 10);
+		}
+
 		CDDVSerialSetBaud(negotiatedBaud);
+		gRpSkipJunkMax = cddvMaxRxType;	/* noise ahead of a frame is skipped from here on (the first item after the long fetch was lost to it) */
 		gCddvConnNegotiated = true;
 		StrPrintF(gSyncStatusBuf, "Negotiated %ld baud", (Int32) negotiatedBaud);
 		SyncProgressSetStatus(gSyncStatusBuf);
@@ -335,8 +387,9 @@ SEC004 Boolean SyncEngineRunOne(CDDVPrefsType *p, UInt8 slotIdx, Boolean silent,
 		} else if (rxType == CDDV_SYNC_DONE) {
 			synced = true;
 			break;
-		} else if (rxType == CDDV_SYNC_ERROR) {
+		} else if (rxType == CDDV_ERR) {
 			gSyncR.buf = body; gSyncR.len = rxLen; gSyncR.pos = 0; gSyncR.ok = true;
+			cr8(&gSyncR);	/* the code; the message is what the user reads */
 			crStr(&gSyncR, gSyncErrMsg, sizeof(gSyncErrMsg));
 			SyncProgressHide();
 			if (!gSyncErrMsg[0]) StrCopy(gSyncErrMsg, "WiRSa reported a sync error.");
@@ -386,7 +439,17 @@ finish:
 	s->lastSyncTime = TimGetSeconds();
 	s->lastSyncOk = synced;
 	s->lastSyncEventCount = eventCount;
+	/* The slot keeps 63 characters for the main screen's Status; a longer message (the alert showed it in full) is cut at a word and ends with "...". */
 	StrNCopy(s->lastSyncErrMsg, gSyncErrMsg, sizeof(s->lastSyncErrMsg) - 1);
+	s->lastSyncErrMsg[sizeof(s->lastSyncErrMsg) - 1] = '\0';
+	if (StrLen(gSyncErrMsg) > sizeof(s->lastSyncErrMsg) - 1) {
+		UInt16 cut = sizeof(s->lastSyncErrMsg) - 4;	/* room for "..." */
+
+		while (cut > 0 && gSyncErrMsg[cut] != ' ') cut--;
+		if (cut == 0) cut = sizeof(s->lastSyncErrMsg) - 4;
+		MemMove(s->lastSyncErrMsg, gSyncErrMsg, cut);
+		StrCopy(s->lastSyncErrMsg + cut, "...");
+	}
 	return synced;
 }
 

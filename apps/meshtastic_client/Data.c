@@ -9,7 +9,8 @@
 
 typedef struct { Int32 year; Int16 month, day, hour, minute, weekday; } Civil;
 
-Node gNodes[MAX_NODE];		UInt16 gNNodes;
+Node *gNodes;			UInt16 gNNodes, gMaxNode;
+NodeFull gCard, gSelf;
 Conv gConv[MAX_CONV];		UInt16 gNConv;		UInt16 gOrder[MAX_CONV];	UInt16 gNOrder;
 Msg gMsg[MAX_MSG];			UInt16 gNMsg;
 char gPool[POOL_SIZE];		UInt16 gPoolUsed;
@@ -325,6 +326,23 @@ void SortConv(void)
 	}
 }
 
+/* The table of conversations is full: the direct message that was quiet the longest goes, with the Palm's copy of its messages (WiRSa
+ * still has them), and its place is used again. One being read, or with unread messages, goes last. 0xFFFF if every one is a channel. */
+static UInt16 EvictDm(void)
+{
+	UInt16 i, best = 0xFFFF;
+
+	for (i = 0; i < gNConv; i++) {
+		if (gConv[i].isChan || i == gCurConv) continue;
+		if (best == 0xFFFF || (gConv[i].unread == 0) > (gConv[best].unread == 0) ||
+			((gConv[i].unread == 0) == (gConv[best].unread == 0) && gConv[i].last < gConv[best].last)) best = i;
+	}
+	if (best == 0xFFFF) return 0xFFFF;
+	DropConv(best);
+	MemSet(&gConv[best], sizeof(Conv), 0);
+	return best;
+}
+
 /* The direct-message conversation with a node; made if asked and there is room. */
 UInt16 FindDm(UInt16 node, Boolean create)
 {
@@ -332,9 +350,15 @@ UInt16 FindDm(UInt16 node, Boolean create)
 
 	for (i = 0; i < gNConv; i++)
 		if (! gConv[i].isChan && gConv[i].index == node) return i;
-	if (! create || gNConv >= MAX_CONV) return 0xFFFF;
+	if (! create) return 0xFFFF;
+	if (gNConv >= MAX_CONV) {
+		i = EvictDm();
+		if (i == 0xFFFF) return 0xFFFF;
+		gConv[i].index = node;
+		return i;
+	}
 	MemSet(&gConv[gNConv], sizeof(Conv), 0);
-	gConv[gNConv].index = (UInt8) node;
+	gConv[gNConv].index = node;
 	return gNConv++;
 }
 
@@ -345,7 +369,14 @@ UInt16 FindChan(UInt8 index, Boolean create)
 
 	for (i = 0; i < gNConv; i++)
 		if (gConv[i].isChan && gConv[i].index == index) return i;
-	if (! create || gNConv >= MAX_CONV) return 0xFFFF;
+	if (! create) return 0xFFFF;
+	if (gNConv >= MAX_CONV) {
+		i = EvictDm();
+		if (i == 0xFFFF) return 0xFFFF;
+		gConv[i].isChan = true; gConv[i].index = index;
+		SortConv();
+		return i;
+	}
 	MemSet(&gConv[gNConv], sizeof(Conv), 0);
 	gConv[gNConv].isChan = true;
 	gConv[gNConv].index = index;
@@ -369,7 +400,7 @@ static void Repack(void)
 }
 
 /* Add a message; the caller fills in seq, localId and status. The oldest ones go when the table or the text pool is full. */
-Msg *AddMsg(UInt16 conv, Boolean out, UInt8 from, const char *text, Stamp when)
+Msg *AddMsg(UInt16 conv, Boolean out, UInt16 from, const char *text, Stamp when)
 {
 	Msg *m;
 	char *p;
@@ -412,44 +443,167 @@ void DropConv(UInt16 conv)
 	gConv[conv].unread = 0;
 }
 
-/* The reason a message failed, in words. 1 to 39 are the node's Routing.Error codes; 240 and up are WiRSa's and the Palm's. */
-const char *ErrWords(UInt8 code)
+/* Why a message failed: the title and the meaning are the wording of the Meshtastic Android app's "Delivery Errors"; the line
+ * "what to do" is its advice, or ours where the app gives none. 1 to 39 are the node's Routing.Error codes; 240 and up are WiRSa's
+ * and the Palm's. */
+const char *ErrTitle(UInt8 code)
 {
 	switch (code) {
-	case 1:		return "The mesh has no route to that node.";
-	case 2:		return "The next node answered with a refusal.";
-	case 3:		return "No answer came in time.";
-	case 4:		return "The node has no radio interface for it.";
-	case 5:		return "It was sent several times and never acknowledged.";
-	case 6:		return "The node has no such channel.";
-	case 7:		return "The message is too large for the radio.";
-	case 8:		return "The other node did not respond.";
-	case 9:		return "The radio's duty cycle limit is reached. Wait a while and send again.";
-	case 32:	return "The node rejected the request.";
-	case 33:	return "The node says this is not authorised.";
-	case 34:	return "Encrypting with the other node's key failed.";
-	case 35:	return "The other node does not know this node's public key.";
-	case 36: case 37:	return "The node rejected the admin session.";
-	case 38:	return "Sending too fast. Wait a moment and send again.";
-	case 39:	return "The node has no public key for the recipient, so it cannot encrypt a direct message. Send Request node info from the Send menu, then send again.";
+	case 1:		return "No route";
+	case 2: case 3: case 5:	return "Failed to deliver to mesh";
+	case 4:		return "No radio interface";
+	case 6:		return "Channel/key mismatch";
+	case 7:		return "Message is too large to send";
+	case 8:		return "No app response";
+	case 9:		return "Duty cycle limit";
+	case 32:	return "Invalid request";
+	case 33:	return "Not authorized";
+	case 34:	return "Could not send encrypted message";
+	case 35:	return "Recipient needs your key";
+	case 36:	return "Admin session expired";
+	case 37:	return "Admin key not authorized";
+	case 38:	return "Rate limited";
+	case 39:	return "Recipient key unavailable";
+	case 240:	return "Not written to the node";
+	case 241:	return "Not linked to the node";
+	case 242:	return "Not connected to WiRSa";
+	case 243:	return "Message too long";
+	}
+	return "Error";
+}
+
+const char *ErrMeaning(UInt8 code)
+{
+	switch (code) {
+	case 1:		return "No path to the destination. The recipient may be offline or out of range.";
+	case 2: case 3: case 5:	return "Retries exhausted. This covers a relay refusing (NAK), a timeout, or running out of retransmits.";
+	case 4:		return "No radio available to send.";
+	case 6:		return "The channel or PSK doesn't match. For a direct message, the other node may also lack your public key.";
+	case 7:		return "The message exceeds the maximum payload size.";
+	case 8:		return "The app or plugin didn't respond.";
+	case 9:		return "The regional airtime limit was reached.";
+	case 32:	return "The request was malformed.";
+	case 33:	return "The destination refused the request.";
+	case 34:	return "Encryption failed.";
+	case 35:	return "Direct message encryption couldn't complete because the other node lacks your public key.";
+	case 36:	return "A remote-admin session timed out.";
+	case 37:	return "The target doesn't accept your admin key.";
+	case 38:	return "The mesh is throttling you.";
+	case 39:	return "You don't have the recipient's public key.";
 	case 240:	return "WiRSa could not write the message to the node.";
-	case 241:	return "WiRSa is not linked to the node.";
-	case 242:	return "The Palm is not connected to WiRSa.";
-	case 243:	return "It is too long, or WiRSa had no room for it.";
+	case 241:	return "WiRSa has no link to the node.";
+	case 242:	return "This Palm has no link to WiRSa.";
+	case 243:	return "The message is too long, or WiRSa had no room for it.";
 	}
 	return "The node reported an error.";
 }
 
-const char *StatusWords(UInt8 st)
+const char *ErrAction(UInt8 code)
 {
-	switch (st) {
-	case 0:		return "Sending to the node";
-	case 1:		return "Sent by the node, no acknowledgement yet";
-	case 2:		return "Delivered (acknowledged)";
-	case 3:		return "Failed";
-	case 4:		return "Sent, acknowledgement not known";
+	switch (code) {
+	case 1:		return "Try again later, or move closer.";
+	case 2: case 3: case 5:	return "Send it again in a moment.";
+	case 4:		return "Check the radio connection.";
+	case 6:		return "Confirm both nodes share the channel and key. For a direct message, open its Send menu, choose Request node info, then send again.";
+	case 7:		return "Shorten it.";
+	case 8:		return "Retry, or check the destination module.";
+	case 9:		return "Wait for the window to reset.";
+	case 32:	return "Retry; update or restart the app if it persists.";
+	case 33:	return "Check the channel and keys.";
+	case 34:	return "Verify both nodes exchanged keys and run compatible firmware.";
+	case 35:	return "Exchange node info (Send menu > Request node info), then send again.";
+	case 36:	return "Reopen the remote node's settings.";
+	case 37:	return "Verify the key matches on both nodes.";
+	case 38:	return "Wait before sending.";
+	case 39:	return "Wait for their node info, or ask them to broadcast it (Send menu > Request node info).";
+	case 240:	return "Send it again. If it keeps failing, connect to the node again.";
+	case 241:	return "Wait for the node link to come up (see the status line), then send again.";
+	case 242:	return "Connect first, then send again.";
+	case 243:	return "Shorten it, then send again.";
+	}
+	return "Send it again.";
+}
+
+const char *StatusWords(const Msg *m)
+{
+	switch (m->status) {
+	case 0:		return "Sending";
+	case 1: case 5:	return "Sent, waiting for confirmation";
+	case 2:		return gConv[m->conv].isChan ? "Delivered to mesh" : "Delivered to recipient";
+	case 3:		return "Error";
+	case 4:		return "Relayed, not confirmed by recipient";
+	case 6:		return "Exchanging keys, then it is sent again";
 	}
 	return "Unknown";
+}
+
+Int16 NameWidth(const char *s, Int16 len)
+{
+	Int16 i = 0, j, w = 0;
+	FontID f = FntGetFont();
+
+	while (i < len) {
+		if ((UInt8) s[i] == NAME_EMOJI) {
+			FntSetFont(symbolFont);
+			w = (Int16) (w + FntCharsWidth(s + i, 1));
+			FntSetFont(f);
+			i++;
+			continue;
+		}
+		for (j = i; j < len && (UInt8) s[j] != NAME_EMOJI; j++) ;
+		w = (Int16) (w + FntCharsWidth(s + i, (Int16) (j - i)));
+		i = j;
+	}
+	return w;
+}
+
+void DrawName(const char *s, Int16 len, Coord x, Coord y, Int16 maxW)
+{
+	Int16 i = 0, j, used = 0, w;
+	FontID f = FntGetFont();
+
+	while (i < len && used < maxW) {
+		if ((UInt8) s[i] == NAME_EMOJI) {
+			FntSetFont(symbolFont);
+			w = FntCharsWidth(s + i, 1);
+			if (used + w <= maxW) WinDrawChars(s + i, 1, (Coord) (x + used), (Coord) (y + 1));	/* the symbol sits a pixel lower */
+			FntSetFont(f);
+			used = (Int16) (used + w);
+			i++;
+			continue;
+		}
+		for (j = i; j < len && (UInt8) s[j] != NAME_EMOJI; j++) ;
+		w = FntCharsWidth(s + i, (Int16) (j - i));
+		if (used + w <= maxW) WinDrawChars(s + i, (Int16) (j - i), (Coord) (x + used), y);
+		else { WinDrawTruncChars(s + i, (Int16) (j - i), (Coord) (x + used), y, (Int16) (maxW - used)); break; }
+		used = (Int16) (used + w);
+		i = j;
+	}
+	FntSetFont(f);
+}
+
+void FlatName(char *s)
+{
+	for (; *s; s++) if ((UInt8) *s == NAME_EMOJI) *s = '*';
+}
+
+void StripName(char *s)
+{
+	char *d = s;
+
+	for (; *s; s++) if ((UInt8) *s != NAME_EMOJI) *d++ = *s;
+	*d = '\0';
+}
+
+/* A small key beside a node's name: its public key is known. */
+void DrawKeyIcon(Coord x, Coord y)
+{
+	MemHandle h = DmGetResource('Tbmp', bmpKey);
+
+	if (! h) return;
+	WinDrawBitmap((BitmapPtr) MemHandleLock(h), x, y);
+	MemHandleUnlock(h);
+	DmReleaseResource(h);
 }
 
 /* "-1.3521" or "103.8198" to degrees x 1e7. At most 3 digits before the point, 7 after. False if it is not a number. */
@@ -618,13 +772,21 @@ void NodeClockShort(char *out)
 
 /* ---- clearing ---------------------------------------------------------------------------- */
 
+UInt16 gClearConv = 0xFFFF;
+
+static Boolean ClearsIt(UInt16 i, UInt16 days, Stamp limit)
+{
+	if (gClearConv != 0xFFFF && gMsg[i].conv != gClearConv) return false;
+	return days == 0 || gMsg[i].when < limit;
+}
+
 UInt16 CountOlder(UInt16 days)
 {
 	UInt16 i, n = 0;
 	Stamp limit = NowUtc() - days * DAY;
 
 	for (i = 0; i < gNMsg; i++)
-		if (days == 0 || gMsg[i].when < limit) n++;
+		if (ClearsIt(i, days, limit)) n++;
 	return n;
 }
 
@@ -634,7 +796,7 @@ void ClearOlder(UInt16 days)
 	Stamp limit = NowUtc() - days * DAY;
 
 	for (i = 0; i < gNMsg; i++)
-		if (! (days == 0 || gMsg[i].when < limit)) {
+		if (! ClearsIt(i, days, limit)) {
 			if (k != i) MemMove(&gMsg[k], &gMsg[i], sizeof(Msg));
 			k++;
 		}
@@ -654,18 +816,20 @@ void ClearOlder(UInt16 days)
 
 /* The app's own settings survive a restart (Palm's saved preferences). */
 #define prefsCreator	'McHt'
-#define prefsVersion	2		/* 1 listed five rates (9600 19200 38400 57600 115200) */
+#define prefsVersion	3		/* 1 listed five rates (9600 19200 38400 57600 115200); 2 had no SD History */
 
 void PrefsLoad(void)
 {
 	Prefs p;
 	UInt16 size = sizeof(Prefs);
+	UInt16 ver;
 
-	UInt16 ver = PrefGetAppPreferences(prefsCreator, 0, &p, &size, true);
+	MemSet(&p, sizeof(p), 0);
+	ver = PrefGetAppPreferences(prefsCreator, 0, &p, &size, true);
 
-	if (size != sizeof(Prefs))
+	if (size != sizeof(Prefs) && size != 2)			/* 2 bytes: baud and autoMode, before SD History */
 		return;
-	if (ver == prefsVersion && p.baud < 7)
+	if ((ver == prefsVersion || ver == 2) && p.baud < 7)
 		gPrefs = p;
 	else if (ver == 1 && p.baud < 5) {
 		gPrefs = p;
@@ -686,22 +850,23 @@ void PrefsSave(void)
 
 void DataInit(void)
 {
-	UInt16 i;
+	UInt32 id;
 
 	gNNodes = 0; gNConv = 0; gNMsg = 0; gPoolUsed = 0;
-	MemSet(gNodes, sizeof(gNodes), 0);
-	MemSet(gConv, sizeof(gConv), 0);
+	if (! gNodes) {
+		gMaxNode = MAX_NODE;
+		gNodes = (Node *) MemPtrNew((UInt32) gMaxNode * sizeof(Node));
+		if (! gNodes) { gMaxNode = 32; gNodes = (Node *) MemPtrNew((UInt32) gMaxNode * sizeof(Node)); }	/* a Palm short of memory: fewer nodes */
+		if (! gNodes) { gMaxNode = 0; ErrDisplay("Out of memory"); }
+	}
+	if (gNodes) MemSet(gNodes, (UInt32) gMaxNode * sizeof(Node), 0);
 	MemSet(&gRelay, sizeof(gRelay), 0);
-	gRelay.mode = 0; gRelay.every = 1;
-	gMyBatt = -1;
-	gPrefs.baud = 0; gPrefs.autoMode = true;
+	gRelay.mode = 0; gRelay.every = 1; gRelay.sdFlush = 4;
+	gPrefs.baud = 0; gPrefs.autoMode = true; gPrefs.sdHist = false;
 	PrefsLoad();
 
-	/* The node's own settings (Setup pages): shown from here until the node can be asked for them. */
-	StrCopy(gNodeCfg.chan[0].name, "Primary");
-	gNodeCfg.region = 0; gNodeCfg.preset = 0; gNodeCfg.hop = 3; gNodeCfg.txPower = 0;
-	gNodeCfg.role = 0; gNodeCfg.btMode = 0;
-	StrCopy(gNodeCfg.pin, "123456");
-	for (i = 0; i < MAX_CHAN; i++) gNodeCfg.chan[i].role = 0;
-	CacheLoad();					/* what the last run knew: a launch then fetches only what is new */
+	NodeDataClear();
+	gNodeId = 0;
+	id = CacheLastNode();			/* what the last run knew of the node shown last: a launch then fetches only what is new */
+	if (id) CacheLoadNode(id);
 }

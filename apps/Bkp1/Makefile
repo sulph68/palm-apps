@@ -1,6 +1,6 @@
 # Bkp1 - prc-tools (m68k-palmos-gcc) build. The original project is CodeWarrior (bkp1.mcp);
 # the original binary is kept as Bkp1_orig.prc.
-SDK   = /home/cnrai/palmos_sdk/palm-os-sdk/sdk-4
+SDK   = $(HOME)/palmos_sdk/palm-os-sdk/sdk-4
 INCS  = $(shell find $(SDK)/include -type d | sed 's/^/-I/') -Icompat -ISrc
 CC    = m68k-palmos-gcc
 CFLAGS = -palmos4 -Os $(INCS)

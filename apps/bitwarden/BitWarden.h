@@ -252,6 +252,14 @@ void BwClearPinnedFingerprint(void);
 #define BwSerialSetBaud		RpSetBaud
 #define BwSerialSendFrame	RpSendFrame
 #define BwSerialRecvFrame	RpRecvFrame
+/* The confirmed baud switch (see Protocol-wire.md 5.1). HELLO = baud u32, then an optional flags byte: bwHelloOffer on the first HELLO ("I will
+ * confirm before I switch"), bwHelloConfirm on the second, which says the reply was read. A WiRSa that supports it sets bwCapHelloConfirm in the
+ * reply's capability byte and moves only on the confirm; an older one ignores the byte, replies with 0 and moves at once. */
+#define bwHelloOffer		0x01
+#define bwHelloConfirm		0x02
+#define bwCapHelloConfirm	0x02
+#define bwHelloTries		3
+#define bwMaxRxType			0x3F	/* the highest frame type WiRSa sends to this app */
 #define gBwLastRecvErr		gRpLastRecvErr
 #define gBwLastLineErrs		gRpLastLineErrs
 #define gBwIdleOverrideTicks	gRpIdleOverrideTicks

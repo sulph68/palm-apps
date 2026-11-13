@@ -73,11 +73,15 @@ typedef struct {
 	UInt8	sasdDisk;		/* 0 auto, 1 SD card, 2 virtual card */
 	Boolean	sleepKnown;		/* WiRSa sent the deep sleep delay */
 	UInt8	sleepMin;		/* minutes: 0 off, 1, 3, 5, 15 */
+	Boolean	sasdTimeoutKnown;	/* WiRSa sent the SASD timeout */
+	UInt8	sasdTimeoutMin;	/* SASD timeout, minutes: 3, 5, 10 or 15 */
+	Boolean	pulseKnown;		/* WiRSa sent the WiFi pulse */
+	UInt8	pulse;			/* 0 always on, 1 15s, 2 30s, 3 1min, 4 never (the list order) */
 } WCConfig;
 
 static WCConfig gCfg;
 static WCMasked gMasks[2];			/* FTP pass, AP pass */
-static char gBaudLabel[8], gOrientLabel[10], gLogLabel[10], gDiskLabel[10], gSleepLabel[8];
+static char gBaudLabel[8], gOrientLabel[10], gLogLabel[10], gDiskLabel[10], gSleepLabel[8], gPulseLabel[10];
 
 /* Log level: list order Off Warn Info Verbose; on the wire 0 off, 1 info (an older firmware's
  * USB debug on), 2 warn, 3 verbose. */
@@ -147,6 +151,12 @@ Boolean SetupOpenFromMain(void)
 	gCfg.sleepKnown = (Boolean) (gCfg.sasdKnown && r.pos + 1 <= r.len);
 	if (gCfg.sleepKnown)
 		gCfg.sleepMin = RpR8(&r);
+	gCfg.sasdTimeoutKnown = (Boolean) (gCfg.sleepKnown && r.pos + 1 <= r.len);
+	if (gCfg.sasdTimeoutKnown)
+		gCfg.sasdTimeoutMin = RpR8(&r);
+	gCfg.pulseKnown = (Boolean) (gCfg.sasdTimeoutKnown && r.pos + 1 <= r.len);
+	if (gCfg.pulseKnown)
+		gCfg.pulse = RpR8(&r);
 
 	FrmPopupForm(frmSetup);
 	return true;
@@ -184,6 +194,8 @@ static void SetupSave(void)
 		gCfg.sasdDisk = (UInt8) GetListSel(lstSetupDisk);
 	if (gCfg.sleepKnown)
 		gCfg.sleepMin = SleepIdxToWire(GetListSel(lstSetupSleep));
+	if (gCfg.pulseKnown)
+		gCfg.pulse = (UInt8) GetListSel(lstSetupPulse);
 
 	BusyShow("Saving settings...");
 	r = WCtlBegin(SweepOK());
@@ -213,8 +225,14 @@ static void SetupSave(void)
 				RpW8(&w, gCfg.slipMin);
 				if (gCfg.sasdKnown) {
 					RpW8(&w, gCfg.sasdDisk);
-					if (gCfg.sleepKnown)
+					if (gCfg.sleepKnown) {
 						RpW8(&w, gCfg.sleepMin);
+						if (gCfg.sasdTimeoutKnown) {
+							RpW8(&w, gCfg.sasdTimeoutMin);
+							if (gCfg.pulseKnown)
+								RpW8(&w, gCfg.pulse);
+						}
+					}
 				}
 			}
 		}
@@ -264,10 +282,16 @@ Boolean SetupHandleEvent(EventPtr e)
 			FrmHideObject(frm, FrmGetObjectIndex(frm, lblSetupSleep));
 			FrmHideObject(frm, FrmGetObjectIndex(frm, popSetupSleep));
 		}
+		if (gCfg.pulseKnown)
+			SetPopup(popSetupPulse, lstSetupPulse, gCfg.pulse < 5 ? gCfg.pulse : 2, gPulseLabel, sizeof(gPulseLabel));
+		else {
+			FrmHideObject(frm, FrmGetObjectIndex(frm, lblSetupPulse));
+			FrmHideObject(frm, FrmGetObjectIndex(frm, popSetupPulse));
+		}
 		if (gWCtlInfo.flags & wctlFlagScreenless) {
 			/* No Orientation row: the rows below it move up into its place. */
 			static const UInt16 moved[] = { lblSetupDisk, popSetupDisk, lstSetupDisk,
-				lblSetupSleep, popSetupSleep, lstSetupSleep, btnSetupFtp, btnSetupAp, btnSetupSlip, btnSetupTimers };
+				lblSetupSleep, popSetupSleep, lstSetupSleep, lblSetupPulse, popSetupPulse, lstSetupPulse, btnSetupFtp, btnSetupAp, btnSetupSlip, btnSetupTimers };
 			Coord x, y;
 			FrmHideObject(frm, FrmGetObjectIndex(frm, lblSetupOrient));
 			FrmHideObject(frm, FrmGetObjectIndex(frm, popSetupOrient));
@@ -295,6 +319,10 @@ Boolean SetupHandleEvent(EventPtr e)
 		}
 		if (e->data.popSelect.listID == lstSetupSleep && e->data.popSelect.selection >= 0) {
 			SetPopup(popSetupSleep, lstSetupSleep, e->data.popSelect.selection, gSleepLabel, sizeof(gSleepLabel));
+			return true;
+		}
+		if (e->data.popSelect.listID == lstSetupPulse && e->data.popSelect.selection >= 0) {
+			SetPopup(popSetupPulse, lstSetupPulse, e->data.popSelect.selection, gPulseLabel, sizeof(gPulseLabel));
 			return true;
 		}
 		if (e->data.popSelect.listID == lstSetupOrient && e->data.popSelect.selection >= 0) {
@@ -478,6 +506,20 @@ static void TimersSetSlip(Int16 sel)
 	CtlSetLabel((ControlPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, popTimersSlip)), gSlipLabel);
 }
 
+/* SASD timeout popup: list index <-> minutes (3, 5, 10, 15) */
+static char gSasdLabel[8];
+
+static void TimersSetSasd(Int16 sel)
+{
+	FormPtr frm = FrmGetActiveForm();
+	ListPtr lst = (ListPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, lstTimersSasd));
+
+	LstSetSelection(lst, sel);
+	StrNCopy(gSasdLabel, LstGetSelectionText(lst, sel), sizeof(gSasdLabel) - 1);
+	gSasdLabel[sizeof(gSasdLabel) - 1] = '\0';
+	CtlSetLabel((ControlPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, popTimersSasd)), gSasdLabel);
+}
+
 /* 0-255, or -1 if not a number */
 static Int16 TimersGet(UInt16 fld)
 {
@@ -509,6 +551,12 @@ Boolean TimersHandleEvent(EventPtr e)
 			FrmHideObject(frm, FrmGetObjectIndex(frm, lblTimersSlip));
 			FrmHideObject(frm, FrmGetObjectIndex(frm, popTimersSlip));
 		}
+		if (gCfg.sasdTimeoutKnown) {
+			TimersSetSasd(gCfg.sasdTimeoutMin == 3 ? 0 : gCfg.sasdTimeoutMin == 5 ? 1 : gCfg.sasdTimeoutMin == 10 ? 2 : 3);
+		} else {
+			FrmHideObject(frm, FrmGetObjectIndex(frm, lblTimersSasd));
+			FrmHideObject(frm, FrmGetObjectIndex(frm, popTimersSasd));
+		}
 		FrmDrawForm(frm);
 		FrmSetFocus(frm, FrmGetObjectIndex(frm, fldTimersUnused));
 		return true;
@@ -519,6 +567,10 @@ Boolean TimersHandleEvent(EventPtr e)
 	case popSelectEvent:
 		if (e->data.popSelect.listID == lstTimersSlip && e->data.popSelect.selection >= 0) {
 			TimersSetSlip(e->data.popSelect.selection);
+			return true;
+		}
+		if (e->data.popSelect.listID == lstTimersSasd && e->data.popSelect.selection >= 0) {
+			TimersSetSasd(e->data.popSelect.selection);
 			return true;
 		}
 		break;
@@ -541,6 +593,15 @@ Boolean TimersHandleEvent(EventPtr e)
 				case 1:  gCfg.slipMin = 2; break;
 				case 2:  gCfg.slipMin = 3; break;
 				default: gCfg.slipMin = 5; break;
+				}
+			}
+			if (gCfg.sasdTimeoutKnown) {
+				frm = FrmGetActiveForm();
+				switch (LstGetSelection((ListPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, lstTimersSasd)))) {
+				case 0:  gCfg.sasdTimeoutMin = 3; break;
+				case 1:  gCfg.sasdTimeoutMin = 5; break;
+				case 2:  gCfg.sasdTimeoutMin = 10; break;
+				default: gCfg.sasdTimeoutMin = 15; break;
 				}
 			}
 			FrmReturnToForm(frmSetup);

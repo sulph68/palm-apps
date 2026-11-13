@@ -224,7 +224,7 @@ Boolean BwUnlockPromptRun(char *outPassword, UInt16 outLen)
 	return btn == btnUnlockOk;
 }
 
-/* Vaultwarden 2FA challenge (PROTOCOL.md's TWO_FACTOR_REQUIRED), run from
+/* Vaultwarden 2FA challenge (Protocol-wire.md (WiRSa docs/protocol)'s TWO_FACTOR_REQUIRED), run from
  * Sync.c's own receive loop mid-sync - same blocking-dialog shape as
  * BwUnlockPromptRun above, but far simpler: the code isn't masked (no
  * PwKeyDown/PwRedraw needed - a 2FA code isn't as sensitive as a password,
@@ -328,7 +328,7 @@ Boolean BwTwoFactorPromptRun(const char *providerLabel, char *outCode, UInt16 ou
 /* Both static, not stack-local - FldSetTextPtr keeps pointing at these for
  * as long as the field is on screen, and gTrustCertText in particular is
  * sized to comfortably fit future growth (subject/issuer CN once
- * NetworkClientSecure exposes them - see PROTOCOL.md's TRUST_RESULT note)
+ * NetworkClientSecure exposes them - see Protocol-wire.md (WiRSa docs/protocol)'s TRUST_RESULT note)
  * without touching the .rcp again. Using FldSetTextPtr (an externally-
  * owned buffer) rather than FrmCopyLabel is what actually fixes the real
  * bug found on-device: FrmCopyLabel writes into the compiled resource's
@@ -644,7 +644,7 @@ void BwProgressSetStatus(const char *status)
 }
 
 /* `done` = items received so far. There's no true total to compute a real
- * percentage against - PROTOCOL.md's SYNC_DONE only reports the final
+ * percentage against - Protocol-wire.md (WiRSa docs/protocol)'s SYNC_DONE only reports the final
  * count once everything has already streamed. The original design filled
  * toward a 20-item soft cap and then held at full width - real-device
  * feedback: for any sync bigger than ~20 items (this suite's own test

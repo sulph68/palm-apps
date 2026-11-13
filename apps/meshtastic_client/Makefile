@@ -6,11 +6,11 @@
        PRC = meshtastic.prc
          B = build
 
-      OBJS = $(B)/MeshChat.o $(B)/Data.o $(B)/Node.o $(B)/Relay.o $(B)/Link.o $(B)/Views.o $(B)/Chat.o $(B)/datelib.o $(B)/hackcheck.o $(B)/era.o \
+      OBJS = $(B)/MeshChat.o $(B)/Data.o $(B)/Node.o $(B)/Relay.o $(B)/Link.o $(B)/NodeDb.o $(B)/Views.o $(B)/Chat.o $(B)/datelib.o $(B)/hackcheck.o $(B)/era.o \
              $(B)/wirsactl.o $(B)/relayproto.o $(B)/relaywire.o $(B)/relaysec.o $(B)/aes.o $(B)/$(EXE)-sections.o
 
-  INCLUDES = $(shell find /home/cnrai/palmos_sdk/palm-os-sdk/sdk-4/include -type d | sed 's/^/-I/' | tr '\n' ' ') -I../lib -I.
-    CFLAGS = -palmos4 -Os -Wall -Wno-unknown-pragmas -Wno-multichar $(INCLUDES) -include mc_seg.h -DRP_WITH_PENDING
+  INCLUDES = $(shell find $(HOME)/palmos_sdk/palm-os-sdk/sdk-4/include -type d | sed 's/^/-I/' | tr '\n' ' ') -I../lib -I.
+    CFLAGS = -palmos4 -Os -Wall -Wno-unknown-pragmas -Wno-multichar $(INCLUDES) -include mc_seg.h -DRP_WITH_PENDING -DRP_WITH_HUNT -DRP_WITH_HUNT_GAP
 
      PILRC = pilrc
         CC = m68k-palmos-gcc

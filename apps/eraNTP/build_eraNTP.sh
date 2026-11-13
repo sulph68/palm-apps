@@ -2,8 +2,8 @@
 # build_eraNTP.sh - EraNTP. Single segment, modeled on sec35/build_sec35.sh.
 set -e
 cd "$(dirname "$0")"
-SDK=/home/cnrai/palmos_sdk/palm-os-sdk/sdk-4/include
-GLUE=/home/cnrai/palmos_sdk/palm-os-sdk/sdk-4/lib/m68k-palmos-coff
+SDK=$HOME/palmos_sdk/palm-os-sdk/sdk-4/include
+GLUE=$HOME/palmos_sdk/palm-os-sdk/sdk-4/lib/m68k-palmos-coff
 INCS=$(find "$SDK" -type d | sed 's/^/-I/' | tr '\n' ' ')
 CFLAGS="-palmos4 -Os $INCS -I. -I../lib"
 CC=m68k-palmos-gcc

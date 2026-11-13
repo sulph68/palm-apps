@@ -1,0 +1,253 @@
+--- a/Firmware/src/modules/sasd.cpp
++++ b/Firmware/src/modules/sasd.cpp
+@@ -17,6 +17,7 @@
+ #include "sd_activity.h"
+ #include "sd_usage.h"
+ #include "sasd_rx.h"
++#include <stdarg.h>
+ #include "vdisk.h"
+ #include "settings.h"      // sasdDiskMode
+ 
+@@ -39,6 +40,57 @@
+ // for the first ack. Packets are handled in order, so a reader that handles one packet at a time already copes; the 4 KB receive buffer holds the second while the first is answered.
+ #define SASD_FLAG_PIPE         0x00002000UL
+ 
++#ifdef WIRSA_SASD_DIAG
++// ---- Diagnostic build (-DWIRSA_SASD_DIAG): times every SASD request in microseconds, counts UART receive errors, and takes the Palm driver's packet log (SASD_LOG build,
++// CMD_DIAG 0x70). Everything it prints is held in PSRAM while the Palm is busy and printed on USB only in the gaps: USB traffic on this board coincided with bursts of spikes on the TX line.
++// Lines: "TL rxEnd ackStart ackEnd tid T cmd C len N dupe D avail A baud B[ noack]" (micros(), one per request, after the ack has left), "TLC" a CRC error, "TLT" a stalled packet,
++// "TLB" the return to 9600, "TLE" UART errors, "DIAG n part/parts hex" a packet of the Palm's log (tools/dgdecode.py). ----
++#define SASD_CMD_DIAG          0x70
++#define SASD_FLAG_DIAG         0x00001000UL   // INFO flags: "this reader takes CMD_DIAG uploads"
++static uint32_t sasdDiagPkts = 0;
++static uint32_t sasdTlEndUs = 0, sasdTlAck0Us = 0, sasdTlAck1Us = 0;
++static uint16_t sasdTlAvail = 0;
++static bool     sasdTlAcked = false;
++static volatile uint32_t sasdUartErr[8];            // by hardwareSerial_error_t
++static uint32_t sasdUartErrShown[8];
++static void sasdUartErrCb(hardwareSerial_error_t e) { if ((unsigned) e < 8) sasdUartErr[e]++; }
++static void sasdDiagHookUart() { PhysicalSerial.onReceiveError(sasdUartErrCb); }
++static char    *sasdQ = nullptr;
++static uint32_t sasdQCap = 0, sasdQHead = 0, sasdQTail = 0, sasdQDrops = 0;
++static void sasdQInit() {
++  if (!sasdQ) { sasdQCap = 3u * 1024u * 1024u; sasdQ = (char *) ps_malloc(sasdQCap); if (!sasdQ) sasdQCap = 0; }
++  sasdQHead = sasdQTail = 0;
++}
++static void sasdQLog(const char *fmt, ...) {
++  if (!sasdQ) return;
++  char body[300];
++  va_list ap; va_start(ap, fmt);
++  int n = vsnprintf(body, sizeof(body), fmt, ap);
++  va_end(ap);
++  if (n <= 0) return;
++  char line[340];
++  unsigned long ms = millis();
++  int p = snprintf(line, sizeof(line), "[%lu.%03lu] W %s\n", ms / 1000UL, ms % 1000UL, body);
++  if (p <= 0 || (uint32_t) p >= sizeof(line)) return;
++  while (sasdQHead - sasdQTail + (uint32_t) p > sasdQCap) {          // full: drop the oldest whole line
++    while (sasdQTail != sasdQHead && sasdQ[sasdQTail % sasdQCap] != '\n') sasdQTail++;
++    if (sasdQTail != sasdQHead) sasdQTail++;
++    sasdQDrops++;
++  }
++  for (int i = 0; i < p; i++) sasdQ[(sasdQHead + i) % sasdQCap] = line[i];
++  sasdQHead += p;
++}
++static void sasdQFlush(uint16_t maxLines) {
++  while (sasdQTail != sasdQHead && maxLines--) {
++    uint32_t start = sasdQTail;
++    while (sasdQ[sasdQTail % sasdQCap] != '\n') sasdQTail++;
++    for (uint32_t i = start; i < sasdQTail; i++) Serial.write((uint8_t) sasdQ[i % sasdQCap]);
++    Serial.write('\r'); Serial.write('\n');
++    sasdQTail++;
++  }
++}
++#endif
++
+ #define SASD_RSP_PONG          0x40
+ #define SASD_RSP_OK            0x41
+ #define SASD_RSP_ERROR         0x42
+@@ -172,9 +224,16 @@
+   crcOut[0] = (uint8_t)(crc >> 8);
+   crcOut[1] = (uint8_t)(crc & 0xFF);
+ 
++#ifdef WIRSA_SASD_DIAG
++  sasdTlAck0Us = micros();
++#endif
+   PhysicalSerial.write(hdr, SLK_HDR_LEN);
+   if (len) PhysicalSerial.write(payload, len);
+   PhysicalSerial.write(crcOut, 2);
++#ifdef WIRSA_SASD_DIAG
++  sasdTlAck1Us = micros();
++  sasdTlAcked = true;
++#endif
+ 
+   sasdBytesOut += SLK_HDR_LEN + len + 2;
+ }
+@@ -206,10 +265,14 @@
+   SasdRx::Result r = SasdRx::feed(sasdRx, byte);
+   if (r == SasdRx::CRC_ERROR) {
+     sasdCrcErrors++;
++#ifdef WIRSA_SASD_DIAG
++    sasdQLog("TLC %lu len %u (CRC error, bytes looked at again)", (unsigned long) micros(), (unsigned) sasdRx.dataLen);
++#else
+     if (logOn(LOG_WARN)) {
+       logPrintf(LOG_WARN, "SASD: *** CRC error #%lu (got %04X, expected %04X, %u-byte packet) - dropped, Palm will retry ***\r\n",
+                      (unsigned long) sasdCrcErrors, sasdRx.crcRxed, sasdRx.crcCalc, (unsigned) sasdRx.dataLen);
+     }
++#endif
+   }
+   return r == SasdRx::PACKET;
+ }
+@@ -219,6 +282,11 @@
+ static void sasdProcessPacket() {
+   sasdValidMs = millis();
+   sasdBytesSinceValid = 0;
++#ifdef WIRSA_SASD_DIAG
++  sasdTlEndUs = micros();
++  sasdTlAvail = (uint16_t) PhysicalSerial.available();
++  sasdTlAcked = false;
++#endif
+   if (sasdRx.dstSlk != SASD_PKT_ADDR || sasdRx.srcSck != SASD_PKT_ADDR ||
+       sasdRx.pktTyp != SASD_PKT_TYP) {
+     return;  // not a SASD packet - ignore (e.g. link noise)
+@@ -236,6 +304,20 @@
+   bool isDupe = sasdHavePrevTid && (sasdRx.tid == sasdPrevTid);
+ 
+   sasdDispatchCommand(sasdRx.tid, fragFlags, fragOfst, cmdData, cmdLen, isDupe);
++#ifdef WIRSA_SASD_DIAG
++  {
++    unsigned cmdByte = cmdLen ? cmdData[0] : 0;
++    sasdQLog("TL %lu %lu %lu tid %u cmd %02X len %u dupe %u avail %u baud %lu%s", (unsigned long) sasdTlEndUs, (unsigned long) sasdTlAck0Us, (unsigned long) sasdTlAck1Us,
++             (unsigned) sasdRx.tid, cmdByte, (unsigned) sasdRx.dataLen, isDupe ? 1u : 0u, (unsigned) sasdTlAvail, (unsigned long) PhysicalSerial.baudRate(), sasdTlAcked ? "" : " noack");
++    bool changed = false;
++    for (int i = 0; i < 8; i++) if (sasdUartErr[i] != sasdUartErrShown[i]) changed = true;
++    if (changed) {
++      for (int i = 0; i < 8; i++) sasdUartErrShown[i] = sasdUartErr[i];
++      sasdQLog("TLE uart errors: break %lu bufferfull %lu fifo-overflow %lu frame %lu parity %lu", (unsigned long) sasdUartErrShown[1], (unsigned long) sasdUartErrShown[2],
++               (unsigned long) sasdUartErrShown[3], (unsigned long) sasdUartErrShown[4], (unsigned long) sasdUartErrShown[5]);
++    }
++  }
++#endif
+ 
+   sasdPrevTid = sasdRx.tid;
+   sasdHavePrevTid = true;
+@@ -271,6 +353,9 @@
+         info[6] = (uint8_t)(numBlocks >> 8);  info[7] = (uint8_t)(numBlocks);
+       }
+       flagsVal |= SASD_FLAG_PIPE;
++#ifdef WIRSA_SASD_DIAG
++      flagsVal |= SASD_FLAG_DIAG;
++#endif
+       info[8] = (uint8_t)(flagsVal >> 24); info[9] = (uint8_t)(flagsVal >> 16);
+       info[10] = (uint8_t)(flagsVal >> 8); info[11] = (uint8_t)(flagsVal);
+       // manuf, oem and snum (offsets 1-3 and 12-15) stay 0: SD.h does not expose them.
+@@ -438,10 +523,33 @@
+       delay(200);
+       PhysicalSerial.begin(rate, SERIAL_8N1, RXD2, TXD2);
+       sasdCurBaud = rate;
++#ifdef WIRSA_SASD_DIAG
++      sasdDiagHookUart();
++#endif
+       sasdRxReset();
+       break;
+     }
+ 
++#ifdef WIRSA_SASD_DIAG
++    case SASD_CMD_DIAG: {
++      // the Palm driver's packet log: reply OK first (the Palm waits for it), then print the packet as hex in lines of 90 bytes ("DIAG <n> <part>/<parts> <hex>"). A repeat is acked, not printed again.
++      uint8_t ok = SASD_RSP_OK;
++      sasdSendAck(tid, flags, ofst, &ok, 1);
++      if (!isDupe) {
++        const uint16_t PART = 90;
++        uint16_t parts = (uint16_t) ((len + PART - 1) / PART);
++        sasdDiagPkts++;
++        for (uint16_t p = 0; p < parts; p++) {
++          char hex[2 * 90 + 1];
++          uint16_t from = p * PART, n = (uint16_t) min((int) PART, (int) len - (int) from);
++          for (uint16_t i = 0; i < n; i++) snprintf(hex + 2 * i, 3, "%02x", data[from + i]);
++          sasdQLog("DIAG %lu %u/%u %s", (unsigned long) sasdDiagPkts, (unsigned) (p + 1), (unsigned) parts, hex);
++        }
++      }
++      break;
++    }
++#endif
++
+     default:
+       // unknown or unimplemented command (e.g. CMD_FW_UPDATE_START, CMD_GET_BATT): ignored, as the reference's default case
+       break;
+@@ -658,6 +766,10 @@
+   delay(200);
+   PhysicalSerial.begin(SASD_BAUD_INITIAL, SERIAL_8N1, RXD2, TXD2);
+   sasdCurBaud = SASD_BAUD_INITIAL;
++#ifdef WIRSA_SASD_DIAG
++  sasdDiagHookUart();
++  sasdQInit();
++#endif
+   sasdValidMs = millis();
+   sasdBytesSinceValid = 0;
+ 
+@@ -678,6 +790,9 @@
+ }
+ 
+ void exitSasdMode() {
++#ifdef WIRSA_SASD_DIAG
++  sasdQFlush(0xFFFF);
++#endif
+   setBinaryMode(false);
+   SerialPrintLn("\r\nExiting SASD Mode...");
+ 
+@@ -754,6 +869,9 @@
+   }
+   // A packet whose rest never came (the link lost bytes) used to hold the receiver for as long as the Palm's resends took to fill it: they were swallowed (measured: 46 s). Drop it and look in its bytes for a real packet.
+   if (SasdRx::stalled(sasdRx, millis() - sasdLastRxMs)) {
++#ifdef WIRSA_SASD_DIAG
++    sasdQLog("TLT packet of %u bytes stopped after %u byte(s) - dropped, its bytes looked at again", (unsigned) sasdRx.dataLen, (unsigned) sasdRx.payloadPos);
++#endif
+     LOGV("SASD: a %u byte packet stopped after %u byte(s) - dropped, its bytes looked at again\r\n", (unsigned) sasdRx.dataLen, (unsigned) sasdRx.payloadPos);
+     SasdRx::replay(sasdRx);
+     return;
+@@ -766,12 +884,19 @@
+     PhysicalSerial.end();
+     delay(20);
+     PhysicalSerial.begin(SASD_BAUD_INITIAL, SERIAL_8N1, RXD2, TXD2);
++#ifdef WIRSA_SASD_DIAG
++    sasdDiagHookUart();
++    sasdQLog("TLB back to %d baud", SASD_BAUD_INITIAL);
++#endif
+     sasdCurBaud = SASD_BAUD_INITIAL;
+     sasdRxReset();
+     sasdBytesSinceValid = 0;
+     sasdValidMs = millis();
+     return;
+   }
++#ifdef WIRSA_SASD_DIAG
++  if (sasdQTail != sasdQHead && millis() - sasdLastRxMs > 1500) sasdQFlush(40);   // USB only in the gaps
++#endif
+   // SASD timeout (Config > Exit Timers): nothing from the Palm for that long. The Palm is off or its driver let go of the port (measured: silent, no polling, no noise), so go back to
+   // the main menu, where WiRSaCtl works again. No check for an operation under way: every operation is driven by the Palm's packets, and sasdOp stays set after a read or write until RESET_STATE.
+   if (millis() - sasdLastRxMs > (unsigned long) sasdTimeoutMin * 60000UL) {
+@@ -840,6 +965,11 @@
+   display.print("Speed: ");
+   display.print(sasdSpeedKBs, 3);
+   display.print(" KB/s");
++#ifdef WIRSA_SASD_DIAG
++  display.setCursor(3, 47);
++  display.print("Palm log: ");
++  display.print((unsigned long) sasdDiagPkts);
++#endif
+ }
+ 
+ void sasdShowStatus() {
+--- a/Firmware/src/modules/deep_sleep.cpp
++++ b/Firmware/src/modules/deep_sleep.cpp
+@@ -69,6 +69,10 @@
+ }
+ 
+ void sleepNow() {
++#ifdef WIRSA_SASD_DIAG
++  gLastActive = millis();   // diagnostic build: the board never goes to sleep, whatever the Deep Sleep setting says
++  return;
++#endif
+   LOGI("Deep sleep: nothing from the Palm for %u min, waking on the Palm line (wake %lu so far)\r\n",
+        (unsigned) deepSleepMin, (unsigned long) gWakes);
+   uint64_t timerUs = 0;

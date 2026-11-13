@@ -90,42 +90,26 @@ in this whole family of apps — `CDDVSerialSendFrame` hit exactly this once (§
 
 ## 3. Protocol
 
-One request/response frame at a time: `type(1B)` + `lenHi(1B)` + `lenLo(1B)` + `body` +
-`checksum(1B XOR)` (shared `../lib/relayproto.h`), AES-encrypted after the link key exchange
-(§4, "Serial-link encryption"). Bootstrap baud is a fixed `cddvBaudIdle` (9600) before
-`CDDV_HELLO`/`CDDV_HELLO_ACK` negotiates up to the configured target — mirrors BitWarden's
-own `HELLO`/`HELLO_ACK` idiom.
+**The wire protocol is defined in one place, in the WiRSa repository: `docs/protocol/Protocol-wire.md`** (sections 2 to 7 for the framing, the serial-link encryption and the session rules, section 10 for every CalDAV
+and CardDAV frame with its body). This document does not repeat it. Change a frame in the firmware, in this app and in that document together. The frame numbers are in `Serial.h` (`CDDVFrameType`) and
+must match section 10; the framing is the shared `../lib/relayproto.c`.
 
-```c
-typedef enum {
-    CDDV_HELLO = 0x01, CDDV_HELLO_ACK = 0x02, CDDV_SYNC_REQUEST = 0x03,
-    CDDV_EVENT_ITEM = 0x04, CDDV_ITEM_ACK = 0x05, CDDV_SYNC_DONE = 0x06,
-    CDDV_SYNC_ERROR = 0x07, CDDV_OAUTH_START = 0x08, CDDV_OAUTH_INFO = 0x09,
-    CDDV_OAUTH_TOKEN = 0x0A, CDDV_BYE = 0x0B
-} CDDVFrameType;
-```
+Since protocol version 2 the common frames are `ACK` (was `ITEM_ACK`) and `ERR` (was `SYNC_ERROR`) and CalDAV's own frames are at `0x20`-`0x26`; the app refuses a WiRSa that reports an older version.
 
-**Flow control**: `SYNC_REQUEST` → a stream of `EVENT_ITEM` frames, each ACKed by the Palm
-(`ITEM_ACK`) before WiRSa sends the next, up to `cddvItemAckRetries` (40) retries at 500ms
-each — same overrun-prevention reasoning as BitWarden's identical `ITEM_ACK` scheme (§3 of
-`Bitwarden.md`). Terminates in `SYNC_DONE` or `SYNC_ERROR`.
+What the app does with it:
 
-**OAuth handshake** (Google only, `OAuthRelay.c`) — a separate three-frame exchange, run at
-idle baud (no `HELLO` negotiation — OAuth traffic is a handful of short strings, not a
-calendar sync):
-1. Palm sends `OAUTH_START` (empty body).
-2. WiRSa replies `OAUTH_INFO` (its own IP, port, and a short-lived PIN) — or `SYNC_ERROR` if
-   it can't start (e.g. no Client ID reachable yet).
-3. Palm shows the IP/PIN and the exact `python3 google_auth.py --ip <ip> --pin <pin>`
-   invocation for the user to run on their computer, then waits (bounded ~5 minutes,
-   cancellable, reusing `SyncProgress.c`'s existing modal+Cancel machinery) for
-   `OAUTH_TOKEN` (the refresh token, stored via `CDDVEncryptSlotSecret`) or a `SYNC_ERROR`.
-   Always sends `CDDV_BYE` on exit, success or not.
-
-**Per-sync clock**: `SYNC_REQUEST` includes the Palm's own current time (`cddvUnixToPalmEpoch`
-conversion), so WiRSa computes the sync window from the Palm's clock instead of depending on
-its own NTP succeeding — a lesson carried over from the BitWarden/CalDAV-relay real-device
-history (§7).
+- The app opens the port at `cddvBaudIdle` (9600), runs the key exchange (`RpSecure`), sends `CDDV_HELLO` with the rate from Prefs (`CDDVGetBaud`) and reads `HELLO_ACK`. It reads the old 4-byte reply (the rate alone, from firmware
+  before 2026-10-28) as well as the current one.
+  The HELLO carries a flags byte after the rate (`cddvHelloOffer`): a WiRSa with the confirmed switch answers at 9600 with `cddvCapHelloConfirm` in the capability byte and
+  waits; the app then sends HELLO again with `cddvHelloConfirm` and moves, and WiRSa moves when it gets that. A reply that comes back damaged (a quick failure, not a silence) is
+  answered with a new HELLO after 250 ms, up to `cddvHelloTries` (3). An older WiRSa ignores the byte, replies without the capability and moves at once; the app then moves at once too
+  (Protocol-wire.md 5.1). The reply is read with `RpRecvFrameHunt` (`../lib/relayproto.c`, built in only with `-DRP_WITH_HUNT`, set in this app's Makefile): bytes and line errors in front of the
+  `HELLO_ACK` are skipped and a candidate counts only with a plausible length and a good checksum. It was added for a wireless TTL link, where a burst of noise reaches the Palm just before the reply.
+  `tools/hunt_test.sh` tests it on the host.
+- Each item is stored, then acknowledged (`SendAckWithRetry`: up to `cddvItemAckRetries` (40) tries at 500 ms each, `SyncEngine.c`); this is the same overrun-prevention reasoning as BitWarden's `ACK` scheme (`Bitwarden.md` section 3).
+- `SYNC_REQUEST` carries the Palm's current UTC (`cddvUnixToPalmEpoch` conversion) so WiRSa computes the sync window from the Palm's clock, a lesson from the BitWarden and CalDAV relay history (section 7).
+- **Google sign-in** (`OAuthRelay.c`): the app sends `OAUTH_START`, shows the IP and PIN from `OAUTH_INFO` with the exact `python3 google_auth.py --ip <ip> --pin <pin>` line for the user to run on their computer, then waits
+  (about 5 minutes, cancellable, using `SyncProgress.c`'s modal with Cancel) for `OAUTH_TOKEN`, which it stores with `CDDVEncryptSlotSecret`, or a `ERR`. It always sends `CDDV_BYE` on the way out.
 
 **Event times**: `EVENT_ITEM` carries `utcStart`/`utcEnd` (Palm-epoch seconds) and an
 `allDay` byte. For a timed event they are UTC instants, converted to the Palm's time zone on
@@ -135,9 +119,8 @@ an iCalendar `VALUE=DATE` (uICAL parses it zone-less) or Google's `"date"` field
 copied to `localStart`/`localEnd` unchanged, so an all-day event stays on its date in every
 time zone, like a native untimed Datebook appointment. `utcStart` is a misnomer for these.
 
-**Firmware side is out of scope for this doc** — see `caldav_relay.cpp` directly, and see
-`WiRSa-Palm.md` §13 (CalDAV Relay mode, added 2026-09-28) for the firmware-side architecture,
-protocol framing, uICAL extensions, and its own real-device bug-fix history.
+**Firmware side is out of scope for this doc** — the wire is `docs/protocol/Protocol-wire.md` in the WiRSa repository; the code is `caldav_*.cpp` there, and `WiRSa-Palm.md` section 13 has the firmware-side history
+(uICAL extensions, real-device bug fixes).
 
 ## 4. File-by-file architecture
 
@@ -169,7 +152,7 @@ protocol framing, uICAL extensions, and its own real-device bug-fix history.
   baud, sends `SYNC_REQUEST` (with this slot's decrypted fields — server/path/uuid/user/
   alias/googleClientId/googleClientSecret/secret, plus the resolved past/future window and
   the Palm's own clock), receives+ACKs `EVENT_ITEM` frames into `DAVDb.c`, until
-  `SYNC_DONE`/`SYNC_ERROR`/timeout. `keepOpen` lets a Sync All batch reuse one negotiated
+  `SYNC_DONE`/`ERR`/timeout. `keepOpen` lets a Sync All batch reuse one negotiated
   connection across slots instead of renegotiating per calendar (`gCddvConnNegotiated`
   latch). A successful slot is only *staged*; every staged slot is committed after the
   connection is closed, i.e. when a call with `keepOpen=false` finishes (§7 item 10). `silent` suppresses the modal failure alert and the Sec35-locked bounce, so one
@@ -183,7 +166,7 @@ protocol framing, uICAL extensions, and its own real-device bug-fix history.
   detection). `RP_SEND_BODY_MAX` in `relay_cfg.h` keeps CalDAV's original single-buffer send
   (whole frame copied into a 3,196-byte `gSendBuf`, one `SrmSend`); BitWarden, which has no
   globals room for that buffer, keeps its three-`SrmSend` send. The single send is kept on
-  purpose: in POSE, a separately-sent trailing checksum byte of an empty `ITEM_ACK` was seen
+  purpose: in POSE, a separately-sent trailing checksum byte of an empty `ACK` was seen
   arriving seconds late. Verified by object comparison: CalDAV's send and every caller
   compile to the same instructions as before; the only difference is the idle-timeout
   override check in open/receive, which CalDAV never sets (so its wait stays 180s).
@@ -193,7 +176,7 @@ protocol framing, uICAL extensions, and its own real-device bug-fix history.
   inside `relayproto.c`. No plaintext fallback: a failed exchange shows "Serial link cannot be
   secured!" (also the slot's failure status) before any calendar data is touched; no reply or
   Cancel keeps "Lost contact with WiRSa negotiating baud rate." Wire format:
-  `bitwarden/PROTOCOL.md`, "Serial-link encryption". POSE-verified end to end against an
+  the WiRSa repository's `docs/protocol/Protocol-wire.md`, section 4. POSE-verified end to end against an
   independent Python WiRSa (secured sync of 3 events). Real-hardware sync confirmed by the user 2026-10-10.
 - **`CDDVPrefs.c`/`.h`** — `CalDAVRelayDB` load/save, with byte-for-byte frozen snapshots
   of the v1/v2 slot layouts so `CDDVLoadPrefs` can migrate an existing blob forward instead

@@ -21,7 +21,7 @@ may have moved a little since.
 | HotSync | Exit Timers (§2.7): back to the main menu if no HotSync starts within 45 s of entering, or 15 s after a sync (both settable); EXIT command or the BOOT button while still waiting |
 | CalDAV / Bitwarden | Exit Timers (same defaults); EXIT command once the Palm app has closed the session |
 | SLIP | SLIP timeout: back to the main menu after 1-5 min (default 5) with no traffic; or reset WiRSa |
-| SASD | **Reset WiRSa** (no in-band exit) |
+| SASD | SASD timeout: back to the main menu after 3, 5, 10 or 15 min (default 3) with nothing heard from the Palm; or reset WiRSa. There is still no in-band exit: the Palm's SASD driver holds the serial port, so WiRSaCtl cannot send one |
 
 - After a WiRSa reset during SASD, the user switches the Palm off and on: the SASD driver only
   re-checks the card on wake (`Slot.c:437–465`), then closes the port when the ping fails.
@@ -64,68 +64,18 @@ may have moved a little since.
 
 Control-link mode entry never calls the blocking prompt at all (§2.4, ENTER_MODE checks first).
 
-### 2.3 Control frame format
+### 2.3 Control frame format and 2.4 Commands
 
-```
-[0x16 SYN][type][len:2 BE][body...][chk]      chk = XOR of type, len bytes and body
-```
+**The control link's frame format, every command, its request and reply bodies, and the rules for what each mode accepts are defined in one place, in the WiRSa repository: `docs/protocol/Protocol-wire.md`**
+(section 7 for the link, section 12 for the commands). This document does not repeat them: change a command in the firmware (`palm_ctl.cpp`), in the Palm code (`apps/lib/wirsactl.c`) and in that document together.
 
-- The part after SYN is exactly a `RelayProto` frame (`relay_proto.cpp:210`), so `readFrame`,
-  `writeFrame`, `Writer`/`Reader`, `handleKex` and `ENC_FLAG` encryption are reused as-is.
-- **Both directions** start with SYN. In the screen build the menu text also goes out on the line;
-  the Palm skips everything until a SYN.
-- 0x16 is not a menu letter, CR, LF or `?`, is no CalDAV/Bitwarden frame type (0x01–0x11), not a
-  KEX type (0x70–0x74), and not the HotSync/SASD magic (0xBE). So a SYN at a frame boundary is
-  unambiguous in every mode that checks for it.
-- Body cap 1024 bytes. Byte timeout 100 ms; on timeout or bad checksum the frame is dropped silently.
-- **Resync rule** (found in POSE testing): after a SYN, a further 0x16 is taken as the real SYN
-  (the first was a stray byte); a type outside 0x40-0x4F / 0x70-0x74 (ignoring the 0x80 flag), or a
-  length over the cap, restarts the SYN scan at once instead of waiting for a body.
-- Strings are u16 big-endian length + bytes (`Writer::str` / `relaywire` `RpWStr`).
-- Baud: the main menu listens at its session rate, `menuBaud()` (9600 after boot, then SPEED, §2.10);
-  CalDAV/Bitwarden/HotSync idle at 9600.
+What belongs to this design rather than to the wire:
 
-### 2.4 Commands
-
-Palm → WiRSa requests are 0x40–0x4F; each reply is the request type + 0x20. `ERR` (0x5F) can
-answer any request: `code u8, message str`.
-
-| Req | Name | Request body | Reply body | Notes |
-|---|---|---|---|---|
-| 0x40 | PING | `nonce u32` | `nonce u32, proto u8, fw str, flags u16, mode u8, menuBaud u32` | Answered in the main menu **and** in CalDAV/Bitwarden/HotSync-waiting, so `mode` tells the Palm where WiRSa is. `menuBaud` = the menu's current rate (§2.10). Flags: 0x01 screenless, 0x02 FTP, 0x04 HotSync, 0x08 SASD, 0x10 SLIP, 0x20 Bitwarden, 0x40 CalDAV, 0x80 SPEED supported |
-| 0x41 | STATUS | — | `mode u8, wifi u8 (0 not set up, 1 connecting, 2 connected, 3 gave up), ssid str, rssi i8, ip str, sd u8 (0 unknown, 1 present, 2 none, 3 the virtual card is the SASD disk: chosen, or Auto with no SD card; `sdText` is then the virtual card's used/total, or `blank`), ftp u8, ftpClients u8, uptime u32, battery u8 (0 none, 1 present), battMv u16, battPct u8, sdText str, sasdDisk u8` (the last five were added later: an app stops reading at uptime on firmware without them, and a missing battery group means "Not found"; `sdText` is the card's used/total in the SASD screen's short units, e.g. `1.234GB/14.8GB`, `?/14.8GB` while the firmware is still counting, `` if not known - the app shows it after "Present") | Also answered in CalDAV/Bitwarden/HotSync-waiting. `sd` from a mounted card, else from the last probe: after answering a STATUS in the menus, the firmware tries to mount the card if nothing has (at most once a minute while none is found), so the next STATUS knows |
-| 0x42 | WIFI_SCAN | — | `count u8, {ssid str (≤32), rssi i8, open u8}×n`, n ≤ 16 | Blocks a few seconds; Palm waits 20 s |
-| 0x43 | WIFI_SET | **encrypted** `ssid str, password str` | **encrypted** `ok u8` (1 = connected and saved) | `wifiTestConnection()` then `wifiSaveCredentials()` only on success, as the menu does; Palm waits 40 s |
-| 0x44 | CFG_GET | — | `baudIdx u8, logLevel u8, orientation u8, ftpUser str, apSsid str, ip[4][4] (gateway, client, subnet, DNS), passSet u8 (bit 0 FTP, bit 1 AP)` [`unusedExit u8, afterExit u8` [`slipMin u8` [`sasdDisk u8`]]] | Never returns passwords. `baudIdx` is the rate's place in the list 300, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200 (so 4 = 9600, 8 = 115200), kept so an older app or firmware still works although WiRSa now offers 9600 and up only. The bracketed tail is optional: older firmware doesn't send it, older apps stop reading before it |
-| 0x45 | CFG_SET | `baudIdx u8, usbDebug u8, orientation u8, ftpUser str, apSsid str, ip[4][4]` [same optional tail, incl. `sasdDisk`] | `ok u8` | Whole block in one frame; a new baud applies after the reply is sent. A `baudIdx` of 0..3 (300..4800) is taken as 9600. `slipMin` other than 1/2/3/5 is ignored. `sasdDisk`: 0 auto (SD card if one answers, else the virtual card), 1 SD card only, 2 virtual card only; the disk SASD and HotSync use; shown in Setup as "Disk" |
-| 0x46 | SECRETS_SET | **encrypted** `ftpPass str, apPass str` (empty = unchanged) | **encrypted** `ok u8` | Sent before CFG_SET |
-| 0x47 | FTP | `start u8` | `ok u8` | `ftpServerStart()` / `ftpServerStop()`; AP fallback chosen by the firmware as from the menu |
-| 0x48 | ENTER_MODE | `letter u8` (`H` `D` `S` `B` `A`) [`flags u8`, ignored] | `ok u8` | See below; modes leave on the Exit Timers |
-| 0x49 | EXIT_MODE | `"EXIT"` | `ok u8` | See §2.7 |
-| 0x4A | REBOOT | — | `ok u8` | Reply, then `ESP.restart()` |
-| 0x4B | FACTORY_RESET | `"RESET"` | `ok u8` | Palm has already confirmed; reply, `defaultEEPROM()`, restart |
-| 0x4D | LOG | `op u8 (0 read, 1 clear), offset u32` | `total u32, offset u32, n u16, n bytes` | Menu only. WiRSa's session log (text, one line per `\n`, oldest first) a page of up to 480 bytes at a time; `op` 1 clears it first. Kept in RTC memory (about 6 KB, survives a restart or crash, not a power loss) |
-| 0x4E | SYSINFO | `op u8 (unused), offset u32` | `total u32, offset u32, n u16, n bytes` | Menu only. WiRSa's system page as text (chip, CPU, flash, firmware size, heap and PSRAM used/free/low/largest block, uptime, reset reason, IDF version, virtual card (size, FAT16 or blank), partition table), paged like LOG. Lines are short for the Palm's 140-pixel field. Built when offset is 0. |
-| 0x4C | SPEED | `baud u32` | `ok u8, baud u32` | Menu only. The reply names the rate the menu will use (the fastest standard rate not above the request; not capped by the configured baud) and goes out at the old rate; then the menu moves. §2.10 |
-
-ENTER_MODE checks preconditions **before** calling the existing `enterXMode()`:
-
-- `A`, `B`, `S`: WiFi must be connected, else `ERR NO_WIFI`.
-- `H`, `D`: the disk is checked only against the result of the last STATUS probe (a fresh probe
-  before the reply lost the HotSync reply on hardware): known to be missing → `ERR NO_SD`, and the
-  probe is retried after that reply; never probed yet → not blocked (the main menu's own HotSync/SASD
-  entry still checks it). Both follow the Disk setting (`sasdDisk`): the SD card, the internal virtual
-  card (formatted FAT16 on first use, volume "ESP32"), or Auto (the SD card if one answers, else the
-  virtual card). With the virtual card as the disk they are not refused for a missing SD card; the
-  app refuses only when STATUS reported `sd` = 2 (no disk). HotSync also creates
-  `/PALM/PROGRAMS/INSTALL`, `SASD` and `INSTALLED` on the disk it mounts, if missing.
-- Letter not built (feature flag off) → `ERR NOT_BUILT`; `F`, `U`, `C` → `ERR NOT_A_MODE`.
-
-Then it sends `ok` at the menu baud, waits for the reply to leave (`flush`), and calls the same
-`enterXMode()` the menu uses, so each mode's own code is unchanged.
-
-Encryption: the Palm sends SYN-prefixed KEX frames first; `RelayProto::secureBegin()` runs lazily
-on the first KEX in the main menu; `secureReset()` after the encrypted command.
+- **Rates.** The main menu listens at its session rate, `menuBaud()` (9600 after boot, then SPEED, §2.10); CalDAV, BitWarden and HotSync idle at 9600.
+- **Waits on the Palm.** `WIFI_SCAN` is given 20 s, `WIFI_SET` 40 s.
+- **Order.** `SECRETS_SET` is sent before `CFG_SET`.
+- **Card removal.** The Refresh and Find buttons show a pulled card as none and a card put back as present; the firmware checks the card at the main menu only.
+- **Encryption.** The Palm sends the key-exchange frames first, behind the lead byte; WiRSa makes its key pair lazily at the first key exchange in the main menu and clears the session after the one encrypted command.
 
 ### 2.5 Burst guard (Palm line only)
 
@@ -165,9 +115,9 @@ instead of a mode frame.
 | Bitwarden | `bitwardenRelayLoop()`, same place (`bwWifiReady` check) | Same, with `BW_BAUD_IDLE` |
 | HotSync | `hotsyncLoop()` in `HS_WAITING`, before `hsPollForWake()` (its scanner swallows bytes until 0xBE EF ED, `hotsync.cpp:347`) | PING, STATUS; EXIT → reply, `hsExit()` |
 | SLIP | — | No hook; the SLIP timeout (§2.7 end) or a reset |
-| SASD | — | Nothing: reset only |
+| SASD | — | No hook; the SASD timeout (§2.7 end) or a reset |
 
-CalDAV and Bitwarden pass their highest Palm->WiRSa frame type; the hook first drops any byte
+Every relay mode (CalDAV, Bitwarden, Mesh) passes its highest Palm->WiRSa frame type (`RelayMode::Spec.maxPalmType`, Protocol-wire.md 5.6 and 6.2); the hook first drops any byte
 that can't start one of the mode's frames (type 1..max, with or without 0x80, or 0x70-0x74).
 Without it, junk (e.g. a PING sent at the wrong rate) is taken as a frame header and the mode's
 3 s byte timeout swallows the real request behind it (found on hardware). EXIT is accepted at
@@ -192,6 +142,14 @@ BACK) after 1, 2, 3 or 5 minutes (default 5) with no traffic either way: bytes f
 frames WiRSa sends to it. Counted from entry, so a Palm that never connects also times out. Set in
 Config > Exit Timers (third prompt) or WiRSaCtl's Exit Timers form ("SLIP Timeout:" popup, hidden
 when the firmware doesn't send it). EEPROM 443; the third byte of the CFG tail.
+
+**SASD timeout (2026-10-28)** - SASD goes back to the main menu (as with BACK) after 3, 5, 10 or 15 minutes (default 3; anything else in
+the EEPROM reads as 3) with no byte from the Palm and no operation under way. Counted from entry, so a Palm that never connects also times
+out. Measured first on hardware: after one card access the line was totally silent for 11+ minutes, with the Palm awake and idle and then
+switched off: no polling and no noise bytes, so silence is a reliable signal. A Palm that finds the card gone on its next access gives the
+no-card alert, and SASD is started again from WiRSa's menu or from WiRSaCtl. Set in Config > Exit Timers (fourth prompt) or WiRSaCtl's Exit
+Timers form ("SASD Timeout:" popup under the SLIP one, hidden when the firmware doesn't send it). EEPROM 447; the last byte of the CFG tail
+(after the deep sleep delay).
 
 **The mode's own reader must never see a control frame** (found on hardware, 2026-10-16): each
 loop checks the hook once at the top, then reads its own frames. If a second control frame was
@@ -347,7 +305,7 @@ goes to `build/`.
   - The main screen asks WiRSa again every 15 s on its own (only while it is the active form; no
     busy box, never the full sweep). When WiRSa can't be reached the mode reads
     "<last mode> (last known)", or "Not found" if WiRSa was never found; the guidance says why
-    (SASD/SLIP need a reset, port in use, or no answer - asking again every 15 s).
+    (SASD/SLIP leave by themselves after their quiet timeout or need a reset, port in use, or no answer - asking again every 15 s).
 - **Modes**: "Select Mode:" popup (Main Menu, HotSync, SASD SD Card, SLIP Gateway, CalDAV Relay,
   Bitwarden Relay) preselected to the current mode, 3-line guidance under it; "FTP Server:"
   Start | Stop push buttons acting at once, with Started/Stopped under them; Start / Cancel.
@@ -363,8 +321,10 @@ goes to `build/`.
   for syncs), "Log level:" (Off / Warn / Info / Verbose; on the wire 0 off, 1 info, 2 warn, 3 verbose,
   so an older app's on/off byte still works), "Orientation:" (hidden on a screenless WiRSa), "Disk:"
   (Auto / SD card / Virtual; the CFG `sasdDisk` byte, used by SASD and HotSync; hidden if the firmware
-  does not send it). On a screenless WiRSa the Disk row and the buttons below move up one row
-  (13 px) into Orientation's place (`FrmSetObjectPosition` in `SetupHandleEvent`). Under them a 2x2
+  does not send it), "Sleep:" (deep sleep delay) and "Wifi Pulse:" at y 83 (Always On / 15s / 30s /
+  1min / Never; the CFG `wifiPulse` byte, 0..4 in the list order: how the blue LED shows that the WiFi or BLE is up, see
+  README-Palm.md "Status LED"; hidden if the firmware does not send it). On a screenless WiRSa the Disk row and the buttons below move up one row
+  (13 px) into Orientation's place (`FrmSetObjectPosition` in `SetupHandleEvent`). Under them (y 99 and 114) a 2x2
   grid of 72x12 buttons (4 px between columns, 3 px between rows): "FTP Setup..." (frmFtp: user, pass),
   "AP Setup..." (frmAp: SSID, pass), "SLIP Address..." (frmSlip: four dotted fields, validated),
   "Exit Timers..." (frmTimers). frmFtp/frmAp are 156x80 at y 78, identical except for labels and the
@@ -375,8 +335,8 @@ goes to `build/`.
   (SECRETS_SET first, then one CFG_SET). The layout was checked in POSE64 (Palm III ROM) with a test
   build that skipped the CFG_GET (canned settings), for both the screen and the screenless case.
 - **Exit Timers** (from Setup): "Unused mode:" and "After session:" in seconds (0-255, 0 = never),
-  "SLIP Timeout:" popup (1/2/3/5 min). The SLIP row is hidden, and the whole form refused, when
-  WiRSa's firmware doesn't send those values. Saved with Setup's OK (one CFG_SET).
+  "SLIP Timeout:" popup (1/2/3/5 min) and "SASD Timeout:" popup (3/5/10/15 min). The SLIP row is hidden, and the whole form refused, when
+  WiRSa's firmware doesn't send those values; the SASD row is hidden when it doesn't send that one. Saved with Setup's OK (one CFG_SET).
 - **Preferences** (Options → Preferences...): "Pref Baud:" popup (9600, 14400, 19200, 28800, 38400,
   57600, 115200; default 9600 = don't ask), stored in this app's prefs (version 3), so each Palm keeps
   its own. When a refresh finds WiRSa's menu at 9600 and the firmware has the SPEED flag,

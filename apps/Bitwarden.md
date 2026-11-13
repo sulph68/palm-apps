@@ -6,8 +6,8 @@ talks over a raw serial link to **WiRSa** (an ESP32-S3 relay, `bitwarden_relay.c
 `WiRSa-Palm.md`), which does the real Vaultwarden login/`/api/sync` fetch/decrypt work
 server-side and streams already-decrypted items to the Palm one at a time. Creator
 `BWrd`, DB `BitWardenDB` (type `BWit`), **not** backed up by HotSync (deliberate — see §5).
-Paths relative to `hackmaster_y2035/apps/bitwarden/`. Protocol spec: `PROTOCOL.md` in that
-same directory (this doc summarizes it; that file is the source of truth for wire format).
+Paths relative to `hackmaster_y2035/apps/bitwarden/`. The wire protocol is specified in `docs/protocol/Protocol-wire.md` in the WiRSa repository (section 11); `PROTOCOL.md` in that
+same directory now holds only the app-side notes.
 
 Two independent encryption layers protect the local on-device store: this app's own
 master-password-derived key (`Store.c`), wrapped a second time by the suite-wide **Sec35**
@@ -24,7 +24,7 @@ time (no incremental merge). TOFU (trust-on-first-use) certificate pinning for t
 Vaultwarden server; Vaultwarden's own 2FA (TOTP/email) is supported mid-sync, with a
 remember-this-device mechanism so it isn't required on every sync.
 
-**Two independent crypto layers** (`PROTOCOL.md`): the cradle-serial link between the Palm
+**Two independent crypto layers** (`docs/protocol/Protocol-wire.md` in the WiRSa repository, section 4; `PROTOCOL.md`): the cradle-serial link between the Palm
 and WiRSa is encrypted (since 2026-09-30, shared with CalDAV Sync: an RSA-1024 key exchange
 → AES-128-CTR on every frame, `../lib/relaysec.c`, no plaintext fallback — §4), so the
 master password and decrypted vault fields no longer cross the wire in cleartext; and the
@@ -148,13 +148,21 @@ build + `objdump -h`, not an estimate.
   launch (see the real incident in §7's gotcha list), so know this before growing that
   struct.
 
-## 3. Protocol (see `PROTOCOL.md` for the byte-exact spec)
+## 3. Protocol
 
-One request/response frame in flight at a time (`type`, `uint16 bodyLen`, `body`, 1-byte
-XOR checksum), big-endian, strings as `uint16 length` + raw UTF-8 bytes. `HELLO` →
+**The wire is specified in `docs/protocol/Protocol-wire.md` in the WiRSa repository, section 11 for the frames and sections 2 to 7 for the framing and the secured link; this section keeps the history and the reasons.**
+
+**Names and numbers since protocol version 2:** `ITEM_ACK` is now `ACK` and `SYNC_ERROR` is `ERR`, the common frames of Protocol-wire.md section 6, and BitWarden's own frames moved to `0x30`-`0x38`. Older text in this document uses the old names and numbers; the spec is the reference.
+
+One request/response frame in flight at a time. `HELLO` →
 (optional `TRUST` for first-time TOFU pinning) → `SYNC` (carries the master password and
 `rememberedTwoFactorToken` in one frame) → a stream of `FOLDER`/`ORG`/`SYNC_ITEM` frames →
 `SYNC_DONE` or `SYNC_ERROR`.
+
+The `HELLO` offers a confirmed baud switch (`bwHelloOffer`, `BitWarden.h`): a WiRSa that supports it answers at 9600 and waits, the app sends `HELLO` again with `bwHelloConfirm`
+and then moves, and WiRSa moves when it gets that. The reply is read with `RpRecvFrameHunt` (noise in front of it is skipped), a reply that comes back damaged is answered with a new `HELLO`
+(up to `bwHelloTries`, 3), and once the rate is agreed `RpRecvFrame` skips bytes that cannot start a frame (`gRpSkipJunkMax`). An older WiRSa replies without `bwCapHelloConfirm` and moves at
+once; the app then moves at once too (WiRSa's Protocol-wire.md 5.1).
 
 **Flow control**: WiRSa blocks on the Palm's `ITEM_ACK` after every single `FOLDER`/`ORG`/
 `SYNC_ITEM` before sending the next one. This exists because WiRSa's original free-running
@@ -219,7 +227,7 @@ actually closing — see `Sync.c`'s `TryCatchTrailingToken`.
   open/baud change/close, the polled `ReadExact`, `RpSendFrame` (`sec001` via `RP_SECTION` in
   `bw_seg.h`) and `RpRecvFrame`, plus the idle-timeout override (`gBwIdleOverrideTicks`) and the
   explicit 1KB receive buffer added after a real-device driver overrun (§7). `relaywire.c` is the
-  PROTOCOL.md body writer/reader, still in its own file so every call is cross-file (§2.1).
+  the protocol document's body writer/reader, still in its own file so every call is cross-file (§2.1).
   `BitWarden.h`/`Wire.h` alias the historical names (`BwSerial*`, `BwW`/`BwR`, `wU8`…`rStr`), so
   no call site changed. App settings live in `relay_cfg.h`. **`Serial.c`** now holds only
   `BwSerialPoll`, the auto-off-reset + cancel-detection hook called during every blocking read.
@@ -229,7 +237,7 @@ actually closing — see `Sync.c`'s `TryCatchTrailingToken`.
   exchange runs first in `BwNegotiateBaud`; every later frame is AES-128-CTR encrypted inside
   `relayproto.c`. No plaintext fallback: a failed exchange shows "Serial link cannot be
   secured!" and ends the sync before the vault is touched (no reply keeps "WiRSa did not
-  respond…"). Wire format in `PROTOCOL.md`. To make room in the full main segment,
+  respond…"). Wire format: `docs/protocol/Protocol-wire.md` in the WiRSa repository. To make room in the full main segment,
   `BwTwoFactorPrefsPromptRun` (Options > Security > 2FA) moved to `sec001` (only OS traps and
   cross-file calls; checked in POSE). The Palm's RSA step (e = 3, three Montgomery
   multiplications) measured 0.25 s on an emulated 16 MHz Palm III; real devices are slower.

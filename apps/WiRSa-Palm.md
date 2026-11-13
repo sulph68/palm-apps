@@ -417,6 +417,19 @@ real-hardware rounds:
   proxy's own sequence tracking, corrupting subsequent data.
 - **Client→server sequence-number validation**.
 - **Diagnostic logging** (`usbDebug`-gated) throughout the NAT path.
+- **Speed at 57600 / 115200 (2026-10-25, `improved`).** Network HotSync used to fail above 38400. Findings from
+  the `SLIP stats` log lines on hardware: no UART overflow, no loop stalls, the Palm's frames arrive clean, but the
+  Palm drops bytes of what the gateway sends (no flow control) and acknowledges almost nothing at 115200 when
+  frames go out back to back (51 timeout resends in 60 s). Fixes: adaptive pacing of the frames to the Palm
+  (`slip.cpp`: `slipPaceInit/Backoff/Acked`, 64-byte chunks, rate x 3/4 per loss event, +1/8 after 4 KB acked,
+  floor line/5); a 32 KB PSRAM queue per connection for Palm -> server data (acknowledged at once, drained with
+  `send(MSG_DONTWAIT)`, window = free space up to 8 KB, window update when room opens, flushed before a FIN);
+  partial server writes acknowledged only as far as they went; server socket `SO_SNDTIMEO` 400 ms and `setNoDelay`;
+  retransmit timeout from the paced rate (700 ms + line time, max 3 s) and fast retransmit on 3 dup ACKs; OLED
+  refresh only when the line has been quiet for 1 s; `setRxFIFOFull(32)` above 57600 (the core's 120 leaves ~1 ms
+  at 115200). The core's own UART overflow warnings are compiled out (`CORE_DEBUG_LEVEL=0`), hence
+  `onReceiveError` counters. Result: HotSync completes at 57600 and 115200; at 115200 the pace settles at about
+  25 to 50 kbit/s. Tried and dropped: segments scaled down with the pace (256 to 1000 B) and starting the next session at the pace the last one learned; at 115200 they were slower (81 s against 50 s, 16 resends against 8). Pacing is on only above 57600 (`sPaceMin = line` at 57600 and below turns the back-off off): paced at 57600 the job took 60 s or more, unpaced 40 s, because the timeouts there come from damaged Palm ACKs, not an overrun Palm. Timings of the same HotSync job: 57600 40 s, 115200 50 s, 19200 70 s, 9600 fails (about 22% of the Palm's frames arrive damaged: extra and wrong bytes, no UART error counted - the old firmware does the same; looks electrical). 57600 is the fastest.
 - **Self-connect/hairpin loopback fix** (added alongside §10's FTP server, but a general NAT-relay fix,
   not FTP-specific): `natProcessTcp`'s SYN-connect path used to open a real outbound
   `socket()`+`connect()` to whatever destination IP a packet specified, with no special case for a
@@ -605,7 +618,7 @@ root lists the SD card and the virtual card as folders. See §16.6.
 New module, `include/bitwarden_relay.h`/`src/modules/bitwarden_relay.cpp`. Unlike every other mode in
 this document, this one has a genuine **counterpart application** on the Palm side (`hackmaster_y2035/
 apps/bitwarden/`, reference doc `Bitwarden.md` in that same repo) — the two were built together against
-one shared spec, `apps/bitwarden/PROTOCOL.md`, which is the authoritative wire-format source of truth
+one shared spec, now `docs/protocol/Protocol-wire.md` in the WiRSa repository (section 11), which is the authoritative wire-format source of truth
 for both; this section covers the WiRSa/firmware half only, plus the real bugs found getting the two
 sides to actually agree on real hardware.
 
@@ -617,7 +630,7 @@ and streams already-decrypted items to the Palm **one at a time, never buffering
 plaintext in RAM** (this is what keeps the whole pipeline within an ESP32-S3's ~128KB-class RAM budget
 regardless of vault size). The Palm never talks to Vaultwarden directly and never sees a raw cipher
 string. Own raw-UART framing (`type`/`uint16 bodyLen`/`body`/1-byte XOR checksum) — not HotSync/DLP, not
-SASD's sector protocol; see `PROTOCOL.md` for the byte-exact spec.
+SASD's sector protocol; see `docs/protocol/Protocol-wire.md` in the WiRSa repository (section 11) for the byte-exact spec.
 
 **Phase 1 (current, as built) runs with no wire encryption at all** — the master password and every
 decrypted vault field cross the physical cradle wire in cleartext. `BW_KEX`/`BW_KEX_ACK` (X25519 session
@@ -660,7 +673,7 @@ mode is revisited.
   folder/org/cipher as its own `FOLDER`/`ORG`/`SYNC_ITEM` frame, discarding the plaintext right after.
   `itemType` is derived from *which* sub-object (`login`/`card`/`identity`) is actually present in a
   cipher's JSON, not from its own `type` field read in isolation — trusting `type` alone risked sending
-  a tail shape (see `PROTOCOL.md`'s own per-type field list) that the byte itself didn't match, silently
+  a tail shape (see the per-type field list in `docs/protocol/Protocol-wire.md` in the WiRSa repository, section 11) that the byte itself didn't match, silently
   desyncing every field read after it on the Palm side (11.5, bug 3).
 
 ### 11.3 Ack-retry-in-place redesign — the *level* the fix belongs at, not just the count
@@ -759,7 +772,7 @@ Chronological, each with symptom → root cause → fix:
    prompt on the very next attempt even though 2FA had just been completed. Fixed by adding the same
    `updatedTwoFactorToken` field to `SYNC_ERROR` (via `sendErr`'s own new optional `token` parameter),
    populated whenever the failure is reachable only after a successful login (in practice, codes 7/8 —
-   see `PROTOCOL.md`'s own `SYNC_ERROR` section for the full code list). The Palm side's own matching fix
+   see `docs/protocol/Protocol-wire.md` in the WiRSa repository, section 11, for the full code list). The Palm side's own matching fix
    (a short best-effort attempt to catch a trailing `SYNC_ERROR` even after its own abort paths would
    otherwise close the port immediately) is `Bitwarden.md` §3/§7.
 
@@ -1033,7 +1046,7 @@ after the port opens, before `HELLO`/`OAUTH_START`; afterwards `RpSendFrame`/`Rp
 generates its key pair in RAM on the first relay-mode entry after each boot (status
 "Preparing..." briefly) and answers the exchange via `RelayProto::handleKex()`, called before
 each relay's own dispatch. Plaintext non-exchange frames are dropped on both sides. Full wire
-format: `apps/bitwarden/PROTOCOL.md`, "Serial-link encryption". Verified on the host (real Palm C
+format: `docs/protocol/Protocol-wire.md` in the WiRSa repository, section 4. Verified on the host (real Palm C
 code against real WiRSa C++ code, and against an independent Python implementation in POSE for
 both CalDAV Sync and BitWarden), then on real hardware: BitWarden and CalDAV syncs both
 succeeded over the encrypted link (user-confirmed 2026-10-10). RSA uses e = 3 with WiRSa sending
@@ -1487,8 +1500,10 @@ Added 2026-10 for `apps/meshtastic_client.md` (the Palm side, with usage notes).
   says a node operation is running: 1 scan, 2 pair, 3 connect, 4 settings write or action, 5 settings read).
 - `mesh_core.cpp` keeps the node list, channels, settings blobs and messages (`seq` rises per stored message);
   `mesh_pb.cpp` is the protobuf code written by hand.
-- **Push, not poll:** `pushNews()` sends NEWS (link byte and last seq) when a message, a delivery or the node link
-  changes, repeated every 3 s until the Palm syncs. The Palm reads the link state from the NEWS frame itself.
+- **Push, not poll:** `pushNews()` sends NEWS (link byte and last seq) when a message, a delivery, the node link or the
+  node's own battery value changes, repeated every 3 s until the Palm syncs. The Palm reads the link state from the NEWS
+  frame itself. The battery matters because a Palm session now often begins with an empty node table (the background checks
+  do not download the node list); the table fills after the Palm has connected.
 - **Settings read (`CFG_GET`)** asks the node for its configuration afresh: `cfgRead()` first forgets the stored
   settings, then waits up to 40 s for the node's end marker (11 to 20 s is normal on a node that has just connected)
   and ends "settings missing" when it does not come. Every request therefore costs the worker that long. The
@@ -1496,9 +1511,55 @@ Added 2026-10 for `apps/meshtastic_client.md` (the Palm side, with usage notes).
   frames, which answer from WiRSa's store immediately.
 - **Exit:** with `unusedExit` / `afterExit` seconds (Exit Timers) and a Palm session, a Palm that is quiet for the
   limit is probed with PING; if no frame arrives within another limit the mode goes back to the main menu
-  (`Mesh: exit timer - back to the main menu`). A running node operation counts as activity.
-- **Background mode** (set from the Palm's Pair Device form): with no Palm session WiRSa reaches the node every
-  1, 5, 15, 30 or 60 minutes, takes what it holds and hangs up after about 12 s.
+  (`Mesh: exit timer - back to the main menu`). A running node operation counts as activity. The Palm app's BYE ends the
+  mode in both modes (it used to leave Background mode running).
+- **Background mode** (set from the Palm's Device form, for one node only): WiRSa reaches that node by itself every 1, 5, 15, 30 or 60
+  minutes (an interval and an SD Flush choice for each node), **also at the main menu with the mode closed**: the worker keeps the schedule, boots into it
+  (`meshBgBoot()`), uses the config-only `want_config` and ends a check 2 s after the node went quiet (about 12 s, not the
+  old fixed 12 s window), lets the Bluetooth go between checks and while another mode is open (`meshBgPoll()` cuts a running
+  check at once; it stays due), and keeps WiFi modem sleep while the Bluetooth stack is up (the coexistence abort).
+  Entering the mode holds the first background check back 8 s so a Palm session takes the full link.
+- **Deep sleep with background checks:** the Sleep setting's idle time runs across the checks (a check is not activity,
+  but a running check holds the sleep); a timer wake (`meshHeadlessWake()`, first in `setup()`) runs one check at 80 MHz with
+  no WiFi and puts the texts into a 4 KB ring in fast RTC memory; the Palm line wake is a full boot at full speed that
+  restores the ring and the SD files and stays awake for the whole Sleep time. Measured at 5.1 V: 28 mA asleep, 31 mA in light
+  sleep, 178 mA awake at the main menu with WiFi, 123 mA with the Bluetooth listening at 80 MHz (a bare sketch that only
+  sleeps reads the same 28 mA: the board is the floor). During a timer wake's ~10 s WiRSa does not listen to the Palm line.
+- **Texts outside the store:** `/Meshtastic/<node number>/mesh.dat` and `mesh.old` on the SD card (one folder per node) (record format with check byte,
+  batches of 8 or 10 minutes, restored once per boot), `sdAlive()` instead of `SD.cardType()` to notice a pulled card
+  (WiRSaCtl's STATUS and probe use it too), new Palm frame 0x25 HIST (SD History and the highest saved seq: the card is
+  emptied once the Palm has everything, unless History is on), and `seq` marks in NVS so numbers rise across restarts.
+  Full description: firmware `docs/Mesh-Palm.md`.
+
+### 17.1b Several nodes (2026-10-29)
+
+Up to four nodes in a slot table (`mesh_slots.h`, `mesh_slots.cpp`; paired or archived), one shown at a time, one of them the Background node; Mesh wire version 3 (frames SLOTS_GET 0x61, SLOT_SELECT 0x62,
+SLOTS_R 0x63, UNPAIR with slot and keep). Texts, the dedup list, interval and SD Flush are per node; the Palm keeps one database per node (`apps/meshtastic_client.md`). The one-time migration code
+from the single-node release is gone. Description and the rules (Background only without a Palm session, SD folder per node number, unpair keep or delete): firmware `docs/Mesh-Palm.md`, "Several nodes".
+
+### 17.1a Later work (2026-10-27)
+
+Internal notes; the Palm side is in `apps/meshtastic_client.md`, the frames in firmware `docs/Mesh-Palm.md`.
+
+- **Session keep-alive.** The Palm sends PING every 5 s while linked and idle; WiRSa counts any Palm frame as presence and probes only after the
+  *After session* time of silence, leaving when the probe goes unanswered for as long. Palm requests (`Req`, `FinishSync`) answer a probe while waiting. HOLD
+  (0x26) covers dialogs. WiRSa sends BYE to a connected Palm when the mode ends (`exitMeshRelayMode()`); the Palm closes and says "WiRSa ended Mesh mode.".
+  What went wrong before: Palm stalls (long thread layout, a cache save for each batch of frames, long blocking waits) made it miss a probe while still showing Connected.
+- **Message status.** Statuses 0 to 6 (see `Mesh-Palm.md`): a DM is delivered only when the routing ack comes from the recipient (`p.from == m->to`); an ack from a
+  relay is status 4. `failMsg()` turns a DM's Routing.Error 6, 35, 39 into status 6 and one key job; `keyExchangeTick()` in the worker asks the recipient for node info
+  (`keyRequest`, nothing stored), waits for its node info or 20 s and resends once (`keyResend`). Palm marks: `...` 0x18, `?`, `~`, tick 0x16 (Symbol font), 0x14, `!`.
+- **Keys.** `NodeInfo.hasKey` (User.public_key, 32 bytes) rides on NODE / NODES; the Palm draws CryptoNote's `key.bmp` left of the name in the Direct Msg and Nodes lists and after the
+  short name on the card; opening a DM chat with a keyless node sends REQ kind 1 with localId 0 (quiet).
+- **500 nodes.** `MAX_NODES` 500 in PSRAM (64 if the allocation fails); NODE for this node, then NODES frames (6 each, sorted); the Palm's `Node` is 40 bytes in a table allocated at start
+  (`gMaxNode`), the card from NODE_GET. The globals region (about 32 KB) cannot hold it. CONNECT keep = 2 refreshes the list from the node; `drainRadio(maxMs)` reads in 1 s slices,
+  because one 200-packet read outlasted the Palm's wait and the link was dropped. Conversations 16 -> 32 with eviction of the quietest DM.
+- **Lost texts on the Palm.** Two causes fixed: a text with the same sender, minute and wording as one held was thrown away (now compared by packet id, which MSG carries in
+  localId for incoming texts), and a full node or conversation table silently dropped DMs after the cursor had moved past them.
+- **Emoji.** `PalmText::fromUtf8(..., Emoji::Marker)` (firmware `palm_text.h`, shared with the CardDAV, CalDAV and BitWarden relays) makes each emoji run the byte 0x10; the Palm's `DrawName()` draws it in the Symbol font, `FlatName()` turns it into `*` where the font cannot change, `StripName()` keeps it out of names sent back to the node.
+- **Background check after boot** waits 60 s (`meshBgBoot()`), so a reboot does not start a check in the middle of menu use.
+- **MQTT.** Saved alone (the node drops Bluetooth at once and reboots in about 7 s); `adminAck` per step for the rest; node scan-first connect; heartbeat before `want_config`. Details in `Mesh-Palm.md`.
+- **Palm performance.** Long threads: only the newest 16 messages are wrapped (`gSkip`, `MoreOlder()`), the rest on scroll; the cache is saved once per fetch;
+  the node list is asked for at most every 5 minutes; the Find box redraws whole when the count changes (a row the table no longer uses has no rectangle, so old rows were left on screen).
 
 ### 17.2 Notes from bring-up
 
@@ -1506,3 +1567,53 @@ Added 2026-10 for `apps/meshtastic_client.md` (the Palm side, with usage notes).
   then a damaged frame (`checksum mismatch`), after which the Palm went silent and the exit timer ended the session.
   57600 and 19200 were clean.
 - In the Palm OS emulator a sync may stall mid-stream (the serial pty); the real line does not.
+
+### 17.3 Power measurements (2026-10-26)
+
+Done for the sleep design of the background checks. Meter in line on the USB 5 V input of the LilyGO T7-S3, battery
+connected (some of the current may be battery charging; the battery-only floor was **not** measured), SD card in unless
+noted. All at 5.1 V. "Over floor" is the current above deep sleep (28 mA).
+
+| # | state | CPU | current | power | over floor |
+|---|---|---|---|---|---|
+| 1 | WiRSa firmware, awake at the main menu, WiFi connected, checks waiting, Palm off | 240 MHz | 178 mA | 0.91 W | +150 mA |
+| 2 | bare sketch, awake, idle, no radio | 240 MHz | 67 mA | 0.34 W | +39 mA |
+| 3 | the same | 160 MHz | 61 mA | 0.31 W | +33 mA |
+| 4 | the same | 80 MHz | 56.7 mA | 0.29 W | +29 mA |
+| 5 | the same | 40 MHz | 47.8 mA | 0.24 W | +20 mA |
+| 6 | Bluetooth scanning with a 100 % duty window (an upper bound for a check) | 240 MHz | 134 mA | 0.68 W | +106 mA |
+| 7 | the same | 80 MHz | 123 mA | 0.63 W | +95 mA |
+| 8 | light sleep (timer wake) | 80 MHz | 31 mA | 0.16 W | +3 mA |
+| 9 | deep sleep (timer wake) | n/a | 28 mA | 0.14 W | 0 |
+| 10 | WiRSa firmware asleep with the check timer armed | n/a | 28 mA | 0.14 W | 0 |
+| 11 | bare sketch, deep sleep, SD card in / out (first, less careful reading) | n/a | 35 / 27.9 mA | 0.18 / 0.144 W | |
+
+Rows 2 to 9 come from a test sketch (`fwFloor`: eight 25 s phases, each printing `PHASE n/8 <state>`; Bluetooth through
+NimBLE-Arduino, scan started for a fixed time, not stopped by hand: a `stop()` call crashed with a null function pointer).
+The meter was read by hand during each phase; row 11 is the first reading and was later judged less accurate than the phase
+set, whose deep sleep read 28 mA with the card in, so the 7 mA the card seemed to cost in row 11 is not established.
+
+What it showed:
+
+- The **board is the floor**: a sketch that only sleeps reads the same 28 mA as the full firmware asleep, so no software
+  change can go below it. Deep sleep (28 mA) and light sleep (31 mA) differ by 3 mA, about 10 % of the floor.
+- **Sleeping is the saving.** An idle chip with no radio costs 20 to 39 mA over the floor; the full firmware at the main menu
+  costs 150 mA over it. The WiFi is the difference between rows 1 and 2 (about 111 mA); `sleepNow()` switches it off.
+- **CPU speed is a weak lever**: 240 to 80 MHz saves about 10 mA idle and 11 mA with the Bluetooth listening; 40 MHz is
+  too slow for the radio (Espressif: 80 MHz minimum with Bluetooth or WiFi on), and the Bluetooth cost is the radio, not the CPU.
+  Background checks run at 80 MHz (`setCpuFrequencyMhz(80)` first in `setup()` on a timer wake: the chip boots at 240 MHz
+  and the setting applies from there); everything with a Palm is at 240 MHz.
+- **Check energy**: a headless check is about 10 to 12 s awake (boot to ready about 2 s, the node's settings about 8 s, 2 s
+  quiet; measured 9.3 to 12.6 s) at up to 95 mA over the floor, so at most 0.3 mAh. Average extra current: 60 min 0.3 mA,
+  15 min 1.3 mA, 5 min 3.8 mA, 1 min about 16 mA. The real connected-link current is lower than the scan figure (the
+  radio is on only at connection events); with the meter in line the checks barely moved the reading.
+- **Estimate**: about 46 hours on a 2000 mAh cell at 3.7 V counting only the 5 V power at hourly checks (0.16 W), against
+  about 8 hours at the 0.91 W of row 1. The battery-only floor decides the real figure.
+
+Open: the battery-only floor (meter on the battery lead with USB unplugged), the SD card's idle current (a different card
+may draw far less than the one used), and the average current over a real headless check.
+
+Tools (firmware repo, `Firmware/tools/`): `wirsa_log.py FILE` records the USB serial across unplugs and sleeps into one
+file (`tail -f` it; it opens `/dev/t7s3`, a udev name for the board, else the newest `ttyACM*`), and `power_test/` is the
+test sketch of rows 2 to 9 (PlatformIO project: `pio run -t upload`; the USB port is up during the six awake phases, 150 s
+of each cycle, and gone in the two sleeping ones). The firmware itself was built with a stand-in PlatformIO project that links the `Firmware` sources.

@@ -37,7 +37,7 @@ static Boolean gShownOk;				/* gShown is what the gadget really displays */
 static UInt8 gDetail;					/* the message frmMsg shows (gMsg index) */
 static UInt8 gPosKind;					/* what frmPos sends: 5 position, 6 waypoint */
 static char gPosLat[16], gPosLon[16], gPosName[32];
-static char gDetailText[640];
+static char gDetailText[860];
 
 /* ---- a message's pieces ------------------------------------------------------------------------ */
 
@@ -46,33 +46,52 @@ static MC_UI void Prefix(const Msg *m, char *out)
 	if (m->out) StrCopy(out, "Me: ");
 	else {
 		if (m->from >= gNNodes) StrCopy(out, "?");
-		else if (gNodes[m->from].shortName[0] && StrCompare(gNodes[m->from].shortName, "?") != 0) StrNCopy(out, gNodes[m->from].shortName, 7);
-		else StrCopy(out, gNodes[m->from].id + 5);		/* not named yet (or saved so): the end of the node id */
+		else if (gNodes[m->from].shortName[0] && StrCompare(gNodes[m->from].shortName, "?") != 0) {
+			StrNCopy(out, gNodes[m->from].shortName, sizeof(gNodes[0].shortName) - 1);
+			out[sizeof(gNodes[0].shortName) - 1] = '\0';
+		}
+		else NodeTail(m->from, out);		/* not named yet (or saved so): the end of the node id */
 		out[7] = '\0';
 		StrCat(out, ": ");
 	}
 }
 
-/* A bold "!" for a message that failed, a bold "?" while it has no acknowledgement (sending, sent, or not known),
- * nothing once it is acknowledged. */
+/* What shows beside the time of an outgoing message (0x18 the ellipsis, 0x16 the Symbol font's tick, the others bold):
+ * ...  sending, or the keys are being exchanged   ?  sent, no confirmation yet   ~  a DM only a relay confirmed
+ * tick delivered (to the recipient, or to the mesh for a channel)   !  failed. */
+#define MK_DOTS		0x18
+#define MK_TICK		0x16
+#define MK_KEYS		0x14			/* exchanging keys (the normal font) */
+
 static MC_UI char Mark(const Msg *m)
 {
 	if (! m->out) return 0;
-	if (m->status == 3) return '!';
-	if (m->status == 2) return 0;
+	switch (m->status) {
+	case 0:		return MK_DOTS;
+	case 6:		return MK_KEYS;
+	case 2:		return MK_TICK;
+	case 3:		return '!';
+	case 4:		return '~';
+	}
 	return '?';
 }
 
-/* The room kept for "! 12:59 pm" at the right of a message's last line (the widest time the formats give). */
+static MC_UI FontID MarkFont(char mk)
+{
+	return mk == MK_TICK ? symbolFont : mk == MK_KEYS ? stdFont : boldFont;		/* the ellipsis is in the normal fonts, the tick in the Symbol font */
+}
+
+/* The room kept for "x 12:59 pm" at the right of a message's last line (the widest time the formats give). */
 static MC_UI Int16 TimeW(const Msg *m)
 {
 	Int16 w;
+	char mk = Mark(m);
 
 	FntSetFont(stdFont);
 	w = FntCharsWidth("12:59 pm", 8);
-	if (Mark(m)) {
-		FntSetFont(boldFont);
-		w = (Int16) (w + FntCharsWidth("!", 1) + 3);
+	if (mk) {
+		FntSetFont(MarkFont(mk));
+		w = (Int16) (w + FntCharsWidth(&mk, 1) + 3);
 		FntSetFont(stdFont);
 	}
 	return w;
@@ -100,13 +119,14 @@ static MC_UI Boolean Layout(UInt16 skip)
 	gNLine = 0;
 	for (i = 0; i < gNMsg && ok; i++) {
 		const Msg *m = &gMsg[i];
-		const char *text = MsgText(m);
+		const char *text;
 		UInt16 off = 0, n, shown, off2;
 		Int16 pw, tw, lw;
 		Boolean first = true;
 
 		if (m->conv != gCurConv) continue;
 		if (skip) { skip--; continue; }
+		text = MsgText(m);
 		day = DayOf(m->when);
 		if (day != lastDay) {
 			lastDay = day;
@@ -115,7 +135,7 @@ static MC_UI Boolean Layout(UInt16 skip)
 		}
 		Prefix(m, pre);
 		FntSetFont(boldFont);
-		pw = FntCharsWidth(pre, (Int16) StrLen(pre));
+		pw = NameWidth(pre, (Int16) StrLen(pre));
 		FntSetFont(stdFont);
 		tw = TimeW(m);
 		FntSetFont(stdFont);
@@ -146,11 +166,27 @@ static MC_UI Boolean Layout(UInt16 skip)
 	return ok;
 }
 
+/* Only the newest messages are laid out: the screen is small, and wrapping a whole long thread is slow. gSkip is how many of the
+ * thread's oldest messages are left out; scrolling to the top lays out a few more (MoreOlder). */
+#define WIN_MSGS	6				/* what a thread opens with: enough to fill the screen twice, unless the messages are short (OpenWindow) */
+#define MORE_MSGS	12				/* what scrolling to the top adds */
+#define WIN_LINES	(LIST_ROWS * 2)
+static UInt16 gSkip;
+
+static MC_UI UInt16 ThreadCount(void)
+{
+	UInt16 i, n = 0;
+
+	for (i = 0; i < gNMsg; i++) if (gMsg[i].conv == gCurConv) n++;
+	return n;
+}
+
 static MC_UI void BuildLines(void)
 {
-	UInt16 skip = 0;
+	UInt16 n = ThreadCount();
 
-	while (! Layout(skip) && skip < MAX_MSG) skip++;		/* too long for the table: drop the oldest */
+	if (gSkip > n) gSkip = n;
+	while (! Layout(gSkip) && gSkip < n) gSkip = (UInt16) (gSkip + (n - gSkip + 1) / 2);	/* a window too long for the table: fewer */
 }
 
 static MC_UI UInt16 MaxTop(void)
@@ -163,7 +199,24 @@ static MC_UI void ScrollSet(void)
 	FormPtr frm = FrmGetActiveForm();
 	ScrollBarPtr sb = (ScrollBarPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, sclChat));
 
-	SclSetScrollBar(sb, (Int16) gTop, 0, (Int16) MaxTop(), LIST_ROWS);
+	/* With older messages still to load the bar's top is kept one step above the first line, so the user can always scroll up to ask for them. */
+	SclSetScrollBar(sb, (Int16) (gTop + (gSkip ? 1 : 0)), 0, (Int16) (MaxTop() + (gSkip ? 1 : 0)), LIST_ROWS);
+}
+
+/* A thread is opened with its newest messages only: a few, and more when they do not fill the screen twice (short ones). The rest is laid out when
+ * the user scrolls up. Wrapping the text is what takes the time, so the fewer messages, the quicker the thread is there. */
+static MC_UI void OpenWindow(void)
+{
+	UInt16 n = ThreadCount(), tries;
+
+	gSkip = n > WIN_MSGS ? (UInt16) (n - WIN_MSGS) : 0;
+	for (tries = 0; tries < 8; tries++) {
+		BuildLines();
+		if (gSkip == 0 || gNLine >= WIN_LINES) break;
+		gSkip = gSkip > WIN_MSGS ? (UInt16) (gSkip - WIN_MSGS) : 0;
+	}
+	gTop = MaxTop();
+	ScrollSet();
 }
 
 /* ---- drawing ------------------------------------------------------------------------------------ */
@@ -201,8 +254,8 @@ static MC_UI void DrawLine(const CLine *l, Coord x0, Coord y)
 		if (l->flags & CL_FIRST) {
 			Prefix(m, pre);
 			FntSetFont(boldFont);
-			WinDrawChars(pre, (Int16) StrLen(pre), x, y);
-			x = (Coord) (x + FntCharsWidth(pre, (Int16) StrLen(pre)));
+			DrawName(pre, (Int16) StrLen(pre), x, y, 100);
+			x = (Coord) (x + NameWidth(pre, (Int16) StrLen(pre)));
 			FntSetFont(stdFont);
 		}
 		if (l->len) WinDrawChars(MsgText(m) + l->off, l->len, x, y);
@@ -213,8 +266,8 @@ static MC_UI void DrawLine(const CLine *l, Coord x0, Coord y)
 			w = FntCharsWidth(buf, (Int16) StrLen(buf));
 			WinDrawChars(buf, (Int16) StrLen(buf), (Coord) (x0 + 150 - w), y);
 			if (mk) {
-				FntSetFont(boldFont);
-				WinDrawChars(&mk, 1, (Coord) (x0 + 150 - w - 3 - FntCharsWidth(&mk, 1)), y);
+				FntSetFont(MarkFont(mk));
+				WinDrawChars(&mk, 1, (Coord) (x0 + 150 - w - 3 - FntCharsWidth(&mk, 1)), (Coord) (mk == MK_TICK ? y + 1 : y));
 				FntSetFont(stdFont);
 			}
 			WinDrawGrayLine(x0, (Coord) (y + 10), (Coord) (x0 + 151), (Coord) (y + 10));
@@ -283,7 +336,7 @@ static MC_UI void DrawRule(const CLine *l, Coord x0, Coord y)
  * by the screen itself, then just the rows that differ are drawn - a new message, a mark that changed. */
 static MC_UI void PaintList(void)
 {
-	RectangleType r, line, vac, oldClip;
+	RectangleType r, rows, strip, line, vac, oldClip;
 	FormPtr frm = FrmGetActiveForm();
 	Shown now[LIST_ROWS], old[LIST_ROWS];
 	UInt16 k;
@@ -291,6 +344,8 @@ static MC_UI void PaintList(void)
 
 	FrmGetObjectBounds(frm, FrmGetObjectIndex(frm, gadChatList), &r);
 	if (! gShownOk) { DrawList(&r); return; }
+	rows = r;
+	rows.extent.y = LIST_ROWS * 11;							/* the lines; the pixels below them belong to no line */
 	for (k = 0; k < LIST_ROWS; k++) Snap((UInt16) (gTop + k), &now[k]);
 	for (k = 0; k < LIST_ROWS && SameGeo(&gShown[k], &now[k]); k++) ;
 	WinGetClip(&oldClip);
@@ -304,7 +359,7 @@ static MC_UI void PaintList(void)
 		}
 		if (shift) {
 			MemMove(old, gShown, sizeof(old));
-			WinScrollRectangle(&r, shift > 0 ? winUp : winDown, (Coord) ((shift > 0 ? shift : -shift) * 11), &vac);
+			WinScrollRectangle(&rows, shift > 0 ? winUp : winDown, (Coord) ((shift > 0 ? shift : -shift) * 11), &vac);	/* not the strip below: it would carry pixels of the lines into it */
 			for (k = 0; k < LIST_ROWS; k++) {
 				Int16 from = (Int16) k + shift;
 
@@ -325,6 +380,10 @@ static MC_UI void PaintList(void)
 		if (gTop + k < gNLine) DrawLine(&gLine[gTop + k], r.topLeft.x, line.topLeft.y);
 		MemMove(&gShown[k], &now[k], sizeof(Shown));
 	}
+	strip = r;
+	strip.topLeft.y = (Coord) (r.topLeft.y + LIST_ROWS * 11);
+	strip.extent.y = (Coord) (r.extent.y - LIST_ROWS * 11);
+	WinEraseRectangle(&strip, 0);								/* whatever got there stays out of sight */
 	WinSetClip(&oldClip);
 }
 
@@ -376,6 +435,7 @@ static MC_UI void PopFill(void)
 		}
 		StrNCopy(gPopLbl[n], t, 25);
 		gPopLbl[n][25] = '\0';
+		FlatName(gPopLbl[n]);
 		gPopConv[n] = c;
 		if (c == gCurConv) sel = (Int16) n;
 		n++;
@@ -561,7 +621,7 @@ static MC_UI void ChatSend(Boolean bell)
 		Info("Too long: a message can be 233 bytes.", NULL, NULL);
 		return;
 	}
-	if (! gWirsaUp) { Info("Not connected.", "Use Options > Connect first.", NULL); return; }
+	if (! gWirsaUp) { Info("Not connected. Connect first.", NULL, NULL); return; }
 	if (! LinkSend(gCurConv, text))
 		Info(gLinkText[0] ? gLinkText : "The message was not sent.", NULL, NULL);
 	if (p) FldDelete(fld, 0, FldGetTextLength(fld));
@@ -575,7 +635,7 @@ static MC_UI void ChatSend(Boolean bell)
  * message; a position or a waypoint is asked for first. */
 static MC_UI void ChatReq(UInt8 kind)
 {
-	if (! gWirsaUp) { Info("Not connected.", "Use Options > Connect first.", NULL); return; }
+	if (! gWirsaUp) { Info("Not connected. Connect first.", NULL, NULL); return; }
 	if (gConv[gCurConv].isChan && kind >= 2 && kind <= 4) {
 		Info("This goes to one person.", "Open a direct message with them first (Chat > Reply privately).", NULL);
 		return;
@@ -588,14 +648,12 @@ static MC_UI void ChatReq(UInt8 kind)
 	Rebuild(true);
 }
 
-/* Chat > Clear messages: this conversation only, and only the Palm's copy. */
+/* Chat > Clear messages: the same box as the main screen's, for this conversation only (the Palm's copy: WiRSa keeps its own). */
 static MC_UI void ChatClear(void)
 {
-	if (! Ask("Delete all messages of this conversation?\n", "Only on this Palm: WiRSa keeps its copy.", NULL)) return;
-	DropConv(gCurConv);
+	gClearConv = gCurConv;
 	gSelA = gSelB = -1;
-	SortConv();
-	Rebuild(true);
+	FrmPopupForm(frmClear);
 }
 
 /* From a channel: a direct message goes to one node, so it is asked which: whoever spoke last. */
@@ -616,15 +674,55 @@ static MC_UI void ChatDm(void)
 	FrmGotoForm(frmChat);
 }
 
+/* The top is reached with older messages left out: lay out another few and keep the screen where it was. */
+static MC_UI void MoreOlder(void)
+{
+	UInt16 before = gNLine, was = gSkip;
+
+	if (! gSkip) return;
+	gSkip = gSkip > MORE_MSGS ? (UInt16) (gSkip - MORE_MSGS) : 0;
+	BuildLines();
+	if (gSkip == was) return;
+	gTop = (UInt16) (gTop + gNLine - before);
+	gShownOk = false;
+}
+
 static MC_UI void Scroll(Int16 lines)
 {
 	Int16 v = (Int16) gTop + lines;
 
+	if (v < 0 && gSkip) { MoreOlder(); v = (Int16) gTop + lines; }
 	if (v < 0) v = 0;
 	if (v > (Int16) MaxTop()) v = (Int16) MaxTop();
 	if ((UInt16) v == gTop) return;
 	gTop = (UInt16) v;
 	ScrollSet();
+	PaintList();
+}
+
+/* Another conversation from the pop-up: the form stays, only its title, list and lines change (reloading the form and drawing all of it again is the slow part). */
+static MC_UI void SwitchConv(UInt16 conv)
+{
+	FormPtr frm = FrmGetActiveForm();
+	FieldPtr fld = GetField(fldChatEntry);
+	UInt16 len = FldGetTextLength(fld);
+
+	gCurConv = conv;
+	ConvLabel(gCurConv, gTitle);
+	FlatName(gTitle);
+	FrmSetTitle(frm, gTitle);
+	gConv[gCurConv].unread = 0;
+	PopFill();
+	if (! gConv[gCurConv].isChan) LinkAskKey(gConv[gCurConv].index);
+	if (len) FldDelete(fld, 0, len);						/* a typed text does not go to the other thread */
+	Counter(true);
+	StatusLine(gInfo, STATUS_PX);
+	SetFieldPtr(fldChatInfo, gInfo);
+	BattRedraw(gadChatBatt);
+	gSelA = gSelB = -1;
+	gShownOk = false;
+	gTop = 0;
+	OpenWindow();
 	PaintList();
 }
 
@@ -638,6 +736,7 @@ MC_UI Boolean ChatHandleEvent(EventPtr e)
 	case frmOpenEvent:
 		frm = FrmGetActiveForm();
 		ConvLabel(gCurConv, gTitle);
+		FlatName(gTitle);
 		FrmSetTitle(frm, gTitle);
 		gConv[gCurConv].unread = 0;
 		FrmSetGadgetHandler(frm, FrmGetObjectIndex(frm, gadChatBatt), BattGadget);
@@ -645,22 +744,24 @@ MC_UI Boolean ChatHandleEvent(EventPtr e)
 		FrmSetGadgetHandler(frm, FrmGetObjectIndex(frm, gadChatSep), LineGadget);
 		FrmSetGadgetHandler(frm, FrmGetObjectIndex(frm, gadChatList), ListGadget);
 		FrmSetGadgetHandler(frm, FrmGetObjectIndex(frm, gadChatCnt), CntGadget);
-		StatusLine(gInfo, 100);
+		StatusLine(gInfo, STATUS_PX);
 		SetFieldPtr(fldChatInfo, gInfo);
 		PopFill();
+		if (! gConv[gCurConv].isChan) LinkAskKey(gConv[gCurConv].index);		/* a node whose key is not known is asked for it, quietly */
 		gSelA = gSelB = -1;
 		gShownOk = false;
 		StrCopy(gCnt, "000/233");
 		gTop = 0;
-		Refill(true);
+		OpenWindow();
 		FrmDrawForm(frm);
 		FrmSetFocus(frm, FrmGetObjectIndex(frm, fldChatEntry));
 		return true;
 
 	case frmUpdateEvent:
 		gConv[gCurConv].unread = 0;
-		StatusLine(gInfo, 100);
+		StatusLine(gInfo, STATUS_PX);
 		SetFieldPtr(fldChatInfo, gInfo);
+		BattRedraw(gadChatBatt);					/* the unread note may have come or gone */
 		Refill(false);
 		PaintList();								/* news only redraws the messages, not the whole screen */
 		return true;
@@ -674,7 +775,7 @@ MC_UI Boolean ChatHandleEvent(EventPtr e)
 			Int16 sel = e->data.popSelect.selection;
 
 			if (sel == 0) { gCat = gConv[gCurConv].isChan ? 0 : 1; FrmGotoForm(frmMain); }
-			else if (sel > 0 && sel < 9 && gPopConv[sel] != gCurConv) { gCurConv = gPopConv[sel]; FrmGotoForm(frmChat); }
+			else if (sel > 0 && sel < 9 && gPopConv[sel] != gCurConv) SwitchConv(gPopConv[sel]);
 			return true;
 		}
 		break;
@@ -695,7 +796,10 @@ MC_UI Boolean ChatHandleEvent(EventPtr e)
 
 	case sclRepeatEvent:
 		if (e->data.sclRepeat.scrollBarID == sclChat) {
-			gTop = (UInt16) e->data.sclRepeat.newValue;
+			Int16 nv = (Int16) (e->data.sclRepeat.newValue - (gSkip ? 1 : 0));
+
+			if (nv < 0) { gTop = 0; MoreOlder(); ScrollSet(); }
+			else gTop = (UInt16) nv;
 			PaintList();
 		}
 		break;
@@ -755,11 +859,15 @@ MC_UI Boolean ChatHandleEvent(EventPtr e)
 
 /* ---- one message in full ---------------------------------------------------------------------------------- */
 
+static char gDetailHead[200];
+static Coord gMsgRuleY;
+
+/* The header (who, when, how it went) is a field of its own, then a line, then the scrolling part: the reason it failed, and the text. */
 static MC_UI void BuildDetail(void)
 {
 	const Msg *m = &gMsg[gDetail];
 	char tmp[48];
-	char *p = gDetailText;
+	char *p = gDetailHead;
 
 	if (m->out) StrCopy(p, "From: Me\n");
 	else {
@@ -773,24 +881,53 @@ static MC_UI void BuildDetail(void)
 	StrCat(p, "\nTime: ");
 	FmtDateTime(m->when, tmp);
 	StrCat(p, tmp);
-	StrCat(p, "\n");
 	if (m->out) {
-		StrCat(p, "Status: ");
-		StrCat(p, StatusWords(m->status));
-		StrCat(p, "\n");
-		if (m->status == 3) {
-			StrCat(p, "Reason: ");
-			StrCat(p, ErrWords(m->err));
-			if (m->err && m->err < 240) {
-				StrCat(p, " (error ");
-				PutNum(p, m->err);
-				StrCat(p, ")");
-			}
-			StrCat(p, "\n");
-		}
+		StrCat(p, "\nStatus: ");
+		StrCat(p, StatusWords(m));
 	}
-	StrCat(p, "\n");
+	FlatName(p);
+	p = gDetailText;
+	p[0] = '\0';
+	if (m->out && m->status == 3) {
+		StrCat(p, "Error: ");
+		StrCat(p, ErrTitle(m->err));
+		if (m->err && m->err < 240) {
+			StrCat(p, " (");
+			PutNum(p, m->err);
+			StrCat(p, ")");
+		}
+		StrCat(p, "\nMeaning: ");
+		StrCat(p, ErrMeaning(m->err));
+		StrCat(p, "\nWhat to do: ");
+		StrCat(p, ErrAction(m->err));
+		StrCat(p, "\n\n");
+	}
 	StrCat(p, MsgText(m));
+	FlatName(p);
+}
+
+/* The fields follow the header's height: three lines for a received message, four for one sent. */
+static MC_UI void MsgLayout(void)
+{
+	FormPtr frm = FrmGetActiveForm();
+	RectangleType r;
+	Coord headH = (Coord) ((gMsg[gDetail].out ? 4 : 3) * 11), top = (Coord) (17 + headH + 4);
+
+	FrmGetObjectBounds(frm, FrmGetObjectIndex(frm, fldMsgHead), &r);
+	r.extent.y = headH;
+	FrmSetObjectBounds(frm, FrmGetObjectIndex(frm, fldMsgHead), &r);
+	FrmGetObjectBounds(frm, FrmGetObjectIndex(frm, fldMsgText), &r);
+	r.topLeft.y = top; r.extent.y = (Coord) (135 - top);
+	FrmSetObjectBounds(frm, FrmGetObjectIndex(frm, fldMsgText), &r);
+	FrmGetObjectBounds(frm, FrmGetObjectIndex(frm, sclMsg), &r);
+	r.topLeft.y = top; r.extent.y = (Coord) (135 - top);
+	FrmSetObjectBounds(frm, FrmGetObjectIndex(frm, sclMsg), &r);
+	gMsgRuleY = (Coord) (17 + headH + 2);			/* the line sits 2 pixels under the last header line */
+}
+
+static MC_UI void MsgRule(void)
+{
+	WinDrawLine(4, gMsgRuleY, 141, gMsgRuleY);
 }
 
 static MC_UI void MsgScroll(void)
@@ -811,8 +948,11 @@ MC_UI Boolean MsgHandleEvent(EventPtr e)
 	switch (e->eType) {
 	case frmOpenEvent:
 		BuildDetail();
+		SetFieldPtr(fldMsgHead, gDetailHead);
 		SetFieldPtr(fldMsgText, gDetailText);
+		MsgLayout();
 		FrmDrawForm(FrmGetActiveForm());
+		MsgRule();
 		MsgScroll();
 		return true;
 
@@ -838,6 +978,7 @@ MC_UI Boolean MsgHandleEvent(EventPtr e)
 
 	case frmCloseEvent:
 		FldSetTextPtr(GetField(fldMsgText), NULL);
+		FldSetTextPtr(GetField(fldMsgHead), NULL);
 		break;
 
 	default:

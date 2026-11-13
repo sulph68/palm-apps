@@ -4,7 +4,7 @@ APPNAME  = Datebook35
 CREATOR  = Db35
 PRC      = $(APPNAME).prc
 
-SDK      = /home/cnrai/palmos_sdk/palm-os-sdk/sdk-4/include
+SDK      = $(HOME)/palmos_sdk/palm-os-sdk/sdk-4/include
 LIB      = ../lib
 BUILD    = build
 

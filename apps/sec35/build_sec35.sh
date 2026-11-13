@@ -2,8 +2,8 @@
 # build_sec35.sh - Sec35 security manager. Single segment.
 set -e
 cd "$(dirname "$0")"
-SDK=/home/cnrai/palmos_sdk/palm-os-sdk/sdk-4/include
-GLUE=/home/cnrai/palmos_sdk/palm-os-sdk/sdk-4/lib/m68k-palmos-coff
+SDK=$HOME/palmos_sdk/palm-os-sdk/sdk-4/include
+GLUE=$HOME/palmos_sdk/palm-os-sdk/sdk-4/lib/m68k-palmos-coff
 INCS=$(find "$SDK" -type d | sed 's/^/-I/' | tr '\n' ' ')
 CFLAGS="-palmos4 -Os $INCS -I."
 CC=m68k-palmos-gcc
