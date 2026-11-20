@@ -96,6 +96,23 @@ starts with the sender's short name in bold, then the text, with the time at the
 you sent start `Me:`; a message from your other node shows that node's short name. A node that has not told its name yet shows the last four characters of its id
 (`e536:`); WiRSa asks such nodes for their names in the background and the name appears after the next node refresh.
 
+### New messages
+
+A thread keeps count of the messages you have not read. Opening it shows them from the top:
+
+- **The "New" mark.** Before the first unread message there is a line `━━ New (3) ━━` (bold text, two rules either side), the number
+  being how many are unread. When the first unread message is also the first of a new day, the mark shares the date heading
+  (`Sat Oct 24, 2026 - New (3)`, rule underneath). The thread opens with that mark on the top row, so you read downward; older
+  messages sit above it (up to 30 messages back are laid out to reach the first unread one).
+- **When a message counts as read.** When it has been wholly on the screen for a second (a scroll starts the second again).
+  Unread messages are taken in order from the first unread one: scrolling past one leaves it, and everything after it, unread. The
+  note beside the battery and the `(n)` count in the lists follow, so they only go when the messages were really on the screen.
+  Sending a message counts the whole thread as read.
+- **The mark stays put while the thread is open**; messages read meanwhile do not move it. Open the thread again and it is before
+  whatever is still unread, or gone when everything was read. Messages that arrive while the thread is open are counted as unread
+  and are read the same way; the mark appears for them the next time the thread is opened.
+- Nothing about this is saved beyond the unread count the Palm already kept for each thread, so saved data from older versions loads as it did.
+
 ### Symbols used for messages
 
 Marks before the time on messages you sent (incoming messages have none):
@@ -132,7 +149,7 @@ it quietly when you open a chat with a node that has none, and when a direct mes
 Chat menu:
 
 - **Chat:** Node info, Reply privately (a direct message to whoever spoke last), Select all, Message details,
-  Clear messages. *Clear messages* opens the same box as the main screen's: delete **all** of this conversation's messages
+  Mark all read, Clear messages. *Mark all read* asks (Yes/No), then clears this conversation's unread count and its **New (N)** line, keeping the place. Reading: an unread message is read once it has been wholly on screen, or scrolled past (above the screen, or older than the messages laid out), with the screen still for a second; in order from the oldest unread. The mark's count is what is still unread and the mark goes at 0. With more than 30 unread the thread opens at the oldest of its newest 30, with the mark there. *Clear messages* opens the same box as the main screen's: delete **all** of this conversation's messages
   or those **older than** 1 day, 3 days, 1 week or 1 month, with the count shown before it asks. Only this conversation
   on this Palm; WiRSa keeps its copy.
 - **Send:** Alert (bell) sends `:bell:` (with your text after it, if you typed some); Request node info, Request
@@ -155,7 +172,8 @@ The page reads the node's settings first, which can take 10 to 40 seconds on a n
 dialog ("Getting settings from the node...") says so and can be cancelled.
 
 - **Channels:** the primary channel's name can be empty (the list shows "(default)"); an empty key means the default key `AQ==`. A row of the
-  channel form has **MQTT Up:** and **Dn:** check boxes (uplink / downlink to the MQTT server) beside **New key**. Leaving a form with changes asks "Discard changes?".
+  channel form has **MQTT Up:** and **Dn:** check boxes (uplink / downlink to the MQTT server) beside **New key**. The key is masked like the suite's passwords: `*`s, the character just typed in clear for a second, and an unlabelled
+  Show checkbox at the right of the field; the real key is kept apart from the field and wiped when the form closes. Leaving a form with changes asks "Discard changes?".
 - **MQTT** (below Channels): enabled, address, username, password, root topic, encryption, JSON, TLS, proxy to client and map reporting. OK asks
   "Send config and reboot now?": a node turns its Bluetooth off when it gets MQTT settings and restarts about 7 seconds later, so they are sent on their own.
   The app says "Sent. Node restarting. It will reconnect shortly..." and the status line reads Initialising... until the link is back.
@@ -167,9 +185,8 @@ Main screen:
 | Menu | Items |
 |---|---|
 | **Node** | Sync Now, Clear Messages..., Settings..., (line), Connect, Disconnect |
-| **Settings** | Device..., (line), Preferences... |
-| **Edit** | the standard Palm edit items |
-| **About** | Meshtastic Client |
+| **Settings** | Device..., (line), Preferences..., About Meshtastic |
+| **Edit** | the standard Palm edit items (Paste /P, Select All /S) |
 
 - **Sync Now** asks WiRSa to take what the node holds right now and then updates the Palm.
 - **Clear Messages...** deletes on the Palm, in every conversation: all, or those older than 1 day, 3 days, 1 week or
@@ -286,3 +303,18 @@ next time you connect. While you use the app on another node, no check runs.
   fetch end before `Req()` sends anything else.
 - Testing without hardware: the Palm OS emulator with a fake WiRSa speaking the Mesh frames (see `Protocol-wire.md` section 9 for the
   frames). The emulator's serial line sometimes stalls a sync; the real line does not.
+
+## Data at rest
+The node databases (`MeshChat-<id>`, settings with the channel keys, nodes, conversations, messages) are stored **unencrypted** and are
+backed up by HotSync. Optional Sec35 encryption was considered (bug hunt, 2026-11-17) and deferred: it is rarely used and not critical,
+and a failed conversion could lose messages the WiRSa no longer holds.
+
+## UI round (2026-11-18)
+
+- **Main:** Connect / Sync Now (Sync Now takes the rest of the row) and the Nodes view's Find / Clr / Nodes on the standard bottom row at y=147; label, field and buttons share one baseline. Checked across every view switch: no leftovers.
+- **Chat:** Send on the bottom row at the right edge.
+- **Full-height dialogs** (Node, Message, Settings, LoRa, Channels, Channel, MQTT, Pair Device, Preferences): 12 px buttons 5 px above the bottom at x=5/48, right-hand buttons 5 px from the right. Message text ends 8 px above Done (`Chat.c` MsgLayout). Pair Device's lower rows 14 apart.
+- **Short dialogs** (Owner Name, Device, Clear Messages, Position): first row 8 px under the title, buttons 8 px under the last item, bottom-anchored. Node Clock: even 7 px visible gaps.
+- **Working / Connecting:** 37x12 Cancel. Keypad unchanged.
+- **Graffiti indicator:** its middle lines up with the buttons' middle (y = button y + 1 for 12 px buttons). Full-screen forms put it 4 px from the screen's right edge (x=148), dialogs 5 px from the frame like the buttons (x=143); it keeps 4 px clear of anything to its right and at least 4 px from the item on its left. The glyph is 8 px wide in every state.
+- **Menu:** Settings > Preferences gets /R.

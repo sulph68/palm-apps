@@ -62,13 +62,11 @@ BEGIN
 	 * slot. Clear DB wipes only this slot's own synced DateBook35DAV.pdb
 	 * entries (MainForm.c, via DAVDb.c's per-slot rebuild primitives with
 	 * no events added back) - the slot's own configuration is untouched.
-	 * Trimmed to end before x=144 so nothing sits under the
-	 * GRAFFITISTATEINDICATOR glyph at the bottom-right corner. */
-	BUTTON "Edit" ID btnMainEditSlot AT (4 138 42 16)
-	BUTTON "Clear DB" ID btnMainClearDB AT (52 138 54 16)
-	BUTTON "Sync" ID btnMainSyncNow AT (112 138 38 16)
-
-	GRAFFITISTATEINDICATOR AT (145 156)
+	 * Sync (the most used) takes the rest of the row; no Graffiti indicator
+	 * here - this form has no editable field, so it would never show. */
+	BUTTON "Edit" ID btnMainEditSlot AT (1 147 28 12)
+	BUTTON "Clear DB" ID btnMainClearDB AT (33 147 44 12)
+	BUTTON "Sync" ID btnMainSyncNow AT (81 147 78 12)
 END
 
 MENU ID menuMain
@@ -76,11 +74,11 @@ BEGIN
 	PULLDOWN "Record"
 	BEGIN
 		MENUITEM "Sync All"        mniMainSyncAll        "A"
-		MENUITEM "Preferences"     mniMainPreferences    "P"
-		MENUITEM "Duplicate Slot..." mniMainDuplicate    "U"
+		MENUITEM "Preferences"     mniMainPreferences    "R"
+		MENUITEM "Duplicate Slot..." mniMainDuplicate
 		MENUITEM SEPARATOR
-		MENUITEM "Recompute Times" mniMainRecompute      "R"
-		MENUITEM "Re-Sort Contacts" mniMainResort        "S"
+		MENUITEM "Recompute Times" mniMainRecompute
+		MENUITEM "Re-Sort Contacts" mniMainResort
 		MENUITEM "Delete Database" mniMainDeleteDB       "D"
 		MENUITEM SEPARATOR
 		MENUITEM "Help"            mniMainHelp           "H"
@@ -91,13 +89,13 @@ END
  * Copies one slot's settings to another; the lists get each slot's
  * "N: alias" label at run time. Bottom-aligned (y + H = 158); the lists
  * open over the form and stay on screen (50 + 14 + 88 = 152). ----------- */
-FORM ID frmDupSlot AT (2 50 156 108)
+FORM ID frmDupSlot AT (2 54 156 104)
 FRAME MODAL SAVEBEHIND
 BEGIN
 	TITLE "Duplicate Slot"
 
-	LABEL "From:" AUTOID AT (RIGHT@36 18) FONT 1
-	POPUPTRIGGER "" ID popDupFrom AT (38 18 114 12) LEFTANCHOR
+	LABEL "From:" AUTOID AT (RIGHT@36 20) FONT 1
+	POPUPTRIGGER "" ID popDupFrom AT (38 20 114 12) LEFTANCHOR
 	LIST "1" "2" "3" "4" "5" "6" "7" "8" ID lstDupFrom AT (42 14 110 88) VISIBLEITEMS 8 NONUSABLE
 	POPUPLIST ID popDupFrom lstDupFrom
 
@@ -107,10 +105,10 @@ BEGIN
 	POPUPLIST ID popDupTo lstDupTo
 
 	LABEL "Copies the settings and login." AUTOID AT (4 56) FONT 0
-	LABEL "Sync history is not copied." AUTOID AT (4 67) FONT 0
+	LABEL "Sync history is not copied." AUTOID AT (4 68) FONT 0
 
-	BUTTON "OK"			ID btnDupOK		AT (4 90 40 14)
-	BUTTON "Cancel"		ID btnDupCancel	AT (48 90 44 14)
+	BUTTON "OK"			ID btnDupOK		AT (5 87 37 12)
+	BUTTON "Cancel"		ID btnDupCancel	AT (48 87 37 12)
 END
 
 /* ---- frmSlotEdit: focused modal, one slot at a time ------------------- */
@@ -145,12 +143,12 @@ BEGIN
 	FIELD ID fldSlotPath AT (52 62 98 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 95
 	LABEL "User:" ID lblSlotUser AT (6 76) FONT 0
 	FIELD ID fldSlotUser AT (52 76 98 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 63
-	/* Masked-by-default with a "Show" checkbox to reveal - simpler than
-	 * lazyFTP's per-keystroke reveal-then-hide timer (that exact class of
-	 * dangling-timer bug already bit this suite once for real, see
-	 * sec35-text-entry-reveal-timer-crash-fix). SlotEditForm.c keeps the
-	 * real typed value in its own shadow buffer; this FIELD only ever
-	 * shows either that or a same-length run of '*'. */
+	/* Masked with a "Show" checkbox to reveal (unlabelled: no room for the
+	 * word), and the just-typed character shown for a second (2026-11; its
+	 * timer lives only in SlotEditFormRun's loop - see SlotEditForm.c).
+	 * SlotEditForm.c keeps the real typed value in its own shadow buffer;
+	 * this FIELD only shows that or '*'s. The Google client secret below is
+	 * masked the same way. */
 	LABEL "Passwd:" ID lblSlotSecret AT (6 90) FONT 0
 	FIELD ID fldSlotSecret AT (52 90 85 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 63
 	CHECKBOX "" ID chkSlotSecretShow AT (140 90 15 12) FONT 0
@@ -179,7 +177,8 @@ BEGIN
 	LABEL "Client ID:" ID lblSlotGoogleClientId AT (6 62) FONT 0
 	FIELD ID fldSlotGoogleClientId AT (62 62 88 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 95
 	LABEL "Secret:" ID lblSlotGoogleClientSecret AT (6 76) FONT 0
-	FIELD ID fldSlotGoogleClientSecret AT (62 76 88 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 47
+	FIELD ID fldSlotGoogleClientSecret AT (62 76 75 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 47
+	CHECKBOX "" ID chkSlotGoogleSecretShow AT (140 76 15 12) FONT 0
 	BUTTON "Sign in with Google" ID btnSlotGoogleSignIn AT (6 94 140 14)
 
 	/* ICS Feed group */
@@ -204,11 +203,11 @@ BEGIN
 	 * also removed), then resets this slot to unconfigured AND wipes its
 	 * synced DateBook35DAV.pdb entries. btnSlotEditOK's own ID/behavior is
 	 * unchanged, only its label ("Save"). */
-	BUTTON "Save" ID btnSlotEditOK AT (4 136 42 16)
-	BUTTON "Delete" ID btnSlotEditDelete AT (52 136 46 16)
-	BUTTON "Cancel" ID btnSlotEditCancel AT (104 136 46 16)
+	BUTTON "Save" ID btnSlotEditOK AT (5 139 37 12)
+	BUTTON "Delete" ID btnSlotEditDelete AT (48 139 37 12)
+	BUTTON "Cancel" ID btnSlotEditCancel AT (91 139 37 12)
 
-	GRAFFITISTATEINDICATOR AT (140 153)
+	GRAFFITISTATEINDICATOR AT (143 140)
 END
 
 /* ---- frmLongText: shared multi-line editor for any long/URL-like field,
@@ -222,9 +221,9 @@ BEGIN
 	FIELD ID fldLongText AT (2 17 150 124) EDITABLE UNDERLINED MULTIPLELINES
 		MAXCHARS 255 HASSCROLLBAR
 	SCROLLBAR ID sclLongText AT (154 17 7 124) VALUE 0 MIN 0 MAX 0 PAGESIZE 10
-	BUTTON "Done" ID btnLongTextDone AT (2 145 40 12)
-	BUTTON "Cancel" ID btnLongTextCancel AT (46 145 44 12)
-	GRAFFITISTATEINDICATOR AT (150 147)
+	BUTTON "Done" ID btnLongTextDone AT (1 147 37 12)
+	BUTTON "Cancel" ID btnLongTextCancel AT (42 147 37 12)
+	GRAFFITISTATEINDICATOR AT (148 148)
 END
 
 /* ---- frmHelp: read-only scrollable reference for every input label,
@@ -240,8 +239,8 @@ FRAME MODAL
 BEGIN
 	TITLE "Help"
 	SCROLLBAR ID sclHelp AT (148 17 6 116) VALUE 0 MIN 0 MAX 0 PAGESIZE 10
-	BUTTON "Done" ID btnHelpDone AT (58 138 40 14)
-	GRAFFITISTATEINDICATOR AT (140 140)
+	BUTTON "Done" ID btnHelpDone AT (5 139 37 12)
+	GRAFFITISTATEINDICATOR AT (143 140)
 END
 
 /* ---- frmSyncProgress: status+bar modal shown for the duration of a sync -
@@ -252,7 +251,7 @@ FORM ID frmSyncProgress AT (2 48 156 64)
 FRAME MODAL
 BEGIN
 	TITLE "Syncing"
-	BUTTON "Cancel"				ID btnSyncCancel	AT (58 46 40 14)
+	BUTTON "Cancel"				ID btnSyncCancel	AT (CENTER 47 37 12)
 END
 
 /* ---- frmPrefs: global Preferences (its own modal form - a settings
@@ -263,8 +262,8 @@ FRAME MODAL
 BEGIN
 	TITLE "Preferences"
 
-	LABEL "Sync past:" ID 1120 AT (6 18) FONT 1
-	POPUPTRIGGER "" ID popPrefsPast AT (70 18 70 12)
+	LABEL "Sync past:" ID 1120 AT (6 20) FONT 1
+	POPUPTRIGGER "" ID popPrefsPast AT (70 20 70 12)
 	LIST "None" "1 week" "2 weeks" "1 month" "2 months" "3 months"
 		ID lstPrefsPast AT (70 18 70 66) VISIBLEITEMS 6 NONUSABLE
 	POPUPLIST ID popPrefsPast lstPrefsPast
@@ -278,23 +277,23 @@ BEGIN
 	LABEL "Each slot may override these." ID 1122 AT (6 54) FONT 0
 
 	LABEL "Google: set your OAuth Consent" ID 1123 AT (6 68) FONT 0
-	LABEL "Screen to 'In production' or" ID 1124 AT (6 79) FONT 0
-	LABEL "tokens expire after 7 days." ID 1125 AT (6 91) FONT 0
+	LABEL "Screen to 'In production' or" ID 1124 AT (6 80) FONT 0
+	LABEL "tokens expire after 7 days." ID 1125 AT (6 92) FONT 0
 
 	/* Serial baud to WiRSa - the same 7 rates/order as WiRSa's own
 	 * bauds[] (main.cpp), same row shape as BitWarden's own equivalent. */
-	LABEL "Baud:" ID 1126 AT (6 107) FONT 1
-	POPUPTRIGGER "57600" ID popPrefsBaud AT (42 106 50 13)
+	LABEL "Baud:" ID 1126 AT (6 108) FONT 1
+	POPUPTRIGGER "57600" ID popPrefsBaud AT (42 107 50 13)
 	LIST "9600" "14400" "19200" "28800" "38400" "57600" "115200"
 		ID lstPrefsBaud AT (42 10 50 77) VISIBLEITEMS 7 NONUSABLE
 	POPUPLIST ID popPrefsBaud lstPrefsBaud
 
 	/* Screenless Mode: before a sync, put WiRSa into CalDAV Relay from here,
 	 * and back to its main menu after (WiRSa without a screen). */
-	LABEL "Screenless Mode:" ID 1127 AT (6 121) FONT 1
-	CHECKBOX "" ID chkPrefsScreenless AT (92 120 16 12)
+	LABEL "Screenless Mode:" ID 1127 AT (6 122) FONT 1
+	CHECKBOX "" ID chkPrefsScreenless AT (92 121 16 12)
 
-	BUTTON "OK" ID btnPrefsOK AT (60 138 36 14)
+	BUTTON "OK" ID btnPrefsOK AT (5 139 37 12)
 END
 
 /* ---- shared alerts ------------------------------------------------------ */

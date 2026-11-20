@@ -433,7 +433,7 @@ SEC002 static void LocReadAddress35Record (DmOpenRef db, UInt16 idx, DlxLocation
 			if (n)
 				{
 				UInt8	key[ENC_KEY_BYTES];
-				if (EncGetKey (key, kLocEncTtl))
+				if (EncGetStoreKeyDb (key, ENC_STORE_A35, db))
 					{
 					EncCrypt (key, (UInt8*) addrBuf, n, uid, addrFi);
 					MemSet (key, ENC_KEY_BYTES, 0);

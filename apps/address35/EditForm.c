@@ -340,39 +340,6 @@ static void EditFieldsFromRecord(const A35Record *recP)
 	}
 }
 
-/* one-line summary of a TAB-delimited address: each part trimmed, empties
- * dropped, joined with ", " */
-static void AddrSummary(const char *value, char *out, UInt16 outLen)
-{
-	const char *p = value ? value : "";
-	UInt16 o = 0;
-	Boolean first = true;
-
-	out[0] = '\0';
-	while (1) {
-		char field[64];
-		UInt16 f = 0, k, st;
-
-		while (*p && *p != '\t' && f < sizeof(field) - 1)
-			field[f++] = *p++;
-		field[f] = '\0';
-		while (f > 0 && field[f - 1] == ' ')		/* trim trailing */
-			field[--f] = '\0';
-		st = 0;
-		while (field[st] == ' ')					/* trim leading */
-			st++;
-		if (field[st]) {
-			if (!first && o < outLen - 3) { out[o++] = ','; out[o++] = ' '; }
-			for (k = st; field[k] && o < outLen - 1; k++)
-				out[o++] = field[k];
-			out[o] = '\0';
-			first = false;
-		}
-		if (*p == '\t') p++;
-		else break;
-	}
-}
-
 /* extract + trim TAB-delimited field #idx of src */
 static void AddrField(const char *src, UInt16 idx, char *out, UInt16 outLen)
 {

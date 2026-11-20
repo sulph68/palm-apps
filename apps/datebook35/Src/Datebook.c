@@ -668,7 +668,7 @@ static void SearchDraw (ApptDBRecordPtr apptRecP, Int16 x, Int16 y,
  *		10/21/99	jmp	Made this routine a bit more like everyone else's.
  *
  ***********************************************************************/
-static void Search (FindParamsPtr findParams)
+static void Search (FindParamsPtr findParams, Boolean appIsActive)
 {
 	Err					err;
 	UInt16 				cardNo = 0;
@@ -747,6 +747,16 @@ static void Search (FindParamsPtr findParams)
 			{
 			findParams->more = false;			
 			break;
+			}
+
+		// Db35: an encrypted appointment can only be decrypted while Datebook35
+		// is the running app (ApptGetDecrypted lives in another code segment and
+		// uses globals; a Find from another app has neither -- it used to jump
+		// into the unloaded segment and crash). Skip it here.
+		if (! appIsActive && ApptRecordIsEncrypted (dbP, recordNum))
+			{
+			recordNum++;
+			continue;
 			}
 
 		ApptGetRecord (dbP, recordNum, &apptRec, &recordH);
@@ -883,7 +893,9 @@ void GoToItem (GoToParamsPtr goToParams, Boolean launchingApp)
  *			rbb	6/4/99	Initial Revision
  *
  ***********************************************************************/
-void DrawTime (
+/* Db35 seg: moved to sec002 (main was full); only the Day and Agenda views,
+ * which always run with globals, call it. */
+SEC002 void DrawTime (
 	TimeType							inTime,
 	TimeFormatType					inFormat,
 	FontID							inFont,
@@ -1161,6 +1173,10 @@ UInt32	PilotMain (UInt16 cmd, MemPtr cmdPBP, UInt16 launchFlags)
 		}
 	
 
+	// Sec35: re-encrypt our own data (DateDB.c ApptRekey). Needs globals.
+	else if (cmd == kSecLaunchRekey && (launchFlags & sysAppLaunchFlagNewGlobals))
+		ApptRekey ((struct EncRekeyParamTag *) cmdPBP);
+
 	// This action code might be sent to the app when it's already running
 	// if the use hits the "Go To" button in the Find Results dialog box.
 	else if (cmd == sysAppLaunchCmdGoTo)
@@ -1193,7 +1209,7 @@ UInt32	PilotMain (UInt16 cmd, MemPtr cmdPBP, UInt16 launchFlags)
 	// Launch code sent by text search.
 	else if (cmd == sysAppLaunchCmdFind)
 		{
-		Search ((FindParamsPtr)cmdPBP);
+		Search ((FindParamsPtr)cmdPBP, (Boolean) ((launchFlags & sysAppLaunchFlagSubCall) != 0));
 		}
 	
 

@@ -219,7 +219,9 @@ Boolean A35LaunchGate(void)
 		FrmAlert(altNoSec35);
 		return false;
 	}
-	if (!EncGetKey(key, 1000000000UL)) {		/* locked -> hand off to Sec35 to unlock */
+	if (!EncDbHasStoreKeys(gAddrDB))			/* still key scheme 1 (e.g. restored */
+		FtrSet(ENC_CREATOR, kSecConvertFtr, 1);	/* from an old backup): Sec35 converts */
+	if (!EncGetStoreKeyDb(key, ENC_STORE_A35, gAddrDB)) {	/* locked -> hand off to Sec35 */
 		SwitchToSec35();
 		return false;
 	}
@@ -265,6 +267,12 @@ static Err StartApplication(void)
 	/* Fold any beam/vCard-received records (parked plaintext in Address35DBPlain by
 	 * the receive sublaunch) into the real DB, then discard the inbox. */
 	A35MergePlainDB(gAddrDB);
+
+	/* Key scheme 2 marker: a book with nothing encrypted needs no conversion,
+	 * mark it now. One that still holds scheme-1 records reads as locked until
+	 * Sec35 has converted it (A35LaunchGate asks for that). */
+	if (!EncDbHasStoreKeys(gAddrDB) && !A35DbHasEncrypted(gAddrDB))
+		EncDbSetStoreKeys(gAddrDB);
 
 	/* Seal any records that are still plaintext (just-merged, or created while
 	 * locked): now that we have globals + the crypto segment, encrypt them so an
@@ -462,6 +470,10 @@ UInt32 PilotMain(UInt16 cmd, MemPtr cmdPBP, UInt16 launchFlags)
 		} else {					/* already running */
 			GoToRecord((GoToParamsPtr) cmdPBP);
 		}
+	} else if (cmd == kSecLaunchRekey) {
+		/* Sec35: re-encrypt our own data (A35Rekey.c). Needs globals. */
+		if (launchFlags & sysAppLaunchFlagNewGlobals)
+			A35Rekey((struct EncRekeyParamTag *) cmdPBP);
 	} else if (cmd == sysAppLaunchCmdLookup) {
 		/* Phone Lookup from Datebook35/ToDo35 (../lib/a35lookup.c). Needs
 		 * globals - multi-segment code - so only the NewGlobals form. */

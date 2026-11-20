@@ -218,6 +218,7 @@ SEC003 Err ContactDbBegin(UInt8 slotIdx)
 	id = DmFindDatabase(0, name);
 	if (!id) return dmErrMemError;
 	gContactDB = DmOpenDatabase(0, id, dmModeReadWrite);
+	if (gContactDB) EncDbSetStoreKeys(gContactDB);	/* written with this slot's store key */
 	return gContactDB ? errNone : dmErrMemError;
 }
 
@@ -273,14 +274,14 @@ SEC003 Boolean ContactDbAdd(const UInt8 *body, UInt16 len)
 	rec = (UInt8 *) MemHandleLock(h);
 	DmWrite(rec, hl, body, len);
 	if (DmRecordInfo(gContactDB, index, NULL, &uid, NULL) == errNone) {
-		if (listLen && CDDVCryptBytes(cddvContactListNonce, uid, hdr + 3, listLen))
+		if (listLen && CDDVCryptBytes(ENC_STORE_DAVCON + gContactSlot, cddvContactListNonce, uid, hdr + 3, listLen))
 			flags |= cddvContactFlagEncList;
 		if (textLen) {
 			/* encrypt the text in a copy, then write it over the plain one */
 			UInt8 *buf = (UInt8 *) MemPtrNew(textLen);
 			if (buf) {
 				MemMove(buf, text, textLen);
-				if (CDDVCryptBytes(cddvContactNonce, uid, buf, textLen)) {
+				if (CDDVCryptBytes(ENC_STORE_DAVCON + gContactSlot, cddvContactNonce, uid, buf, textLen)) {
 					DmWrite(rec, (UInt32) hl + (UInt32) (text - body), buf, textLen);
 					flags |= cddvContactFlagEncText;
 				}
@@ -350,7 +351,7 @@ SEC003 Err ContactDbStage(UInt8 slotType, const char *aliasPlain)
 		if (aliasLen > cddvAliasLen) aliasLen = cddvAliasLen;
 		MemSet(aliasBuf, sizeof(aliasBuf), 0);
 		MemMove(aliasBuf, aliasPlain, aliasLen);
-		if (!CDDVCryptBytes(cddvContactAliasNonce, gContactSlot, aliasBuf, aliasLen)) aliasLen = 0;
+		if (!CDDVCryptBytes(ENC_STORE_DAVCON + gContactSlot, cddvContactAliasNonce, gContactSlot, aliasBuf, aliasLen)) aliasLen = 0;
 		ext[0] = 1; ext[1] = slotType; ext[2] = 0; ext[3] = (UInt8) aliasLen;
 		DmWrite(p, sizeof(AppInfoType), ext, 4);
 		DmWrite(p, sizeof(AppInfoType) + 4, aliasBuf, cddvAliasLen);

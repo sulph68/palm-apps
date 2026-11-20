@@ -150,6 +150,8 @@ void ToDoSetDBBackupBit (DmOpenRef dbP);
 Boolean ToDoDbHasEncrypted (DmOpenRef dbP);
 /* Seal every still-plaintext record (first unlock / on close). No-op locked. sec003. */
 void ToDoSealAllPlaintext (DmOpenRef dbP) ENCCORE_SECTION;
+struct EncRekeyParamTag;
+void ToDoRekey (struct EncRekeyParamTag *p) ENCCORE_SECTION;	/* kSecLaunchRekey */
 /* Seal ONE plaintext record (new records). No-op if already encrypted / locked. */
 void ToDoEncryptOne (DmOpenRef dbP, UInt16 index);
 /* Layout-aware, NO key needed (MAIN): emptiness / note presence for either layout. */
@@ -159,7 +161,10 @@ Boolean ToDoRecordHasNote (DmOpenRef dbP, UInt16 index);
  * (masked when Sec35 is locked). Release with ToDoReleaseInlineCopy. sec003. */
 ToDoDBRecordPtr ToDoGetInlineCopy (DmOpenRef dbP, UInt16 index, MemHandle *outH) ENCCORE_SECTION;
 void ToDoReleaseInlineCopy (MemHandle h);
-/* NEW handle with the decrypted description / note string, for the ROM to edit. sec003. */
+/* Zero then free a handle that held decrypted text (copies, field text). MAIN. */
+void ToDoFreeWiped (MemHandle h);
+/* NEW handle with the decrypted description / note string, for the ROM to edit; free it
+ * with ToDoFreeWiped. sec003. */
 MemHandle ToDoCopyDescPlain (DmOpenRef dbP, UInt16 index) ENCCORE_SECTION;
 MemHandle ToDoCopyNotePlain (DmOpenRef dbP, UInt16 index) ENCCORE_SECTION;
 /* Re-encrypt storage after a description / note edit (keeps the other field). sec003. */

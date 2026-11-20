@@ -56,7 +56,7 @@ BEGIN
 
 	/* Bottom row, per explicit design instruction:
 	 * [ type filter popup ] [ search field ] [ Clear ] */
-	POPUPTRIGGER "All"			ID popMainType		AT (1 143 46 13)
+	POPUPTRIGGER "All"			ID popMainType		AT (1 146 46 13)
 	/* pilrc has no vertical-anchor keyword for LIST (checked the grammar
 	 * directly, only LEFTANCHOR/RIGHTANCHOR exist and those are horizontal,
 	 * for POPUPTRIGGER/button label growth) - a popup LIST's own AT rect
@@ -71,17 +71,17 @@ BEGIN
 								ID lstMainType		AT (1 91 70 55)
 								VISIBLEITEMS 5 NONUSABLE
 	POPUPLIST				ID popMainType lstMainType
-	FIELD					ID fldMainFilter	AT (50 144 76 12)
+	FIELD					ID fldMainFilter	AT (50 146 74 12)
 								EDITABLE UNDERLINED SINGLELINE MAXCHARS 30
-	BUTTON "Clear"				ID btnMainClear		AT (128 144 31 12)
+	BUTTON "Clear"				ID btnMainClear		AT (126 147 33 12)
 END
 
 MENU ID 1600
 BEGIN
 	PULLDOWN "Options"
 	BEGIN
-		MENUITEM "Sync Now"			ID mniSync			"S"
-		MENUITEM "Preferences"			ID mniPreferences	"P"
+		MENUITEM "Sync Now"			ID mniSync
+		MENUITEM "Preferences"			ID mniPreferences	"R"
 		MENUITEM "Lock Now"			ID mniLockNow		"L"
 		MENUITEM SEPARATOR
 		MENUITEM "Archived Items"		ID mniArchive		"V"
@@ -117,8 +117,8 @@ BEGIN
 								COLUMNWIDTHS 150
 	SCROLLBAR				ID sclRecordLogin		AT (153 17 7 122)
 
-	BUTTON "Show"			ID btnRecordShow		AT (4 143 40 13)
-	BUTTON "Done"			ID btnRecordDone		AT (48 143 40 13)
+	BUTTON "Show"			ID btnRecordShow		AT (41 147 36 12)
+	BUTTON "Done"			ID btnRecordDone		AT (1 147 36 12)
 END
 
 /* Note: still just the one field (a single item's worth of Notes doesn't
@@ -135,8 +135,8 @@ BEGIN
 	FIELD					ID fldRecordNoteText	AT (2 30 148 109) UNDERLINED MULTIPLELINES
 	SCROLLBAR				ID sclRecordNote		AT (153 30 7 109)
 
-	BUTTON "Show"			ID btnRecordNoteShow	AT (4 143 40 13)
-	BUTTON "Done"			ID btnRecordNoteDone	AT (48 143 40 13)
+	BUTTON "Show"			ID btnRecordNoteShow	AT (41 147 36 12)
+	BUTTON "Done"			ID btnRecordNoteDone	AT (1 147 36 12)
 END
 
 /* Card: only the fields this particular card actually has (RecordForm.c's
@@ -154,8 +154,8 @@ BEGIN
 								COLUMNWIDTHS 150
 	SCROLLBAR				ID sclRecordCard		AT (153 17 7 122)
 
-	BUTTON "Show"			ID btnRecordCardShow	AT (4 143 40 13)
-	BUTTON "Done"			ID btnRecordCardDone	AT (48 143 40 13)
+	BUTTON "Show"			ID btnRecordCardShow	AT (41 147 36 12)
+	BUTTON "Done"			ID btnRecordCardDone	AT (1 147 36 12)
 END
 
 /* Identity: same shared mechanism as Card, above - up to 18 possible real
@@ -170,8 +170,8 @@ BEGIN
 								COLUMNWIDTHS 150
 	SCROLLBAR				ID sclRecordId			AT (153 17 7 122)
 
-	BUTTON "Show"			ID btnRecordIdShow		AT (4 143 40 13)
-	BUTTON "Done"			ID btnRecordIdDone		AT (48 143 40 13)
+	BUTTON "Show"			ID btnRecordIdShow		AT (41 147 36 12)
+	BUTTON "Done"			ID btnRecordIdDone		AT (1 147 36 12)
 END
 
 /* ---- Preferences: server URL / email / trust / sync -------------------- */
@@ -181,31 +181,31 @@ END
  * rule for every non-blocking dialog with input fields - see frmUnlock's
  * own AT for the same shape) - this form had drifted to a fixed y=22
  * instead of tracking its own height, unlike frmUnlock. */
-FORM ID frmPrefs AT (2 2 156 156)
+FORM ID frmPrefs AT (2 5 156 153)
 FRAME MODAL
 BEGIN
 	TITLE "Preferences"
 
-	LABEL "Server:"			ID 1210 AT (4 20) FONT 1
-	FIELD					ID fldPrefsServer	AT (46 19 106 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 120
+	LABEL "Server:"			ID 1210 AT (4 21) FONT 1
+	FIELD					ID fldPrefsServer	AT (46 20 106 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 120
 
-	LABEL "Email:"				ID 1211 AT (4 36) FONT 1
-	FIELD					ID fldPrefsEmail	AT (46 35 106 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 80
+	LABEL "Email:"				ID 1211 AT (4 37) FONT 1
+	FIELD					ID fldPrefsEmail	AT (46 36 106 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 80
 
-	LABEL "Trusted:"			ID 1212 AT (4 52) FONT 1
+	LABEL "Trusted:"			ID 1212 AT (4 53) FONT 1
 	/* Just "Yes"/"No" now - the real fingerprint moved to its own
 	 * full-screen viewer (frmFingerprint), reached via "Show". */
-	LABEL "No"					ID lblPrefsFingerprint AT (56 52) FONT 1
-	BUTTON "Show"				ID btnPrefsShowFingerprint AT (80 51 40 13)
+	LABEL "No"					ID lblPrefsFingerprint AT (56 53) FONT 1
+	BUTTON "Show"				ID btnPrefsShowFingerprint AT (80 52 40 12)
 
-	BUTTON "Sync Now"			ID btnPrefsSyncNow		AT (4 72 72 14)
-	BUTTON "Forget Trust"		ID btnPrefsForgetTrust	AT (80 72 72 14)
+	BUTTON "Sync Now"			ID btnPrefsSyncNow		AT (5 68 71 12)
+	BUTTON "Forget Trust"		ID btnPrefsForgetTrust	AT (80 68 71 12)
 
-	LABEL "Lock after:"			ID 1213 AT (4 90) FONT 1
+	LABEL "Lock after:"			ID 1213 AT (4 85) FONT 1
 	/* Grows upward, same reasoning as lstMainType (see that comment) -
 	 * this trigger sits well down the dialog, not enough room below it
 	 * for 5 rows without running past the screen edge. */
-	POPUPTRIGGER "5 min"			ID popPrefsTtl		AT (60 88 60 13)
+	POPUPTRIGGER "5 min"			ID popPrefsTtl		AT (60 84 60 13)
 	LIST "1 min" "5 min" "15 min" "30 min" "1 hour"
 									ID lstPrefsTtl		AT (60 33 60 55)
 									VISIBLEITEMS 5 NONUSABLE
@@ -214,8 +214,8 @@ BEGIN
 	/* Must match whatever WiRSa's own serial-speed menu setting currently is
 	 * - see Serial.c's own comment on why this isn't just hardcoded. Same 7
 	 * rates/order as WiRSa's own bauds[] (main.cpp). */
-	LABEL "Baud:"				ID 1215 AT (4 106) FONT 1
-	POPUPTRIGGER "57600"			ID popPrefsBaud		AT (40 104 50 13)
+	LABEL "Baud:"				ID 1215 AT (4 101) FONT 1
+	POPUPTRIGGER "57600"			ID popPrefsBaud		AT (40 100 50 13)
 	LIST "9600" "14400" "19200" "28800" "38400" "57600" "115200"
 									ID lstPrefsBaud		AT (40 10 50 77)
 									VISIBLEITEMS 7 NONUSABLE
@@ -223,78 +223,78 @@ BEGIN
 
 	/* Screenless Mode: before a sync, put WiRSa into BitWarden Relay from
 	 * here, and back to its main menu after (WiRSa without a screen). */
-	LABEL "Screenless Mode:"	ID 1219 AT (4 120) FONT 1
-	CHECKBOX ""				ID chkPrefsScreenless	AT (90 119 16 12)
+	LABEL "Screenless Mode:"	ID 1219 AT (4 117) FONT 1
+	CHECKBOX ""				ID chkPrefsScreenless	AT (90 116 16 12)
 
 	/* Left-aligned 4px from the form's own left border, 4px apart from each
 	 * other, 4px from the form's own bottom edge (156-14-4=138) - same
 	 * pattern as frmUnlock's own OK/Cancel, now applied consistently to
 	 * every dialog with input fields rather than just the one that
 	 * happened to get real-device feedback first. */
-	BUTTON "OK"					ID btnPrefsOk			AT (4 138 40 14)
-	BUTTON "Cancel"				ID btnPrefsCancel		AT (48 138 44 14)
+	BUTTON "OK"					ID btnPrefsOk			AT (5 136 37 12)
+	BUTTON "Cancel"				ID btnPrefsCancel		AT (48 136 37 12)
 END
 
 /* ---- Unlock: master password entry (local unlock, and feeds Sync) ----- *
  * Bottom-aligned per this suite's standing modal-dialog rule (AT (2 y 156
  * H) with y+H=156). */
-FORM ID frmUnlock AT (2 86 156 70)
+FORM ID frmUnlock AT (2 85 156 73)
 FRAME MODAL
 BEGIN
 	TITLE "Unlock"
 
-	LABEL "Master password:"		ID lblUnlockPrompt	AT (4 18) FONT 1
+	LABEL "Master password:"		ID lblUnlockPrompt	AT (4 20) FONT 1
 	/* Masked like Sec35's own password fields: the real value never lives in
 	 * this FIELD's own text (which only ever shows '*'s, plus the just-typed
 	 * character briefly in clear like a phone keyboard) - see Dialogs.c's
 	 * PwRedraw/PwKeyDown, modeled directly on sec35.c's RedrawMaskedField/
 	 * PwFieldKeyDown. "Show" is a persistent full-reveal toggle on top of
 	 * that brief per-character reveal, per explicit design instruction. */
-	FIELD						ID fldUnlockPassword AT (4 34 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 100
-	CHECKBOX "Show"				ID chkUnlockShow	AT (114 34 38 12) FONT 0
+	FIELD						ID fldUnlockPassword AT (4 36 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 100
+	CHECKBOX "Show"				ID chkUnlockShow	AT (114 36 38 12) FONT 0
 
 	/* Left-aligned 4px from the form's own left border, 4px apart from each
 	 * other - real-device feedback that the previous centered placement
 	 * looked misaligned against this dialog's other left-anchored rows. */
-	BUTTON "OK"					ID btnUnlockOk		AT (4 52 40 14)
-	BUTTON "Cancel"				ID btnUnlockCancel	AT (48 52 44 14)
+	BUTTON "OK"					ID btnUnlockOk		AT (5 56 37 12)
+	BUTTON "Cancel"				ID btnUnlockCancel	AT (48 56 37 12)
 END
 
 /* ---- Two-Factor: Vaultwarden 2FA challenge mid-sync -------------------- *
  * Bottom-aligned, same shape as frmUnlock - see BitWardenRsc.h's own
  * comment. fldTwoFactorLabel is NOT EDITABLE (display-only, dynamic text
  * from WiRSa/mock - same technique as frmTrust's own fldTrustQuestion). */
-FORM ID frmTwoFactor AT (2 72 156 84)
+FORM ID frmTwoFactor AT (2 71 156 87)
 FRAME MODAL
 BEGIN
 	TITLE "Two-Factor Code"
 
-	FIELD						ID fldTwoFactorLabel AT (4 18 148 24) MULTIPLELINES FONT 0 MAXCHARS 100
+	FIELD						ID fldTwoFactorLabel AT (4 20 148 24) MULTIPLELINES FONT 0 MAXCHARS 100
 
-	LABEL "Code:"				ID lblTwoFactorPrompt AT (4 48) FONT 1
-	FIELD						ID fldTwoFactorCode AT (36 47 116 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 32
+	LABEL "Code:"				ID lblTwoFactorPrompt AT (4 51) FONT 1
+	FIELD						ID fldTwoFactorCode AT (36 50 116 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 32
 
-	BUTTON "OK"					ID btnTwoFactorOk		AT (4 66 40 14)
-	BUTTON "Cancel"				ID btnTwoFactorCancel	AT (48 66 44 14)
+	BUTTON "OK"					ID btnTwoFactorOk		AT (5 70 37 12)
+	BUTTON "Cancel"				ID btnTwoFactorCancel	AT (48 70 37 12)
 END
 
 /* ---- Two-Factor entry-mode preference (Options > Security > 2FA) ------ *
  * Same shape as Sec35's own frmPrefs entry-mode picker - LABEL + POPUPTRIGGER
  * + LIST + OK/Cancel, bottom-aligned per this suite's own standing rule. */
-FORM ID frmTwoFactorPrefs AT (2 98 156 58)
+FORM ID frmTwoFactorPrefs AT (2 100 156 58)
 FRAME MODAL
 BEGIN
 	TITLE "2FA Code Entry"
 
-	LABEL "Type:"				ID lblTwoFactorPrefsType AT (6 22) FONT 1
-	POPUPTRIGGER "Text Field"	ID popTwoFactorPrefsType AT (40 21 108 13)
+	LABEL "Type:"				ID lblTwoFactorPrefsType AT (6 21) FONT 1
+	POPUPTRIGGER "Text Field"	ID popTwoFactorPrefsType AT (40 20 108 13)
 	LIST "Text Field" "Numeric Keypad"
 								ID lstTwoFactorPrefsType AT (40 10 108 24)
 								VISIBLEITEMS 2 NONUSABLE
 	POPUPLIST					ID popTwoFactorPrefsType lstTwoFactorPrefsType
 
-	BUTTON "OK"					ID btnTwoFactorPrefsOk		AT (4 40 40 14)
-	BUTTON "Cancel"				ID btnTwoFactorPrefsCancel	AT (48 40 44 14)
+	BUTTON "OK"					ID btnTwoFactorPrefsOk		AT (5 41 37 12)
+	BUTTON "Cancel"				ID btnTwoFactorPrefsCancel	AT (48 41 37 12)
 END
 
 /* ---- Numeric keypad for 2FA code entry (Numeric Keypad mode only) ----- *
@@ -351,8 +351,8 @@ BEGIN
 	SCROLLBAR				ID sclTrust			AT (153 58 7 82)
 								VALUE 0 MIN 0 MAX 0 PAGESIZE 8
 
-	BUTTON "Trust"				ID btnTrustYes	AT (20 142 55 14)
-	BUTTON "Cancel"				ID btnTrustNo	AT (85 142 55 14)
+	BUTTON "Trust"				ID btnTrustYes	AT (1 147 37 12)
+	BUTTON "Cancel"				ID btnTrustNo	AT (42 147 37 12)
 END
 
 /* ---- Fingerprint viewer: read-only, reached from Preferences' "Show" --- *
@@ -368,7 +368,7 @@ BEGIN
 	SCROLLBAR				ID sclFingerprint		AT (153 18 7 122)
 								VALUE 0 MIN 0 MAX 0 PAGESIZE 11
 
-	BUTTON "OK"					ID btnFingerprintOk	AT (60 142 40 14)
+	BUTTON "OK"					ID btnFingerprintOk	AT (1 147 37 12)
 END
 
 /* ---- Sync progress - centered status, same shape as lazyFTP's own
@@ -383,7 +383,7 @@ FORM ID frmSyncProgress AT (2 48 156 64)
 FRAME MODAL
 BEGIN
 	TITLE "Syncing"
-	BUTTON "Cancel"				ID btnSyncCancel	AT (58 46 40 14)
+	BUTTON "Cancel"				ID btnSyncCancel	AT (CENTER 47 37 12)
 END
 
 /* ---- Alerts -------------------------------------------------------------*/

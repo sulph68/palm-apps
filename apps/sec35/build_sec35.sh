@@ -5,13 +5,14 @@ cd "$(dirname "$0")"
 SDK=$HOME/palmos_sdk/palm-os-sdk/sdk-4/include
 GLUE=$HOME/palmos_sdk/palm-os-sdk/sdk-4/lib/m68k-palmos-coff
 INCS=$(find "$SDK" -type d | sed 's/^/-I/' | tr '\n' ' ')
-CFLAGS="-palmos4 -Os $INCS -I."
+CFLAGS="-palmos4 -Os $INCS -I. -I../lib"
 CC=m68k-palmos-gcc
 B=build_sec35
 mkdir -p "$B" "$B/res"
 
-for f in sec35 enccore aes; do
-  $CC $CFLAGS -c "$f.c" -o "$B/$f.o"
+$CC $CFLAGS -c sec35.c -o "$B/sec35.o"
+for f in enccore aes; do
+  $CC $CFLAGS -c "../lib/$f.c" -o "$B/$f.o"
 done
 $CC $CFLAGS "$B"/*.o -L"$GLUE" -lPalmOSGlue -o "$B/Sec35"
 

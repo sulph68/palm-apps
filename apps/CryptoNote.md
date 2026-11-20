@@ -64,7 +64,7 @@ The `PALMOS_FLAG=` empty override exists only for environments where
 `palmdev-prep` can't write specs; it builds here, so use `-palmos4`.
 
 ### 2.2 Segment map (main must stay < 32 KB)
-`.def`: `multiple code { "sec001" }`. The main segment is chronically near full,
+`.def`: `multiple code { "sec001" "sec002" }`. The main segment is chronically near full,
 so foreground-only code is pushed to `sec001` (tagged `AES_SECTION`, from
 `sects.h`, on the forward declaration — gcc propagates it to the definition):
 
@@ -102,6 +102,35 @@ Fix is a tiny deliberately **un-tagged** (plain main-segment) relay/stub
 function in between — a genuine cross-segment call always uses the safe
 indirect-jump form regardless of distance, so relaying through main sidesteps
 the question entirely. (`multiseg-same-segment-disp16-gotcha` memory.)
+
+**sec002** (`UI2_SECTION`, added in the 2026-11 bug hunt): `PwMask.c`, the two
+global-password form files and `MainForm.c`'s `EncryptCategory`/`DecryptCategory`/
+`CategoryProgress`. No libgcc there (no 32-bit multiply/divide).
+
+**Bug-hunt changes (2026-11-16)** -- see the commit for details:
+- Every password field uses `PwMask.c`: masked display (the just-typed character
+  in clear for a second, as Sec35/BitWarden) plus a "Show" checkbox; the real
+  text lives only in PwMask's buffer, wiped (with the field text) on close. A
+  failed attempt restarts the entry empty. The note password form, the
+  Set/Confirm/Change/Query global-password forms and the card password prompt
+  (`CardPromptPassword`, which runs its own reveal timer) all use it.
+- The global password (`globalPasswordP`) and its Set->Confirm copy are zeroed
+  and freed (power-off, delete, change, every check), not just dropped.
+- Encrypt/Decrypt Category show progress in the CardBusy box ("Encrypting 3 of 5",
+  `CardBusySetText`), one count over the Memo Pad and CryptoNote parts; the old
+  `frmProgressForm` gauge (and its leaked info block) is gone.
+- Beaming (`Beam.c`): Beam Category used to read only the ROM Memo Pad database,
+  so it never sent a note made in CryptoNote; it now sends Memo Pad memos plus
+  CryptoNote notes without their own password (read via `CryptoCopyTextToHandle`,
+  each copy wiped), skips those with one and reports how many
+  (`altBeamCategorySkipped` / `altBeamCategoryAllPassword`). Beam Memo on an open
+  memo with its own password warns (`altBeamPlainWarn`) and sends the decrypted
+  field text with `MemoSendText`; the stored record isn't touched.
+- Removed: the unbuilt translations (MainDe/Fr/SP/Tr.rcp), the Blowfish sources,
+  `CardProbe.prc`, `CardRename`, four unused alerts, the `USES_ALERT`/`ALERT`/
+  `MsgBox` debug macros, and the temporary `gEncryptMemoRequested` diagnostic,
+  whose alert fired on a cancelled Encrypt Memo and, being a dialog inside the
+  edit form's close, crashed CryptoNote (address error) on the next app switch.
 
 ### 2.3 Files
 - **CardIO.h/.c** — thin VFSMgr wrapper (the only place that talks to VFS). API:
@@ -289,6 +318,30 @@ separate "Encrypt File" item). Card Record items are handled in the
 - **Decrypt Category**: prompts one password, tries to decrypt every `.enc` note;
   ones that match are stored decrypted (`.enc` removed), the rest are left
   untouched.
+
+**Bulk crypto of DB notes** (the list's Record menu in the normal, non-card view,
+`EncryptCategory` / `DecryptCategory` in `MainForm.c`, helpers in `CryptoSec35.c`):
+- Notes created in CryptoNote live in `CryptoNoteDB` (sealed by Sec35, `CryptoCreateRecord`),
+  not in `MemoDB`. The original CryptoPad `EncryptCategory` only read `MemoDB`
+  (`DmNumRecordsInCategory(dbMemoPadRef, ...) == 0` -> "The current category is already
+  encrypted."), so on a normal install it never did anything. Found 2026-11-15.
+- **Encrypt Category** still moves any `MemoDB` records of the category over (as before),
+  then walks `CryptoNoteDB` for the category (`DmSeekRecordInCategory`) and calls
+  `CryptoEncryptLayer2` on each: read through `CryptoGetRecord`, write back as plain bytes
+  (`PackRecord`, after dropping the lock `CryptoGetRecord` left on the record), `EncryptRecord`,
+  `CryptoSealRecord` - the same steps as a single *Encrypt Memo*. Skipped: a note that already
+  has a layer-2 password, and a one-line note (nothing below the title to hide). Locked Sec35:
+  `CryptoLockedBounce`. The progress gauge is fed from this loop; `progr.major.total` must never
+  be 0 (the progress callback divides by it - that was a crash).
+- **Decrypt Category** walks `CryptoNoteDB` and calls `CryptoDecryptLayer2` (checks the stored
+  password verifier against the typed password, then `DecryptRecord`): the layer-2 password is
+  removed **in place**. It no longer moves the note to `MemoDB` (the launch-time migration would
+  ask to bring it back). Notes without a password, or with another one, are left alone. The old
+  code called `ValidatePassword` on plain notes too (it reads `currentDBRef`, which was not the
+  CryptoNote database in the list view, and a plain note has no verifier) - an address error.
+- Verified in POSE (Palm III, OS 4.1): three notes (two with a body, one title only) in one
+  category, Encrypt Category -> key icons on the two, one opens with the category password;
+  Decrypt Category -> icons gone. Not run on a real Palm.
 
 A ~1.5 s KDF runs on every encrypt/decrypt, so the callers wrap
 `CardCryptEncrypt`/`CardCryptDecrypt` in `CardBusyShow("Encrypting...")` /
@@ -586,3 +639,45 @@ To rebuild from the AES CryptoPad fork (`CryptoPad_v365_src/src/`): rename creat
 `gCardFileOpen`; build multi-segment with `-palmos4`; keep the AES/KDF model
 byte-identical; and test on the CloudpilotEmu VFS harness (§6). Cross-check the
 segmentation/`-palmos4` foundation against `Datebook35.md` / `ToDo35.md`.
+
+## 10. UI round (2026-11-18)
+
+- **Dialogs** (Memo Details, Password, global password x4, card password, New Note): OK/Cancel at x=5/48 (37x12), a third button at x=91, first item 8 px under the title bar, buttons 8 px under the last item, bottom-anchored.
+- **Delete Memo:** identical to the ROM To Do / Date Book Delete dialog; the checkbox carries "Save archive copy on PC" so tapping the text toggles it.
+- **About:** lines 12 apart from 8 px under the title bar, 37 px OK centred.
+- **Preferences:** 6 px top/bottom (too full for 8), standard buttons, Forgotten Password centred.
+- **Memo screen:** Details 4 px after Done; the ">4k" label moves to x=128, left of the indicator.
+- **Graffiti indicator:** its middle lines up with the buttons' middle (y = button y + 1 for 12 px buttons). Full-screen forms put it 4 px from the screen's right edge (x=148), dialogs 5 px from the frame like the buttons (x=143); it keeps 4 px clear of anything to its right and at least 4 px from the item on its left. The glyph is 8 px wide in every state.
+
+## 11. Databases, read-only memos, Memo Details (2026-11-19)
+
+Plan and design decisions: `cryptonote_secondary_db.md`. User guide: `docs/user_guides/CryptoNote.md`.
+
+- **Sources** (`SecDb.c`, sec003): `currentDB` holds a source number: 0 Memo Pad, 1 Main (`CryptoNoteDB`),
+  2.. user databases `CryptoNoteDB_<suffix>` (type `'CNsc'`, found by type/creator, up to 12). `dbCryptoPadRef`
+  points at the current memo's source (`SrcSelect`), `dbMainRef` always at Main. ROM = heap flag
+  `memHeapFlagReadOnly` or `dmHdrAttrReadOnly` (test builds: `-DROMSIM` treats `CryptoNoteDB_ROM*` as ROM).
+  Categories: user databases store Memo Pad's category indices; their AppInfo copy is re-synced at open (matched by
+  category unique ID, then name). AppInfo also holds the database key used when there is no device ID.
+- **Record marker** (outside any encryption): 0x80 marked, 0x01 Sec35-wrapped, 0x02 read-only, 0x04 8-byte date
+  trailer (created, modified; plain, not wrapped), 0x08 user-database keying, 0x10 keyed with the database key.
+  `CryptoSealRecord` rebuilds the marker + trailer from `MetaCapture` (taken by every save path before it rewrites
+  a record); `CryptoRekeyRecord`/`CryptoWrapInPlace` keep the flags and skip the trailer.
+- **Keying**: `AesSetSecret` (AesCrypt.c) swaps the device secret for the ROM serial or the database key and drops
+  the global password; `SrcKeyForRecord`/`SrcKeyForWrite` choose it (EncryptRecord, DecryptRecord,
+  ValidatePassword call them).
+- **List** (`ViewList.c`, sec004): one view over all sources; alphabetical sorts by a 12-char title key (fixes the
+  old ciphertext sort of wrapped records; masked titles sort last); manual order is the RAM database
+  `CryptoNoteOrder` (crDate + unique ID per memo), so ROM memos can be dragged. `topRecord` is a view position.
+- **Forms** (`DbForms.c`, sec004): full-screen Memo Details (Database pop-up with Create New..., Read-only,
+  Protection, Created/Modified), Options > Manage Databases, the New/Rename dialog, Options > Security (device ID +
+  privacy, replaces `SecSelectViewStatus`). Read-only/ROM memos open as a view decrypted in memory
+  (`EditViewOnly*`), never written back.
+- **Moves**: Details OK queues `dbMoveEvent`; the edit form saves, then `SrcMoveRecord` decrypts with the source
+  keying, writes the memo into the target, re-encrypts with the target keying, carries flag/dates, deletes the
+  source; `ViewOrderReplace` keeps its place.
+- **Icons**: key, no-entry (read-only) or chip (ROM), database; 7x9, right-aligned, 1 px gaps (the icon left of the
+  key sits 1 px closer: the key art has a blank left column).
+- `CryptoNoteDevKey` always exists: record 1 is the DRBG reseed counter (every launch); record 0 is the device key,
+  used only without a device ID.
+- Find: while CryptoNote runs, Main and the user databases are searched too.

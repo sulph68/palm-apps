@@ -18,11 +18,6 @@
 #include "CardIO.h"
 #include "vcard.h"
 
-/* one browsable vCard on the card: its file leaf + parsed display name */
-typedef struct {
-	char	file[cardMaxName];	/* leaf under /Address/ (e.g. jane_doe.vcf) */
-	char	name[64];			/* display name for the list                */
-} A35CardItem;
 
 #define a35CardRoot		"/Address"
 #define a35CardImportDir	"/Address/Import"
@@ -85,11 +80,6 @@ UInt16 A35CardCountAt(UInt16 volRef, DmOpenRef db, const char *path) SEC001;
  * turned out not to be multi-person - left untouched in that case). */
 UInt16 A35CardSplitFile(UInt16 volRef, DmOpenRef db, const char *dir, const char *path,
 	UInt16 total16) SEC001;
-
-/* List the browsable contacts under /Address/ (excludes Import/ and Export/).
- * Each file's first vCard is parsed for the display name. */
-Err A35CardBrowseList(UInt16 volRef, DmOpenRef db, A35CardItem *items,
-	UInt16 max, UInt16 *countP) SEC001;
 
 /* Read + parse the first vCard of the file at absolute path into *r (values in
  * *arena). */

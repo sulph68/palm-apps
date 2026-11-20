@@ -149,6 +149,7 @@
 #define ActLabelKeyboardSel           4032
 #define ActListKeyboardSel            4033
 #define ActPopupTriggerKeyboardSel    4034
+#define SelSameAsAppsAlert            4035
 
 ////////////////////////
 // Custom Button Form //

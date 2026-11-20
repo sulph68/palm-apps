@@ -42,10 +42,10 @@ BEGIN
 
 	/* Sync Now shifted left of x=148 so it clears the graffiti indicator
 	 * (AT 150,150) - matches Sec35's frmMain button-row precedent. */
-	BUTTON "Done"					ID 1009 AT (4 142 60 14)
-	BUTTON "Sync Now"				ID 1010 AT (78 142 64 14)
+	BUTTON "Done"					ID 1009 AT (1 147 36 12)
+	BUTTON "Sync Now"				ID 1010 AT (41 147 102 12)
 
-	GRAFFITISTATEINDICATOR AT (150 150)
+	GRAFFITISTATEINDICATOR AT (148 148)
 END
 
 /* Manual network control - real hardware can leave the link only half-up
@@ -58,8 +58,19 @@ MENU ID 1600
 BEGIN
 	PULLDOWN "Network"
 	BEGIN
-		MENUITEM "Connect"		ID 1601 "C"
+		MENUITEM "Connect"		ID 1601 "N"
 		MENUITEM "Disconnect"	ID 1602 "D"
+	END
+	PULLDOWN "Edit"
+	BEGIN
+		MENUITEM "Undo"			ID 1610 "U"
+		MENUITEM "Cut"			ID 1611 "X"
+		MENUITEM "Copy"			ID 1612 "C"
+		MENUITEM "Paste"		ID 1613 "P"
+		MENUITEM "Select All"	ID 1614 "S"
+		MENUITEM SEPARATOR
+		MENUITEM "Keyboard"		ID 1615 "K"
+		MENUITEM "Graffiti Help"	ID 1616 "G"
 	END
 END
 

@@ -23,7 +23,7 @@ BUILDPRC = build-prc
 CFLAGS   = -palmos3.5 -O2 -Wall -I$(SDK) -Isrc -I../apps/lib
 
 # Stand-alone code resources bundled into the HACK (patches + control panel).
-PATCHES  = $(BUILD)/hack_sec2dt $(BUILD)/ctlpanel
+PATCHES  = $(BUILD)/hack_sec2dt $(BUILD)/hack_settime $(BUILD)/ctlpanel
 
 .PHONY: all probe test clean
 all: $(PRC)
@@ -38,6 +38,10 @@ $(PROBEB):
 # stand-alone hardening patch (TimSecondsToDateTime); links datelib
 $(BUILD)/hack_sec2dt: src/hack_sec2dt.c ../apps/lib/datelib.c | $(BUILD)
 	$(CC) $(CFLAGS) -nostartfiles -Wl,-e,HackSecToDateTime src/hack_sec2dt.c ../apps/lib/datelib.c -o $@
+
+# stand-alone guard patch (TimSetSeconds, code/TRAP #1001); links datelib
+$(BUILD)/hack_settime: src/hack_settime.c ../apps/lib/datelib.c | $(BUILD)
+	$(CC) $(CFLAGS) -nostartfiles -Wl,-e,HackSetSeconds src/hack_settime.c ../apps/lib/datelib.c -o $@
 
 # control-panel handler (code #2000); links datelib (pure, no data section)
 $(BUILD)/ctlpanel: src/ctlpanel.c ../apps/lib/datelib.c | $(BUILD)

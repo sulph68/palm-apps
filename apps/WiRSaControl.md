@@ -102,7 +102,7 @@ Applies to single-letter **menu choices** read from `PhysicalSerial` in: `mainLo
 - Buttons: a confirm screen, "ENTER: confirm / BACK: cancel".
 - Control link: FACTORY_RESET with the `"RESET"` body; WirSaControl shows a Palm confirmation alert
   first.
-- Reboot (`R`) stays unconfirmed.
+- Reboot: the serial `R` stays unconfirmed; WiRSaCtl's Reboot WiRSa... asks first (no shortcut), since it cuts off a running HotSync, SASD card or SLIP link.
 
 ### 2.7 Mode exit hooks
 
@@ -293,8 +293,15 @@ goes to `build/`.
 
 - **Main** (full screen): Mode (normal font), WiRSa (baud, firmware, "no screen"), WiFi, IP, the disk
   row, FTP, and a 3-line guidance area (strMainNotes) when WiRSa can't be reached. Buttons Refresh / WiFi / Modes / Setup.
-  Options menu: Find WiRSa, Reboot WiRSa, Factory Reset... (confirmation alert), Preferences...;
-  Help menu: System (the same form, titled WiRSa System, showing the SYSINFO text; Refresh only), Show Logs (frmLog: WiRSa's session log, newest at the bottom, Refresh / Clear), About.
+  Options menu: Find WiRSa, Reboot WiRSa... and Factory Reset... (each with a confirmation alert), Format SD Card...
+  (`Format.c`: frmFormat via FrmDoDialog, the "Copy the SASD install set" box ticked by default; FORMAT_SD `0x4F`,
+  Protocol-wire.md §12, waits up to 240 s; SD card only; the virtual card is never formatted on request, anywhere), Preferences...;
+  Help menu: System (the same form, titled WiRSa System, showing the SYSINFO text; Refresh only), Show Logs (frmLog: WiRSa's session log, newest at the bottom, Refresh / Clear, Clear asks first), About.
+  - `frmLog` serves both Help > System and Help > Show Logs (`gShowSys`). The text block shown in
+    its field (`gLogH`) is already gone once the form is deleted (the field frees it), so the next open must not
+    free it again: `SysOpenFromMain` / `LogOpenFromMain` just reset `gLogH` (opening either page a
+    second time crashed with "Invalid chunk ptr" before 2026-11-15). The Help > System menu case
+    also `return true`s now instead of falling out of the switch.
   - The disk row follows the Disk setting (`MainFillSd`, `gSdVirtual`; the label is two objects,
     `lblMainSd` "SD:" and `lblMainVsd` "V. SD:", one shown at a time by `MainSdLabel`, because a
     right-aligned label cannot change its text and keep its alignment). STATUS `sd` (0 unknown, 1 card,
@@ -316,7 +323,9 @@ goes to `build/`.
   without asking WiRSa (the mode is still starting up); the 15 s refresh then shows the live mode.
   A refusal (e.g. no WiFi) or not reaching WiRSa shows an alert, then the main screen.
 - **WiFi**: Scan → list (up to 16); tapping one fills SSID; masked password (real text kept
-  aside, `*` shown; "Show password" reveals; append/backspace and Paste only); Connect.
+  aside, `*` shown with the character just typed in clear for a second; "Show password" reveals; append/backspace and Paste only); Connect.
+  Every masked field (WiFi, FTP, AP) works the same (`MaskKey`/`MaskShow`/`MaskEnd`): replaced field text is wiped before it is freed,
+  and on leaving the form (OK, Cancel, Connect, or the app quitting) the field's text is wiped, since FrmReturnToForm frees it unwiped.
 - **Setup** (frmSetup): rows at y 18/31/44/57: "Max baud:" popup (9600, 14400, 19200, 28800, 38400, 57600, 115200; the configured baud, the maximum
   for syncs), "Log level:" (Off / Warn / Info / Verbose; on the wire 0 off, 1 info, 2 warn, 3 verbose,
   so an older app's on/off byte still works), "Orientation:" (hidden on a screenless WiRSa), "Disk:"
@@ -328,9 +337,11 @@ goes to `build/`.
   grid of 72x12 buttons (4 px between columns, 3 px between rows): "FTP Setup..." (frmFtp: user, pass),
   "AP Setup..." (frmAp: SSID, pass), "SLIP Address..." (frmSlip: four dotted fields, validated),
   "Exit Timers..." (frmTimers). frmFtp/frmAp are 156x80 at y 78, identical except for labels and the
-  password limit (32 / 64 characters); each has "Blank password = keep current" and its own OK/Cancel.
+  password limit (32 / 64 characters); each has "Blank password = keep current", an unlabelled Show checkbox right of the
+  password (no room for the word) and its own OK/Cancel.
   The password is kept masked in `gMasks[]` (one handler, `CredHandleEvent`, with the form index) until
-  Setup's OK sends it by SECRETS_SET; Cancel in a sub-form restores the previous masked text. The
+  Setup's OK sends it by SECRETS_SET; Cancel in a sub-form restores the previous masked text (the copy, `gMaskBackup`, is wiped
+  when the sub-form closes). The
   user/SSID text is edited into `gCfg` on the sub-form's OK. Everything is sent with Setup's OK
   (SECRETS_SET first, then one CFG_SET). The layout was checked in POSE64 (Palm III ROM) with a test
   build that skipped the CFG_GET (canned settings), for both the screen and the screenless case.
@@ -342,8 +353,11 @@ goes to `build/`.
   its own. When a refresh finds WiRSa's menu at 9600 and the firmware has the SPEED flag,
   `SpeedUp()` (`WiRSaControl.c`, from `MainRefresh`) sends SPEED, follows and confirms with a PING
   (`WCtlSetSpeed`). If the confirm fails, it PINGs at 9600 (WiRSa's second receiver brings its menu
-  back) and remembers the rate in `speedSkip`; a rate that gained nothing (WiRSa answered 9600) is
-  remembered the same way. Neither is asked for again until Pref Baud changes or Find WiRSa.
+  back), then tries the next lower rates (57600, 38400, 28800, 19200, 14400) until one holds. A rate that failed
+  (or gained nothing) is remembered for this run only (`gSpeedBad`, RAM): only lower rates are tried until Pref Baud
+  changes, Find WiRSa, or the app is started again. (Until 2026-11-17 the failed rate was saved in the prefs as
+  `speedSkip` and never stepped down, so a Pref Baud of 115200 that the line could not carry left the menu at 9600 for
+  good; the field is now `unused` and cleared at launch.)
   With SPEED firmware, changing Setup's Max baud no longer makes the app assume the menu moved.
   Limit: lowering Pref Baud doesn't move a menu that already runs faster than 9600.
 - Tried and reverted (2026-10-19): following Pref Baud whenever the rate differs, and a final
@@ -435,3 +449,11 @@ Compile check (scratch copies, PlatformIO 6.1.19, espressif32 7.0.1, `esp32-s3-d
 | Screen, PALMCTL on (default) | 1,292,545 (+5,396) | 103,972 |
 | Screen, PALMCTL off | 1,287,885 (+736) | — |
 | Screenless | 1,276,501 (−10,648) | 103,900 |
+
+## 7. UI round (2026-11-18)
+
+- **Main:** Refresh / WiFi / Modes / Setup packed from x=1, 4 px apart.
+- **Modes, WiFi Setup, WiRSa Setup, Log** (full height): standard 37x12 buttons 5 px above the bottom; Log text ends 8 px above them; Setup sub-buttons 12 px, 4 px apart. Setup rows stay 13 apart so the screenless shift (-13) and the hidden older-firmware rows still line up.
+- **FTP / AP / SLIP / Exit Timers / Preferences:** first row's text 7 px under the title like the row gaps, buttons 7-9 px under the last row, bottom-anchored.
+- **Graffiti indicator:** its middle lines up with the buttons' middle (y = button y + 1 for 12 px buttons). Full-screen forms put it 4 px from the screen's right edge (x=148), dialogs 5 px from the frame like the buttons (x=143); it keeps 4 px clear of anything to its right and at least 4 px from the item on its left. The glyph is 8 px wide in every state.
+- **Menu:** Options > Preferences gets /R.

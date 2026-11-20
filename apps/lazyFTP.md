@@ -570,7 +570,8 @@ buffer.
     dialog's own style: `TITLE "Delete File"`, `MESSAGE "Delete this file?\nThis cannot be
     undone."` - no more `^1` substitution. Edit pulldown order (also an explicit,
     deliberate choice, confirmed live): `Cut / Paste / Delete / -- / New Folder /
-    Rename Folder / Refresh` - Delete groups with Cut/Paste above the separator since all
+    Rename Folder / Refresh` (shortcuts since 2026-11-17: Cut /X and Paste /P as in the ROM apps, Delete none,
+    being destructive; Options: "Preferences..." /R since the 2026-11-18 UI round, "About lazyFTP") - Delete groups with Cut/Paste above the separator since all
     three act on the current selection, while New Folder/Rename Folder/Refresh (folder-
     lifecycle/listing actions, not selection-dependent in the same way) sit below it.
   - All of the above **live-verified against a real server** (a private FTP host,
@@ -674,14 +675,27 @@ pattern above, applied one layer earlier.
 secMode}` in `LzTPConnPrefs` (versioned, `saved=true` app prefs — unlike the UI-only prefs
 in §10, these are worth a HotSync backup). Only the **password** field is encrypted at rest
 (`LzTPEncryptSlotPassword`/`LzTPDecryptSlotPassword`, AES-CTR via the shared `enccore.h`
-core, nonce = the per-slot index — stable and unique per slot, same idea as Address35's own
-`(uniqueID, fieldIndex)` nonce scheme); server/port/username stay in clear text, matching
+core, nonce = `(passGen, slot index)`: `passGen` is a per-slot save counter, bumped on every save, so a new
+password never reuses an old one's keystream (two HotSync backups of the prefs would otherwise give old XOR new).
+It took the place of the never-used `secMode` field (same 2 bytes, so the prefs layout and version are unchanged);
+passwords saved before 2026-11-17 have it at 0, the nonce they were saved with, and still read. The rekey keeps each
+slot's counter); server/port/username stay in clear text, matching
 Address35's established "encrypt payload, not everything" pattern. If Sec35 is locked,
 `LzTPEncryptSlotPassword` is a no-op (returns `false`, slot left unchanged) — the caller can
 still *use* the freshly typed plaintext for an immediate connect, it just can't be
-persisted until unlocked. `secMode` (`FtpSecMode`: none/explicit-TLS/
-implicit-TLS) is reserved, always `kFtpSecNone` in v1 — present now so a future FTPS
-integration doesn't need a prefs-version migration to add it later.
+persisted until unlocked. (A future FTPS mode would need a prefs field of its own now: the reserved `secMode` became
+`passGen`.)
+
+**Fixed 2026-11-17: fatal exception on exit with "Disconnect on exit" on and no connection made.** `gFtp` was a
+zero-filled global, so its `ctrlSock` read as socket 0 until the first `FtpConnect` set it to -1;
+`FtpDisconnectNetwork` (Disconnect on exit, or Network > Disconnect Network before connecting) then called
+`FtpDisconnectServer`, which sent QUIT through Net.lib reference number 0 - POSE: "called a function in a shared
+library using a reference number of 0", a fatal exception on the device. `gFtp` now starts with `ctrlSock = -1`.
+
+Plaintext copies of the password are wiped once used: the Connect dialog's buffer and its field text on close, the
+`FtpConnParams` copies after connecting (DoConnect's, and the auto-reconnect's static one), `FtpCmd`'s static send
+buffer right after a PASS goes out, and the session copy kept for auto-reconnect (`gFtp.pass`, `FtpForgetPassword`)
+on Disconnect Server and when the app stops.
 
 The Connect dialog's password field is **not** simply always-masked. It ported Sec35's own
 reveal-then-hide behavior from `sec35.c` (`RedrawMaskedField`/`PwFieldKeyDown`/
@@ -897,3 +911,11 @@ apps/lazyFTP/
 Depends on `apps/lib/enccore.h` (shared AES-CTR core with Address35/Sec35/CryptoNote) for
 §8's password encryption; otherwise self-contained — no shared category-sync, no era-plugin
 cooperation (an FTP client has no dates of its own to rebase).
+
+## 13. UI round (2026-11-18)
+
+- **Main, text viewer, Logs, Upload picker:** bottom row at y=147 from x=1, filter fields on the buttons' text line; Import to Memo widened so it is not clipped.
+- **Connect:** rows 15 apart, first row 8 px under the title like the row gaps, standard 37x12 buttons 8 px under the checkboxes, Graffiti indicator on the button row.
+- **Preferences:** shrunk to its two rows, TTL popup in line with its label, standard buttons. **File Action:** 2x2 grid of 12 px buttons. **New/Rename Folder:** standard buttons 8 px under the field. Working dialog unchanged.
+- **Graffiti indicator:** its middle lines up with the buttons' middle (y = button y + 1 for 12 px buttons). Full-screen forms put it 4 px from the screen's right edge (x=148), dialogs 5 px from the frame like the buttons (x=143); it keeps 4 px clear of anything to its right and at least 4 px from the item on its left. The glyph is 8 px wide in every state.
+- **Menu:** Preferences gets /R; Refresh loses /R; Disconnect Network loses /K; Connect /C becomes /O (New Folder keeps /N).

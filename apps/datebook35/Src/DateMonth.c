@@ -843,7 +843,6 @@ SEC003 static void DrawMonth (MonthPtr monthP, Boolean selectDay)
 	Int16				cellWidth, cellHeight;
 	Int16				charWidth;
 	Int16				lastDay;
-	Char				dowTemplate[] = "^1s";
 	Char				dayInAscii[3];
 	UInt16			dow;
 	UInt16			i;

@@ -24,6 +24,9 @@ typedef UInt32 ReadFunctionF (const void * stream, Char * bufferP, UInt32 length
 typedef UInt32 WriteFunctionF (void * stream, const Char * const bufferP, Int32 length);
 
 void MemoSendRecord (DmOpenRef, Int16) BEAM_SECTION;
-void MemoSendCategory (DmOpenRef, UInt16) BEAM_SECTION;
+/* Beam one memo's text as it is (see Beam.c). */
+void MemoSendText (Char *) BEAM_SECTION;
+/* Beam a category: Memo Pad memos + CryptoNote notes without their own password. */
+void MemoSendCategory (UInt16) BEAM_SECTION;
 void MemoExportMime(MemPtr recordP, void * outputStr,
 	WriteFunctionF outputFunc, Boolean outputMimeInfo) BEAM_SECTION;

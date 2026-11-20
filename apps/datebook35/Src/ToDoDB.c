@@ -443,38 +443,6 @@ SEC002 static Int16 ToDoCompareRecords(ToDoDBRecordPtr r1,
 
 /************************************************************
  *
- *  FUNCTION: ToDoSize
- *
- *  DESCRIPTION: Return the size of a ToDoDBRecordType
- *
- *  PARAMETERS: database record
- *
- *  RETURNS: the size in bytes
- *
- *  CREATED: 1/10/95 
- *
- *  BY: Roger Flores
- *
- *************************************************************/
-SEC002 static UInt16 ToDoSize(ToDoDBRecordPtr r)
-{
-	UInt16 size;
-	char *c;
-	int cLen;
-	
-	c = &r->description;
-	cLen = StrLen(c) + 1;
-	size = sizeof (DateType) + 1 + cLen;
-	c += cLen;
-	
-	size += StrLen(c) + 1;
-
-	return size;
-}
-
-
-/************************************************************
- *
  *  FUNCTION: ToDoFindSortPosition
  *
  *  DESCRIPTION: Return where a record is or should be.

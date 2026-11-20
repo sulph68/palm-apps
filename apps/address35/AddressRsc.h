@@ -211,13 +211,11 @@
 /* ---- alerts ------------------------------------------------------------ */
 #define altRomIncompatible		1900
 #define altHackOff				1901
-#define altNotYet				1902
 #define altNoSelection			1904
 #define altNoCard				1905
 #define altImportDone			1906
 #define altExportDone			1907
 #define altExportScope			1908
-#define altCardEmpty			1909
 #define altSetMe				1910
 #define altNoSec35				1911
 #define altCardGroupSplit		1912

@@ -30,6 +30,7 @@
 #define mniMainPrefs			1024
 #define mniMainLogs				1025
 #define mniMainSystem			1026
+#define mniMainFormat			1027
 
 /* ---- frmModes ------------------------------------------------------------ */
 #define frmModes				1100
@@ -105,11 +106,13 @@
 #define fldFtpPass				1802
 #define btnFtpOk				1810
 #define btnFtpCancel			1811
+#define chkFtpShow				1820	/* reveals fldFtpPass (unlabelled, no room) */
 #define frmAp					1900
 #define fldApSsid				1901
 #define fldApPass				1902
 #define btnApOk					1910
 #define btnApCancel				1911
+#define chkApShow				1920	/* reveals fldApPass (unlabelled, no room) */
 
 /* ---- frmPrefs: this app's own preferences ------------------------------- */
 #define frmPrefs				1600
@@ -125,6 +128,12 @@
 #define btnLogDone				1710
 #define btnLogRefresh			1711
 #define btnLogClear				1712
+
+/* ---- frmFormat: Options > Format SD Card... (a dialog) -------------------- */
+#define frmFormat				2100
+#define chkFormatCopy			2101
+#define btnFormatOk				2110
+#define btnFormatCancel			2111
 
 /* ---- shared Edit menu for forms with text fields ------------------------- */
 #define mnuDlgEdit				1900
@@ -142,6 +151,8 @@
 #define altConfirmMode			2002	/* ^1 ; Continue / Cancel */
 #define altFactory				2003	/* Reset / Cancel */
 #define altAbout				2004
+#define altReboot				2005	/* Reboot / Cancel */
+#define altLogClear				2006	/* Clear / Cancel */
 
 /* ---- string lists (index = mode order M H D S A B) ----------------------- */
 #define strModeNames			3000

@@ -450,7 +450,7 @@ MC_SEC static void ApplyMsg(RpR *r)
 	if (fi == 0xFFFF) fi = 0;
 	m = AddMsg(conv, (flags & mfOut) != 0, fi, text, when);
 	m->seq = seq; m->localId = localId; m->status = status; m->err = err;
-	if (! (flags & mfOut) && ! (FrmGetActiveFormID() == frmChat && gCurConv == conv))
+	if (! (flags & mfOut))		/* unread until it has been on the screen for a second (ChatDwell), also in the thread that is open */
 		gConv[conv].unread++;
 }
 
@@ -1004,16 +1004,6 @@ MC_SEC Boolean LinkCfgGet(void)
 	gCfgPending = false;
 	if (! Req(mwCfgGet, NULL, 0, mwCfgR, 45)) return false;
 	return CfgParse();
-}
-
-/* Asks for them without waiting: the answer is read by LinkPump. */
-MC_SEC Boolean LinkCfgStart(void)
-{
-	if (! gWirsaUp || gSyncPending || gCfgPending) return false;
-	if (! RpSendFrame(mwCfgGet, NULL, 0)) return false;
-	gCfgPending = true;
-	gAsyncTick = TimGetTicks();
-	return true;
 }
 
 /* Sends the parts named in mask (1 owner, 2 radio, 4 role, 8 Bluetooth, 16 channels - those in chanMask). */

@@ -2102,6 +2102,21 @@ static void ActivationOK(void)
    // get data from form
    ActivationGetData(pMpActivationTemp, true, true);
 
+   // "Sel.:" on the same button as "Apps:" can never fire (Apps: is matched
+   // first, so inside the popup that button is never seen as Sel.) -- turn
+   // Sel. off and say so, rather than save a setting that silently does nothing.
+   if((pMpActivationTemp->keyInfoSel.chr != chrNull) &&
+      (pMpActivationTemp->keyInfoSel.chr     == pMpActivationTemp->keyInfoApps.chr) &&
+      (pMpActivationTemp->keyInfoSel.keyCode == pMpActivationTemp->keyInfoApps.keyCode) &&
+      ((pMpActivationTemp->keyInfoSel.modifiers & ~autoRepeatKeyMask) ==
+       (pMpActivationTemp->keyInfoApps.modifiers & ~autoRepeatKeyMask)))
+   {
+      pMpActivationTemp->keyInfoSel.chr       = chrNull;
+      pMpActivationTemp->keyInfoSel.keyCode   = 0x0000;
+      pMpActivationTemp->keyInfoSel.modifiers = 0x0000;
+      FrmAlert(SelSameAsAppsAlert);
+   }
+
    // copy data to final destination
    *pMpActivation = *pMpActivationTemp;
 }
@@ -2752,6 +2767,7 @@ static UInt16 ConvertSelListToKey(KeyInfoType *keyInfo, UInt16 sel,
    }
    else
    {
+      if(sel >= N) sel = 0;   // e.g. noListSelection: store "Disabled", never read past the table
       keyInfo->bCustom   = false;
       keyInfo->chr       = charArray[sel].chr;
       keyInfo->keyCode   = charArray[sel].keyCode;

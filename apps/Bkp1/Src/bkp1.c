@@ -267,37 +267,6 @@ static struct BackupEntry* backupsPrvEnumerate(UInt16 vrn)
 	return backupsPrvSort(list);
 }
 
-static void uiPrvObjectHide(FormPtr fp, UInt16 objId)
-{
-	UInt16 idx = FrmGetObjectIndex(fp, objId);
-	Boolean needWorkaroundBitmapHiding;
-	UInt32 osVer;
-	void *ptr;
-	
-	/*
-		PalmOS 3.1 and below cannot properly hide form bitmaps since they test for "visible" bit but never set it
-		This patch sets visible and usable bits before hiding it to force an erase as expected, and clears them after.
-		FrmShowObject() works as expected since when visible is clear, it will draw the object
-	*/
-	
-	needWorkaroundBitmapHiding = FrmGetObjectType(fp, idx) == frmBitmapObj && (errNone != FtrGet(sysFtrCreator, sysFtrNumROMVersion, &osVer) || osVer < sysMakeROMVersion(3, 5, 0, sysROMStageRelease, 0));
-	
-	if (needWorkaroundBitmapHiding) {
-		ptr = FrmGetObjectPtr(fp, idx);
-		(*(UInt8*)ptr) |= 0xa0;
-	}
-	
-	FrmHideObject(fp, idx);
-	
-	if (needWorkaroundBitmapHiding)
-		(*(UInt8*)ptr) &=~ 0xa0;
-}
-
-static void uiPrvObjectShow(FormPtr fp, UInt16 objId)
-{
-	FrmShowObject(fp, FrmGetObjectIndex(fp, objId));
-}
-
 static void uiRefresh(void)
 {
 	FormPtr fp = FrmGetFormPtr(1000);
@@ -434,9 +403,9 @@ static void uiProgressUpdate(void *state, const char *stateName, UInt16 fileIdx,
 	
 	//FrmUpdateForm(1001, frmRedrawUpdateCode);
 	
-	RctSetRectangle(&r, 3, 66, 150, 14);
+	RctSetRectangle(&r, 3, 64, 150, 14);
 	WinDrawRectangleFrame(simpleFrame, &r);
-	RctSetRectangle(&r, 4, 67, (148ULL * permille) / 1000000, 12);
+	RctSetRectangle(&r, 4, 65, (148ULL * permille) / 1000000, 12);
 	WinDrawRectangle(&r, 0);
 	
 	(void)EvtResetAutoOffTimer();
@@ -721,6 +690,32 @@ static void uiPrvOpRestore(void)
 	uiPrvRestoreReport();	//whatever was skipped before it stopped
 }
 
+//the Edit menu of the Rename and Settings dialogs: acts on the focused field
+static Boolean uiPrvEditMenu(UInt16 itemID)
+{
+	FormPtr fp = FrmGetActiveForm();
+	UInt16 idx = FrmGetFocus(fp);
+	FieldPtr fi = NULL;
+
+	if (idx != noFocus && FrmGetObjectType(fp, idx) == frmFieldObj)
+		fi = FrmGetObjectPtr(fp, idx);
+	switch (itemID) {
+		case 1201:	if (fi) FldUndo(fi); return true;
+		case 1202:	if (fi) FldCut(fi); return true;
+		case 1203:	if (fi) FldCopy(fi); return true;
+		case 1204:	if (fi) FldPaste(fi); return true;
+		case 1205:	if (fi) FldSetSelection(fi, 0, FldGetTextLength(fi)); return true;
+		case 1206:	SysKeyboardDialog(kbdDefault); return true;
+		case 1207:	SysGraffitiReferenceDialog(referenceDefault); return true;
+	}
+	return false;
+}
+
+static Boolean uiPrvRenameEventHandler(EventType *e)
+{
+	return e->eType == menuEvent && uiPrvEditMenu(e->data.menu.itemID);
+}
+
 static void uiPrvOpRename(void)
 {
 	struct BackupEntry *bkp = uiPrvGetCurEntry();
@@ -750,6 +745,9 @@ static void uiPrvOpRename(void)
 	fp = FrmInitForm(1002);
 	fi = FrmGetObjectPtr(fp, FrmGetObjectIndex(fp, 1000));
 	FldSetTextHandle(fi, mh);
+	FrmSetFocus(fp, FrmGetObjectIndex(fp, 1000));		//the cursor in the name, all of it selected
+	FldSetSelection(fi, 0, FldGetTextLength(fi));
+	FrmSetEventHandler(fp, uiPrvRenameEventHandler);
 	button = FrmDoDialog(fp);
 	FldSetTextHandle(fi, NULL);
 	FrmDeleteForm(fp);
@@ -762,8 +760,8 @@ static void uiPrvOpRename(void)
 			FrmCustomAlert(1000, mStrBadName, mStrSpace, mStrSpace);
 		else
 			e = backupRename(mVolumes[mCurVolume].vrn, bkp->name, newName);
+		MemHandleUnlock(mh);	//only locked on OK: unlocking after Cancel was a fatal "Chunk under-locked" (since 1.2)
 	}
-	MemHandleUnlock(mh);
 	MemHandleFree(mh);
 	
 	if (e != errNone)
@@ -814,6 +812,9 @@ static void uiPrvSettingsShowSel(FormPtr fp, Int16 sel, Boolean draw)
 static Boolean uiPrvSettingsEventHandler(EventType *e)
 {
 	FormPtr fp = FrmGetActiveForm();
+
+	if (e->eType == menuEvent)
+		return uiPrvEditMenu(e->data.menu.itemID);
 
 	if (e->eType == popSelectEvent && e->data.popSelect.controlID == 1001)
 		uiPrvSettingsShowSel(fp, e->data.popSelect.selection, true);	//not handled: the form still sets the trigger label

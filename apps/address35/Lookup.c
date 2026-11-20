@@ -180,7 +180,7 @@ SEC002 static Boolean LkLocked(DmOpenRef db)
 
 	if (!A35DbHasEncrypted(db) && !(EncEncryptionActive() && DmNumRecords(db) > 0))
 		return false;
-	if (!EncGetKey(key, 1000000000UL))
+	if (!EncGetStoreKeyDb(key, ENC_STORE_A35, db))
 		return true;
 	MemSet(key, ENC_KEY_BYTES, 0);
 	return false;
@@ -288,7 +288,7 @@ SEC002 static MemHandle LkPick(DmOpenRef db, UInt32 wantUid, FormPtr frm, UInt32
 
 	if (r[1] & a35MiscEncrypted) {
 		UInt8 key[ENC_KEY_BYTES];
-		if (!EncGetKey(key, 1000000000UL)) { MemHandleUnlock(recH); return NULL; }
+		if (!EncGetStoreKeyDb(key, ENC_STORE_A35, db)) { MemHandleUnlock(recH); return NULL; }
 		EncKeyScheduleInit(&sched, key);
 		MemSet(key, ENC_KEY_BYTES, 0);
 		schedP = &sched;

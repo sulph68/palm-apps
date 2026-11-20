@@ -1,0 +1,7 @@
+# build outputs (make): the PRC (LazyFTP_v1.prc) stays tracked
+LazyFTP
+LazyFTP-sections.s
+LazyFTP-sections.ld
+bin.stamp
+*.o
+*.bin

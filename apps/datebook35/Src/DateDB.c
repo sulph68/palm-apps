@@ -22,7 +22,9 @@
 // Set this to get to private database defines
 #define __APPTMGR_PRIVATE__
 #include "Datebook.h"
-#include "enccore.h"		/* Db35: Sec35 shared-key AES-CTR (EncGetKey/EncCrypt) */
+#include "enccore.h"		/* Db35: Sec35 per-store AES-CTR (EncGetStoreKeyDb/EncCrypt) */
+#include "encrekey.h"		/* kSecLaunchRekey record loop */
+#include "locdb.h"			/* event locations: sealed + re-keyed with the appointments */
 
 
 /***********************************************************************
@@ -693,6 +695,20 @@ static ApptDBRecordFlags ApptFlagsOf(const UInt8 *rec)
 	return f;
 }
 
+/* True if record `index` is marked encrypted (raw flag, no key, no crypto ->
+ * MAIN, sublaunch-safe). Find uses it when Datebook35 is not the running app:
+ * decrypting needs ApptGetDecrypted (ENCCORE segment + globals), neither of
+ * which exists in a no-globals Find launch. */
+Boolean ApptRecordIsEncrypted(DmOpenRef dbP, UInt16 index)
+{
+	MemHandle h = DmQueryRecord(dbP, index);
+	Boolean enc;
+	if (h == NULL) return false;
+	enc = (Boolean) ApptFlagsOf((const UInt8 *) MemHandleLock(h)).encrypted;
+	MemHandleUnlock(h);
+	return enc;
+}
+
 /* True if ANY record is marked encrypted (raw flag scan; no key, no crypto -> MAIN,
  * sublaunch-safe). */
 Boolean ApptDbHasEncrypted(DmOpenRef dbP) ENCCORE_SECTION;
@@ -743,8 +759,8 @@ static UInt32 ApptPrefixSize(const UInt8 *rec)
 /* Build a DECRYPTED (or masked, when locked) INLINE copy of encrypted packed record `src`
  * into `out`; returns the total size.  `out` must hold prefix + descLen+1 + noteLen+1.
  * ENCCORE_SECTION. */
-static UInt32 ApptBuildInline(const UInt8 *src, UInt32 uid, UInt8 *out) ENCCORE_SECTION;
-static UInt32 ApptBuildInline(const UInt8 *src, UInt32 uid, UInt8 *out)
+static UInt32 ApptBuildInline(DmOpenRef dbP, const UInt8 *src, UInt32 uid, UInt8 *out) ENCCORE_SECTION;
+static UInt32 ApptBuildInline(DmOpenRef dbP, const UInt8 *src, UInt32 uid, UInt8 *out)
 {
 	ApptDBRecordFlags flags = ApptFlagsOf(src);
 	UInt32 prefix = ApptPrefixSize(src);
@@ -752,7 +768,7 @@ static UInt32 ApptBuildInline(const UInt8 *src, UInt32 uid, UInt8 *out)
 	UInt16 noteLen = apptRdU16(src + prefix + 2);
 	const UInt8 *enc = src + prefix + 4;
 	UInt8 key[ENC_KEY_BYTES];
-	Boolean haveKey = EncGetKey(key, apptEncTtl);
+	Boolean haveKey = EncGetStoreKeyDb(key, ENC_STORE_DB35, dbP);
 	UInt32 o = prefix;
 
 	MemMove(out, src, prefix);						/* clear prefix (when..exceptions) */
@@ -794,7 +810,7 @@ static void ApptRecrypt(DmOpenRef dbP, UInt16 index, Boolean toEnc)
 	UInt16 attr = 0;
 	Boolean wasDirty;
 
-	if (!EncGetKey(key, apptEncTtl))
+	if (!EncGetStoreKeyDb(key, ENC_STORE_DB35, dbP))
 		return;
 	MemSet(key, ENC_KEY_BYTES, 0);					/* only needed to gate; re-fetched below */
 	h = DmGetRecord(dbP, index);
@@ -807,7 +823,7 @@ static void ApptRecrypt(DmOpenRef dbP, UInt16 index, Boolean toEnc)
 	DmRecordInfo(dbP, index, &attr, &uid, NULL);
 	wasDirty = (Boolean) ((attr & dmRecAttrDirty) != 0);
 	prefix = ApptPrefixSize(rec);
-	EncGetKey(key, apptEncTtl);
+	EncGetStoreKeyDb(key, ENC_STORE_DB35, dbP);
 
 	if (toEnc) {									/* plaintext -> encrypted */
 		const char *desc = flags.description ? (const char *)(rec + prefix) : "";
@@ -832,7 +848,7 @@ static void ApptRecrypt(DmOpenRef dbP, UInt16 index, Boolean toEnc)
 		outSize = prefix + (flags.description ? descLen + 1 : 0) + (flags.note ? noteLen + 1 : 0);
 		out = (UInt8 *) MemPtrNew(outSize);
 		if (out != NULL)
-			(void) ApptBuildInline(rec, uid, out);	/* rebuilds inline (key present) */
+			(void) ApptBuildInline(dbP, rec, uid, out);	/* rebuilds inline (key present) */
 	}
 	MemSet(key, ENC_KEY_BYTES, 0);
 	MemHandleUnlock(h);
@@ -853,13 +869,168 @@ static void ApptRecrypt(DmOpenRef dbP, UInt16 index, Boolean toEnc)
 	}
 }
 
-/* Seal every still-plaintext record (call on close / first unlock). No-op locked. */
+/* ---- kSecLaunchRekey (Sec35 asks Datebook35 to re-encrypt its own data) --- *
+ * Sec35 sublaunches Datebook35 (new globals) for a password set / change /
+ * removal / forget and the key scheme 1 -> 2 conversion; see enccore.h and
+ * encrekey.h. One record, both directions, explicit keys (fromK NULL = the
+ * record is plaintext, toK NULL = leave it plaintext). Same layouts as
+ * ApptRecrypt, the length checks Sec35 used, and the dirty bit kept as it was
+ * (a crypto change must not queue a HotSync). Nothing changes on failure. */
+static Boolean DbRekeyIsEnc(const UInt8 *rec, UInt32 size) ENCCORE_SECTION;
+static Boolean DbRekeyIsEnc(const UInt8 *rec, UInt32 size)
+{
+	return (Boolean) (size > sizeof(ApptDateTimeType) + 1 && ApptFlagsOf(rec).encrypted);
+}
+
+static Err DbRekeyRecord(DmOpenRef dbP, UInt16 index, const UInt8 *fromK, const UInt8 *toK) ENCCORE_SECTION;
+static Err DbRekeyRecord(DmOpenRef dbP, UInt16 index, const UInt8 *fromK, const UInt8 *toK)
+{
+	UInt32 uid = 0, prefix, outSize = 0, recSize;
+	MemHandle h;
+	UInt8 *rec, *out = NULL;
+	ApptDBRecordFlags flags;
+	UInt16 attr = 0, descLen, noteLen;
+	Boolean wasDirty, write = false;
+
+	h = DmGetRecord(dbP, index);
+	if (h == NULL) return dmErrIndexOutOfRange;
+	rec = (UInt8 *) MemHandleLock(h);
+	recSize = MemHandleSize(h);
+	flags = ApptFlagsOf(rec);
+	DmRecordInfo(dbP, index, &attr, &uid, NULL);
+	wasDirty = (Boolean) ((attr & dmRecAttrDirty) != 0);
+	prefix = ApptPrefixSize(rec);
+
+	if (fromK && toK) {							/* re-key in place (same size) */
+		descLen = apptRdU16(rec + prefix);
+		noteLen = apptRdU16(rec + prefix + 2);
+		if (prefix + 4 + descLen + noteLen <= recSize) {
+			outSize = recSize;
+			out = (UInt8 *) MemPtrNew(outSize);
+			if (out == NULL) goto nomem;
+			MemMove(out, rec, recSize);
+			if (descLen) { EncCrypt(fromK, out + prefix + 4, descLen, uid, 0);
+			               EncCrypt(toK,   out + prefix + 4, descLen, uid, 0); }
+			if (noteLen) { EncCrypt(fromK, out + prefix + 4 + descLen, noteLen, uid, 1);
+			               EncCrypt(toK,   out + prefix + 4 + descLen, noteLen, uid, 1); }
+			write = true;
+		}
+	} else if (toK) {							/* plaintext -> encrypted (grows) */
+		const char *desc = flags.description ? (const char *)(rec + prefix) : "";
+		const char *note;
+		descLen = (UInt16) StrLen(desc);
+		note = flags.note ? (const char *)(rec + prefix + (flags.description ? descLen + 1 : 0)) : "";
+		noteLen = (UInt16) StrLen(note);
+		outSize = prefix + 4 + descLen + noteLen;
+		out = (UInt8 *) MemPtrNew(outSize);
+		if (out == NULL) goto nomem;
+		MemMove(out, rec, prefix);
+		((ApptDBRecordFlags *)(out + sizeof(ApptDateTimeType)))->encrypted = 1;
+		apptWrU16(out + prefix, descLen);
+		apptWrU16(out + prefix + 2, noteLen);
+		MemMove(out + prefix + 4, desc, descLen);
+		MemMove(out + prefix + 4 + descLen, note, noteLen);
+		if (descLen) EncCrypt(toK, out + prefix + 4, descLen, uid, 0);
+		if (noteLen) EncCrypt(toK, out + prefix + 4 + descLen, noteLen, uid, 1);
+		write = true;
+	} else if (fromK) {							/* encrypted -> plaintext (inline) */
+		descLen = apptRdU16(rec + prefix);
+		noteLen = apptRdU16(rec + prefix + 2);
+		if (prefix + 4 + descLen + noteLen <= recSize) {
+			UInt32 o = prefix;
+			outSize = prefix + (flags.description ? descLen + 1 : 0) + (flags.note ? noteLen + 1 : 0);
+			out = (UInt8 *) MemPtrNew(outSize);
+			if (out == NULL) goto nomem;
+			MemMove(out, rec, prefix);
+			((ApptDBRecordFlags *)(out + sizeof(ApptDateTimeType)))->encrypted = 0;
+			if (flags.description) {
+				MemMove(out + o, rec + prefix + 4, descLen);
+				if (descLen) EncCrypt(fromK, out + o, descLen, uid, 0);
+				out[o + descLen] = 0; o += descLen + 1;
+			}
+			if (flags.note) {
+				MemMove(out + o, rec + prefix + 4 + descLen, noteLen);
+				if (noteLen) EncCrypt(fromK, out + o, noteLen, uid, 1);
+				out[o + noteLen] = 0;
+			}
+			write = true;
+		}
+	}
+	MemHandleUnlock(h);
+	if (write) {
+		if (outSize != recSize) {
+			h = DmResizeRecord(dbP, index, outSize);
+			if (h == NULL) {
+				MemSet(out, outSize, 0); MemPtrFree(out);
+				DmReleaseRecord(dbP, index, false);
+				return memErrNotEnoughSpace;
+			}
+		}
+		rec = (UInt8 *) MemHandleLock(h);
+		DmWrite(rec, 0, out, outSize);
+		MemHandleUnlock(h);
+	}
+	if (out != NULL) { MemSet(out, outSize, 0); MemPtrFree(out); }	/* may hold plaintext */
+	DmReleaseRecord(dbP, index, write);
+	if (write && !wasDirty) {
+		DmRecordInfo(dbP, index, &attr, NULL, NULL);
+		attr = (UInt16) (attr & ~dmRecAttrDirty);
+		DmSetRecordInfo(dbP, index, &attr, NULL);
+	}
+	return errNone;
+
+nomem:
+	MemHandleUnlock(h);
+	DmReleaseRecord(dbP, index, false);
+	return memErrNotEnoughSpace;
+}
+
+void ApptRekey(EncRekeyParam *p) ENCCORE_SECTION;
+void ApptRekey(EncRekeyParam *p)
+{
+	DmOpenRef db = DmOpenDatabaseByTypeCreator(datebookDBType, datebookCreator, dmModeReadWrite | dmModeShowSecret);
+
+	p->result = kRekeyResultDone;
+	if (db == NULL) return;
+	p->result = EncRekeyDb(db, ENC_STORE_DB35, p, 0, datebookCreator, DbRekeyIsEnc, DbRekeyRecord);
+	DmCloseDatabase(db);
+	if (p->result == kRekeyResultDone)			/* event locations: ordinals 1 and 2 */
+		p->result = LocRekey(p, datebookCreator);
+}
+
+/* The shared decrypted-read buffer (ApptGetDecrypted, below). */
+static MemHandle gApptDecH = NULL;
+
+/* Zero then free a handle that held decrypted text (a row / edit / note copy).
+ * NULL is ignored; the handle must be unlocked. */
+void DbFreeWiped(MemHandle h) ENCCORE_SECTION;
+void DbFreeWiped(MemHandle h)
+{
+	if (h != NULL) {
+		MemSet(MemHandleLock(h), (Int32) MemHandleSize(h), 0);
+		MemHandleUnlock(h);
+		MemHandleFree(h);
+	}
+}
+
+/* Seal every still-plaintext record (called at launch and on close). No-op locked.
+ * Also zeroes and frees the shared decrypted-read buffer, so the last appointment
+ * read doesn't stay in memory (it is re-allocated on the next read). */
 void ApptSealAllPlaintext(DmOpenRef dbP) ENCCORE_SECTION;
 void ApptSealAllPlaintext(DmOpenRef dbP)
 {
 	UInt8 key[ENC_KEY_BYTES];
 	UInt16 i, n;
-	if (!EncGetKey(key, apptEncTtl)) return;
+
+	DbFreeWiped(gApptDecH);
+	gApptDecH = NULL;
+	LocSealAll();							/* event locations (own databases) */
+	/* Key scheme 2 marker (called once at launch): a database with nothing
+	 * encrypted needs no conversion, mark it now. One still holding scheme-1
+	 * records reads as locked until Sec35 has converted it. */
+	if (!EncDbHasStoreKeys(dbP) && !ApptDbHasEncrypted(dbP))
+		EncDbSetStoreKeys(dbP);
+	if (!EncGetStoreKeyDb(key, ENC_STORE_DB35, dbP)) return;
 	MemSet(key, ENC_KEY_BYTES, 0);
 	n = DmNumRecords(dbP);
 	for (i = 0; i < n; i++) {
@@ -879,7 +1050,6 @@ void ApptEncryptOne(DmOpenRef dbP, UInt16 index) { ApptRecrypt(dbP, index, true)
 /* Read chokepoint decrypt buffer: ApptGetRecord decrypts an encrypted record into this
  * single reused handle (masked when locked) and hands it back as *handleP.  Foreground,
  * one-record-at-a-time (no nested live ApptGetRecord on encrypted records). */
-static MemHandle gApptDecH = NULL;
 
 /* Decrypt/mask the (already-locked) encrypted record bytes `src` into gApptDecH, unpack `r`
  * from it, and return gApptDecH (locked; caller unlocks).  Does NOT touch the storage handle
@@ -900,14 +1070,18 @@ MemHandle ApptGetDecrypted(DmOpenRef dbP, UInt16 index, const UInt8 *src, ApptDB
 	if (gApptDecH == NULL)
 		gApptDecH = MemHandleNew(need);
 	else if (MemHandleSize(gApptDecH) < need) {
-		/* MemHandleResize resizes in place and returns an Err (not a new
-		 * handle) -- gApptDecH's identity doesn't change on success. */
-		Err err = MemHandleResize(gApptDecH, need);	/* handle is unlocked between reads */
+		/* MemHandleResize may move the chunk and leave the old bytes (the last
+		 * decrypted appointment) in free memory: zero them first. It returns an
+		 * Err, not a new handle -- gApptDecH's identity doesn't change. */
+		Err err;
+		MemSet(MemHandleLock(gApptDecH), (Int32) MemHandleSize(gApptDecH), 0);
+		MemHandleUnlock(gApptDecH);
+		err = MemHandleResize(gApptDecH, need);	/* handle is unlocked between reads */
 		if (err != errNone) return NULL;
 	}
 	if (gApptDecH == NULL) return NULL;
 	out = (UInt8 *) MemHandleLock(gApptDecH);
-	ApptBuildInline(src, uid, out);
+	ApptBuildInline(dbP, src, uid, out);
 	ApptUnpack((ApptPackedDBRecordPtr) out, r);
 	return gApptDecH;								/* stays locked; caller unlocks */
 }

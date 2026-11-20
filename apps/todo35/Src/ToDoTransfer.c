@@ -36,37 +36,6 @@ extern Char * GetToDoNotePtr (ToDoDBRecordPtr recordP);	// needed to see if ToDo
 
 /***********************************************************************
  *
- * FUNCTION:    GetChar
- *
- * DESCRIPTION: Function to get a character from the exg transport.
- *
- * PARAMETERS:  exgSocketP - the exg connection
- *
- * RETURNED:    nothing
- *
- * REVISION HISTORY:
- *         Name   Date      Description
- *         ----   ----      -----------
- *         roger   8/15/97   Initial Revision
- *
- ***********************************************************************/
-TD35_XFER static UInt16 GetChar(const void * exgSocketP)
-{
-	UInt32 len;
-	UInt8 c;
-	Err err;
-	
-	len = ExgReceive((ExgSocketPtr) exgSocketP, &c, sizeof(c), &err);
-	
-	if (err || len == 0)
-		return EOF;
-	else
-		return c;
-}
-
-
-/***********************************************************************
- *
  * FUNCTION:    PutString
  *
  * DESCRIPTION: Function to put a string to the exg transport. 
@@ -367,9 +336,9 @@ TD35_XFER extern void ToDoSendRecord (DmOpenRef dbP, Int16 recordNum)
 	
 	// Clean winUp
 	if (descriptionH)
-		MemHandleFree(descriptionH);
+		ToDoFreeWiped(descriptionH);
 	if (nameH)
-		MemHandleFree(nameH);
+		ToDoFreeWiped(nameH);
 	ToDoReleaseInlineCopy(recordH);		// free the decrypted copy
 
 	return;

@@ -284,15 +284,6 @@ Boolean A35ParseBirthday(const char *ymd, A35Birthday *out)
 	return true;
 }
 
-Boolean A35GetBirthday(const A35Record *r, A35Birthday *out)
-{
-	const A35Field *f = A35FindField(r, a35fBirthday, 0);
-
-	if (f == NULL || f->len < a35BirthdayStrLen)
-		return false;
-	return A35ParseBirthday((const char *) f->value, out);
-}
-
 /* month abbreviations for the no-ROM-cap display (DateToAscii caps at 2031) */
 static const char *const kBdMon[12] = {
 	"Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -616,15 +607,6 @@ UInt8 A35GetSurnameTerm(DmOpenRef dbP)
 	return term;
 }
 
-const char *A35SurnameTermStr(UInt8 term)
-{
-	switch (term) {
-	case a35termLastName:	return "Last Name";
-	case a35termFamilyName:	return "Family Name";
-	default:				return "Surname";
-	}
-}
-
 void A35SetSurnameTerm(DmOpenRef dbP, UInt8 term)
 {
 	A35AppInfoPtr appInfoP = A35AppInfoGetPtr(dbP);
@@ -635,23 +617,6 @@ void A35SetSurnameTerm(DmOpenRef dbP, UInt8 term)
 			&term, sizeof(term));
 		MemPtrUnlock(appInfoP);
 	}
-}
-
-UInt16 A35TagFind(DmOpenRef dbP, const char *name)
-{
-	A35AppInfoPtr appInfoP = A35AppInfoGetPtr(dbP);
-	UInt16 i, found = 0;
-
-	if (appInfoP == NULL || name == NULL || name[0] == '\0')
-		return 0;
-	for (i = 0; i < appInfoP->tagCount; i++) {
-		if (StrCaselessCompare(appInfoP->tagNames[i], name) == 0) {
-			found = (UInt16) (i + 1);
-			break;
-		}
-	}
-	MemPtrUnlock(appInfoP);
-	return found;
 }
 
 UInt16 A35TagAdd(DmOpenRef dbP, const char *name)
@@ -850,7 +815,7 @@ Err A35GetRecord(DmOpenRef dbP, UInt16 index, A35Record *out, MemHandle *recordH
 	if (bufP[1] & a35MiscEncrypted) {
 		UInt8 key[ENC_KEY_BYTES];
 		UInt32 uid = 0;
-		Boolean haveKey = EncGetKey(key, a35EncTtl);
+		Boolean haveKey = EncGetStoreKeyDb(key, ENC_STORE_A35, dbP);
 		UInt16 count = rdU16(bufP + 2), i;
 		Int32 off = a35HdrSize;
 
@@ -878,11 +843,24 @@ Err A35GetRecord(DmOpenRef dbP, UInt16 index, A35Record *out, MemHandle *recordH
 	return errNone;
 }
 
+/* The private copy holds DECRYPTED values: zero it before the chunk goes back
+ * to the heap, so no plaintext lingers in free memory. */
 void A35ReleaseRecord(MemHandle recordH)
 {
 	if (recordH != NULL) {
-		MemHandleUnlock(recordH);
+		MemSet(MemHandleLock(recordH), (Int32) MemHandleSize(recordH), 0);
+		MemHandleUnlock(recordH);			/* the lock just taken */
+		MemHandleUnlock(recordH);			/* A35GetRecord's lock */
 		MemHandleFree(recordH);
+	}
+}
+
+/* Free a heap block that held decrypted contact text, zeroed first. */
+void A35FreeWiped(void *p)
+{
+	if (p != NULL) {
+		MemSet(p, (Int32) MemPtrSize(p), 0);
+		MemPtrFree(p);
 	}
 }
 
@@ -899,7 +877,7 @@ void A35EncryptRecordInPlace(DmOpenRef dbP, UInt16 index)
 	UInt16 count, i;
 	Int32 off;
 
-	if (!EncGetKey(key, a35EncTtl))
+	if (!EncGetStoreKeyDb(key, ENC_STORE_A35, dbP))
 		return;							/* locked -> store plaintext for now */
 
 	DmRecordInfo(dbP, index, NULL, &uid, NULL);
@@ -942,7 +920,7 @@ void A35SealAllPlaintext(DmOpenRef dbP)
 	UInt8 key[ENC_KEY_BYTES];
 	UInt16 i, n;
 
-	if (!EncGetKey(key, a35EncTtl))			/* locked -> nothing we can do yet */
+	if (!EncGetStoreKeyDb(key, ENC_STORE_A35, dbP))			/* locked -> nothing we can do yet */
 		return;
 	MemSet(key, ENC_KEY_BYTES, 0);
 	n = DmNumRecords(dbP);

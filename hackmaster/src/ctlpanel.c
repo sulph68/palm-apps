@@ -21,6 +21,8 @@
 #define FTR_OFFSET    0
 #define FTR_MHI       1
 #define FTR_MLO       2
+#define FTR_BYPASS    3   /* y2k35.h Y2K35_FTR_BYPASS: our own clock write */
+#define FTR_LABELS    4   /* which digit labels InitDigit allocated (bits) */
 #define PREF_ID       0
 #define HM_LIST_FORM  9000
 
@@ -71,18 +73,27 @@ static void SetText(FormPtr frm, UInt16 id, const Char *s)
 }
 
 /* ---- digit push-buttons (owned 2-byte labels) ---- */
-static void InitDigit(FormPtr frm, UInt16 id)
+static void InitDigit(FormPtr frm, UInt16 id, UInt16 bit)
 {
-    Char *b = (Char *) MemPtrNew(2);
-    if (!b) return;
+    UInt32 mask = 0;
+    Char  *b = (Char *) MemPtrNew(2);
+    if (!b) return;                         /* label stays the resource's own */
     b[0] = '0'; b[1] = '\0';
     CtlSetLabel(Ctl(frm, id), b);
+    FtrGet(HACK_CREATOR, FTR_LABELS, &mask);
+    FtrSet(HACK_CREATOR, FTR_LABELS, mask | (1UL << bit));
 }
-static void FreeDigit(FormPtr frm, UInt16 id)
+static void FreeDigit(FormPtr frm, UInt16 id, UInt16 bit)
 {
-    void *l = (void *) CtlGetLabel(Ctl(frm, id));
-    if (l) MemPtrFree(l);
+    UInt32 mask = 0;
+    void  *l = (void *) CtlGetLabel(Ctl(frm, id));
+    /* Only free a label InitDigit really allocated (bit set): if that
+     * allocation failed the label still points into the form resource, and
+     * freeing it would crash. No globals in a hack: the mask is a Feature. */
+    FtrGet(HACK_CREATOR, FTR_LABELS, &mask);
+    if (l && (mask & (1UL << bit))) MemPtrFree(l);
 }
+
 static Char GetDigit(FormPtr frm, UInt16 id)
 {
     const Char *l = CtlGetLabel(Ctl(frm, id));
@@ -193,9 +204,10 @@ static void Populate(FormPtr frm)
     Int16      i, got;
     Int32      y;
 
-    for (i = 0; i < 4; i++) InitDigit(frm, kYear[i]);
-    for (i = 0; i < 2; i++) InitDigit(frm, kMonth[i]);
-    for (i = 0; i < 2; i++) InitDigit(frm, kDay[i]);
+    FtrSet(HACK_CREATOR, FTR_LABELS, 0);
+    for (i = 0; i < 4; i++) InitDigit(frm, kYear[i], i);
+    for (i = 0; i < 2; i++) InitDigit(frm, kMonth[i], 4 + i);
+    for (i = 0; i < 2; i++) InitDigit(frm, kDay[i], 6 + i);
 
     /* Always show the CURRENT era date/time (not the value last "Applied"): the
      * re-based system clock, with the stored whole-year offset added back to
@@ -214,7 +226,7 @@ static void Populate(FormPtr frm)
     SetVal(frm, kMonth, 2, dt.month);
     SetVal(frm, kDay, 2, dt.day);
     SetTimeField(frm, dt.hour, dt.minute);
-    SetText(frm, fldBased, "(set to apply)");
+    SetText(frm, fldBased, "Tap Apply to set this date.");
 
     /* select the ones digit of each field by default */
     CtlSetValue(Ctl(frm, kYear[3]), 1);
@@ -247,16 +259,32 @@ static void DoSet(FormPtr frm)
     master    = dl_dateToSeconds(year, mo, d, h, mi, 0);
     based32   = (UInt32) dl_dateToSeconds(basedYear, mo, d, h, mi, 0);
 
+    /* the TimSetSeconds guard (hack_settime.c) lets our own, already re-based
+     * write through: raise the bypass flag around it only */
+    FtrSet(HACK_CREATOR, FTR_BYPASS, 1);
     TimSetSeconds(based32);
+    FtrUnregister(HACK_CREATOR, FTR_BYPASS);
     FtrSet(HACK_CREATOR, FTR_OFFSET, (UInt32) off);
     FtrSet(HACK_CREATOR, FTR_MHI, (UInt32) (master >> 32));
     FtrSet(HACK_CREATOR, FTR_MLO, (UInt32) (master & 0xFFFFFFFFUL));
     p.master = master; p.offset = off;
     PrefSetAppPreferences(HACK_CREATOR, PREF_ID, 1, &p, sizeof(p), true);
 
+    /* Line 1: the date the user set. Line 2: what the Palm's own clock now
+     * says -- the re-based stand-in date that apps without era support (the
+     * ROM Date Book, Preferences...) will show. Month names as one string
+     * literal (PC-relative, fine in a hack). */
+    {
+    const Char *kMon = "JanFebMarAprMayJunJulAugSepOctNovDec";
+    Char b3[4];
     dl_secondsToDate((dl_i64) based32, &bd);
-    StrIToA(yb, bd.year);
-    StrPrintF(line, "yr=%s %d/%d off=%ld", yb, (int) bd.month, (int) bd.day, (long) off);
+    StrPrintF(line, "Applied: %d ", (int) d);
+    MemMove(b3, &kMon[(mo - 1) * 3], 3); b3[3] = 0; StrCat(line, b3);
+    StrIToA(yb, year); StrCat(line, " "); StrCat(line, yb);
+    StrPrintF(line + StrLen(line), "\nPalm clock: %d ", (int) bd.day);
+    MemMove(b3, &kMon[(bd.month - 1) * 3], 3); StrCat(line, b3);
+    StrIToA(yb, bd.year); StrCat(line, " "); StrCat(line, yb);
+    }
     SetText(frm, fldBased, line);
 }
 
@@ -272,9 +300,10 @@ Boolean CtlPanelHandler(EventType *e)
         return true;
     case frmCloseEvent: {
         Int16 i;
-        for (i = 0; i < 4; i++) FreeDigit(frm, kYear[i]);
-        for (i = 0; i < 2; i++) FreeDigit(frm, kMonth[i]);
-        for (i = 0; i < 2; i++) FreeDigit(frm, kDay[i]);
+        for (i = 0; i < 4; i++) FreeDigit(frm, kYear[i], i);
+        for (i = 0; i < 2; i++) FreeDigit(frm, kMonth[i], 4 + i);
+        for (i = 0; i < 2; i++) FreeDigit(frm, kDay[i], 6 + i);
+        FtrUnregister(HACK_CREATOR, FTR_LABELS);
         break;
     }
     case ctlRepeatEvent:

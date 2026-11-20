@@ -20,7 +20,7 @@ by a reset. Paths below are relative to `hackmaster_y2035/apps/Bkp1/`.
 **Files.**
 
 ```
-Src/bkp1.c              UI (backup list, progress form, Settings form), startup, end-of-restore report
+Src/bkp1.c              UI (backup list, progress form, Preferences form), startup, end-of-restore report
 Src/ops.c               backup / restore / delete / rename / enumerate over VFS; scan + selective restore
 Src/choose.c, choose.h  selective restore: grouping by owner, presets, the chooser screens (§4)
 Src/VfsExportImport.c   one database <-> one file (thin wrapper, progress callbacks)
@@ -203,8 +203,8 @@ sources still compile with CodeWarrior.
 | Alert 1003 | *Everything* / *Choose...* / *Cancel* |
 | Form 1100 | "Choose what to restore": group list, summary field, "Tick:" preset popup, *Restore* / *Files...* / *Cancel* |
 | Form 1110 | one group's files, *Done* |
-| Form 1003 | Backup > Settings: "Device Name:" popup (*Not Set*, device folders, *Other*), name field, *OK* / *Cancel* (§10) |
-| Menu item 1004 | Backup > Settings... (§10) |
+| Form 1003 | Options > Preferences: "Device Name:" popup (*Not Set*, device folders, *Other*), name field, *OK* / *Cancel* (§10) |
+| Menu item 1004 | Options > Preferences... /R (§10; was Backup > Settings..., moved in the UI round) |
 
 ## 7. Test and support files added
 
@@ -265,7 +265,7 @@ skipped files.
 
 So that backups of several devices on one card can be told apart.
 
-- **Backup > Settings...** opens a bottom-aligned form: label `Device Name: `, a popup listing
+- **Options > Preferences...** (was Backup > Settings...) opens a bottom-aligned form: label `Device Name: `, a popup listing
   *Not Set*, the device folders on the selected card (sorted; plus the saved name if it has no
   folder yet), and *Other*, with a text field below. Picking a folder shows its name, read-only.
   *Other* clears the field and makes it editable; *OK* is refused until it holds a usable folder
@@ -276,7 +276,7 @@ So that backups of several devices on one card can be told apart.
 - **The main list** walks two levels: a folder holding folders is a device folder and each backup
   in it is listed as `<name>/<date time>`; a folder holding files is a backup made without a name
   and is listed as before. An empty folder counts as a device folder and is not listed (it still
-  appears in the Settings popup). Sorting is unchanged (alphabetical, so grouped by device).
+  appears in the Preferences popup). Sorting is unchanged (alphabetical, so grouped by device).
 - **Rename** edits only the backup's own name (the part after the `/`); the backup stays in its
   device folder. Names are checked with the same rule as above.
 - **Delete** removes the backup; its device folder stays, even when empty.
@@ -306,3 +306,37 @@ card), Bkp1 sees it as any other expansion card, named `ESP32` (from the volume 
   `/PALM/PROGRAMS/INSTALL` and `SASD`. Restore with Bkp1 itself.
 - No change to Bkp1 was needed for any of this.
 
+
+## 12. Review fixes (2026-11-17)
+
+- **Rename > Cancel no longer resets the device.** `uiPrvOpRename` locked the name's handle only when OK
+  was tapped but unlocked it either way, so Cancel ended in `MemoryMgr.c, Line:5281, Chunk under-locked`
+  (a fatal alert). This was in the original 1.2 as well. The unlock is now inside the OK branch.
+  Reproduced and verified in POSE64 with the embedded-backup build (§7).
+- **Delete has no shortcut** (was /D): it removes a whole backup at once, so it is only reached from the
+  menu or the button. No confirmation was added (user decision).
+- **Rename and Preferences dialogs: OK on the left, Cancel on the right**, as in the ROM apps (Cancel stays
+  the default button).
+- **An Edit menu** (`MENU 1001`: Undo, Cut, Copy, Paste, Select All, Keyboard, Graffiti Help) on both
+  dialogs, handled by `uiPrvEditMenu`; opened with the silkscreen Menu icon. The Rename field is
+  single-line and opens with the cursor in it and the name selected.
+- "Rename" in the menu is "Rename..."; the unused `uiPrvObjectHide` / `uiPrvObjectShow` are removed; the
+  "skip self" comment on `DmNumDatabases(0) - 1` in `backupDo` is corrected: Bkp1 itself is skipped by
+  its ID, and the last index is a ROM database (RAM databases are listed first; checked in POSE64 with a
+  probe app), so nothing in RAM is missed.
+
+## 13. UI round (2026-11-18)
+
+Layout matched to the ROM apps, like the rest of the suite.
+
+- **Main form:** *Backup*, *Delete*, *Restore* on the ROM bottom row (y=147 from x=1, 4 px apart); the
+  list ends 8 px above it (still 11 rows).
+- **Progress form:** rows from y=17, the bar (drawn in `uiProgressUpdate`) at y=64, *Cancel* 37 wide,
+  centred, 5 px above the bottom; even 7-8 px gaps.
+- **Rename and Preferences:** dialog layout (items from x=5 to 151, first row y=20, *OK* / *Cancel* at
+  5 / 48, 37 wide, bottom aligned). The Graffiti indicator was drawn over *Cancel*; it now sits at the
+  right (x=143), centred on the buttons.
+- **Choose what to restore:** picker-style bottom row (y=141, *Cancel* at the list's right edge, buttons
+  37 wide); the list shows 8 rows (was 9) so every gap is 6 px.
+- **File list:** picker style, list (2,16,152,121) 11 rows, *Done* at the list's left edge.
+- **Menu:** *Settings...* is now **Options > Preferences... /R** like the ROM apps; *Restore* loses /R.

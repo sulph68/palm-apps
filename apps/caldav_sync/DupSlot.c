@@ -30,8 +30,8 @@ static Boolean DupRekey(UInt32 field, UInt8 from, UInt8 to, UInt8 *buf, UInt16 l
 {
 	if (len == 0)
 		return true;
-	return (Boolean) (CDDVCryptBytes(field, (UInt32) from, buf, len) &&
-		CDDVCryptBytes(field, (UInt32) to, buf, len));
+	return (Boolean) (CDDVCryptBytes(ENC_STORE_CDDV, field, (UInt32) from, buf, len) &&
+		CDDVCryptBytes(ENC_STORE_CDDV, field, (UInt32) to, buf, len));
 }
 
 /* slot i's alias in plain text ("" if empty) */

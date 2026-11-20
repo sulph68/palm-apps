@@ -17,10 +17,14 @@
 #define itemOptionsPrefs			1005
 #define itemOptionsAbout			1006
 #define itemOptionsSecurity			1007
+#define itemOptionsManageDb			1010
 #define MainProgressMessageGadget	1008
 #define MainProgressBarGadget 		1009
 	
 #define bmpMainKeyBitmap			1000
+#define bmpReadOnly					1001	/* no-entry sign: read-only memo */
+#define bmpRomChip					1002	/* chip: memo in ROM */
+#define bmpDbIcon					1003	/* database: memo in a user database */
 
 /* Edit form */
 
@@ -62,6 +66,37 @@
 #define btnDetailsDelete			3006
 
 #define strDetailsHelpString		3000
+#define popDetailsDb				3007
+#define lstDetailsDb				3008
+#define chkDetailsReadOnly			3009
+#define lblDetailsProt				3010
+#define lblDetailsCreated			3011
+#define lblDetailsModified			3012
+
+/* Manage Databases form (Options menu) */
+#define frmManageDbForm				3100
+#define lstManageDb					3101
+#define lblManageMemos				3102
+#define lblManageSize				3103
+#define lblManageLoc				3104
+#define btnManageDone				3105
+#define btnManageNew				3106
+#define btnManageRename				3107
+#define btnManageDelete				3108
+
+/* New / Rename Database dialog */
+#define frmDbNameForm				3200
+#define fldDbName					3201
+#define btnDbNameOK					3202
+#define btnDbNameCancel				3203
+
+/* Security form (Options menu) */
+#define frmSecurityForm				3300
+#define lblSecDevice				3301
+#define popSecPrivacy				3302
+#define lstSecPrivacy				3303
+#define btnSecOK					3304
+#define btnSecCancel				3305
 
 /* Password form */
 
@@ -71,6 +106,7 @@
 #define btnPasswordOK				4002
 #define btnPasswordCancel			4003
 #define btnPasswordForget			4004
+#define chkPasswordShow				4005
 
 #define strPasswordHelpString		4000
 
@@ -119,6 +155,7 @@
 #define fldQueryGlobalPasswordText	8001
 #define btnQueryGlobalPasswordOK	8002
 #define btnQueryGlobalPasswordCancel 8003
+#define chkQueryGlobalPasswordShow	8004
 
 /* SetGlobalPassword form */
 
@@ -127,6 +164,7 @@
 #define fldSetAndChangeGlobalPasswordText	9001
 #define btnSetAndChangeGlobalPasswordOK	9002
 #define btnSetAndChangeGlobalPasswordCancel	9003
+#define chkSetAndChangeGlobalPasswordShow	9004
 
 #define strSetGlobalPasswordHelpString 9000
 
@@ -145,10 +183,7 @@
 
 /* Progress form */
 
-#define frmProgressForm				1300
 
-#define gadProgressMessage			1301
-#define gadProgressBar				1302
 
 /* Miscellaneous */
 
@@ -158,7 +193,6 @@
 #define altRemovePasswdAlert				4000
 #define altRomIncompatibleAlert				5000
 #define altAlphabeticSortAlert				6000
-#define altUseNoGlobalPasswordAlert			7000
 #define altInvalidGlobalPasswordAlert 		8000
 #define altEncryptRecordWithGlobalPasswordAlert 9000
 #define altEncryptCategoryWithGlobalPasswordAlert 1100
@@ -169,7 +203,9 @@
 #define altCategoryAlreadyDecryptedAlert	1600
 #define altChangeTableFontOfCategoryAllAlert 1700
 #define altUseSingleFontAlert				1800
-#define altBeamCryptoDataAlert				1900
+#define altBeamPlainWarn					1900
+#define altBeamCategorySkipped				2965
+#define altBeamCategoryAllPassword			2966
 #define altMoveRecordOnTopImpossibleAlert	2100
 #define altMigrateMemoPadAlert				2950
 
@@ -177,14 +213,11 @@
 #define strCryptoHeader						10
 #define strGlobalPasswordUnassigned			20
 #define strGlobalPasswordAssigned			30
-#define strProgressEncryption				40
-#define strProgressDecryption				50
 #define strDeleteForgottenPassword		 	60
 #define strBeamDescription 					70
 #define strBeamFilename 					80
 #define strMenuSecurityItem					90
 #define strSynchroniseFont					100
-#define altDebugAlert						20
 
 /* CryptoNote: card browser icons (Tbmp). Encrypted files reuse the existing
  * CryptoPad key icon (bmpMainKeyBitmap), drawn right-aligned like DB records. */
@@ -204,9 +237,8 @@
 #define fldCardPassword				1501
 #define btnCardPasswordOK			1502
 #define btnCardPasswordCancel		1503
+#define chkCardPasswordShow			1504
 #define altCardBadPassword			2400
-#define altCardReencrypt			2500
-#define altCardDeletePlain			2600
 #define altCardTooLarge				2700
 #define altCardNoBeam				2800
 #define altCardEncAll				2900
@@ -215,6 +247,20 @@
 #define altCardImportFailed			2962
 #define altCardOpenFailed			2963
 #define altRecordTooLargeToEdit		2964
+/* Databases, read-only memos (2026-11-19) */
+#define altMemoReadOnly				3400
+#define altMemoInRom				3401
+#define altDbNameEmpty				3402
+#define altDbNameBad				3403
+#define altDbNameUsed				3404
+#define altDbTooMany				3405
+#define altDbCreateFailed			3406
+#define altDbMainFixed				3407
+#define altDbInRom					3408
+#define altDeleteDbConfirm			3409
+#define altMoveFailed				3410
+#define altMoveIntoRom				3411
+#define altMoveNeedGlobal			3412
 
 /* Numeric keypad for Password form entry (Preferences > Password Type in
  * Sec35, shared cross-app via EncGetPasswordEntryType -- see PasswordForm.c).

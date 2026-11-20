@@ -72,6 +72,8 @@ Boolean	A35LaunchGate(void) SEC001;
 /* Phone Lookup (Lookup.c): sysAppLaunchCmdLookup handler, NewGlobals sublaunch
  * only. Sets params->uniqueID = a35LookupLockedID when Sec35 must unlock first. */
 UInt32	A35PhoneLookup(AddrLookupParamsPtr params) SEC002;
+struct EncRekeyParamTag;
+void	A35Rekey(struct EncRekeyParamTag *p) SEC002;	/* A35Rekey.c: kSecLaunchRekey */
 
 /* ---- MainForm.c -------------------------------------------------------- */
 Boolean	MainFormHandleEvent(EventPtr eventP);
@@ -94,7 +96,6 @@ Int16	A35PickList(const char *title, const char *const *items, UInt16 count,
 			Int16 initial) SEC001;
 /* *labelP in/out = a35elXxx email label (Home/Work/iCloud/Other) */
 Boolean	EditEmailDialog(char *value, UInt16 maxLen, UInt8 *labelP) SEC001;
-const char *EditEmailLabelName(UInt8 sub) SEC001;	/* email label name */
 Boolean	EditSocialDialog(char *value, UInt16 maxLen, UInt8 *subP) SEC001;
 /* value = the bare phone number (no dial code); *dialP = country index (0=None) */
 Boolean	EditPhoneDialog(char *value, UInt16 maxLen, UInt8 *dialP) SEC001;
@@ -105,6 +106,10 @@ Boolean	EditNoteDialog(MemHandle *noteH) SEC001;
 const char *A35DialCode(Int16 idx) SEC002;
 Int16	A35DialIndexOf(const char *code) SEC002;
 Int16	A35DialPickList(Int16 initial) SEC002;
+/* Cut s (in place, needs one spare byte) to fit maxW px in stdFont, ending in "..." */
+void	A35FitText(char *s, Int16 maxW) SEC002;
+/* Move the form's Graffiti state indicator (it has no ID) to x,y */
+void	A35PlaceGsi(FormPtr f, Coord x, Coord y) SEC002;
 Boolean	EditDateDialog(char *value, UInt16 maxLen, Boolean isAnniv,
 			UInt8 *typeP, const char *title) SEC001;
 /* value in/out = target record's unique id (decimal string); *relTypeP = a35relXxx.

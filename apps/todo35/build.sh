@@ -30,7 +30,7 @@ SOURCES="ToDo ToDoDB ToDoTransfer"
 for base in $SOURCES; do
   $CC $CFLAGS -c "Src/$base.c" -o "$B/$base.o"
 done
-for f in "$LIB/datepick.c" "$LIB/datelib.c" "$LIB/hackcheck.c" "$LIB/era.c" "$LIB/edate.c" "$LIB/catsync.c" "$LIB/todoext.c" "$LIB/enccore.c" "$LIB/aes.c" "$LIB/a35lookup.c"; do
+for f in "$LIB/datepick.c" "$LIB/datelib.c" "$LIB/hackcheck.c" "$LIB/era.c" "$LIB/edate.c" "$LIB/catsync.c" "$LIB/todoext.c" "$LIB/enccore.c" "$LIB/encrekey.c" "$LIB/aes.c" "$LIB/a35lookup.c"; do
   $CC $CFLAGS -c "$f" -o "$B/$(basename "${f%.c}").o"
 done
 

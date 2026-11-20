@@ -5,7 +5,7 @@
        PRC = wirsacontrol.prc
          B = build
 
-      OBJS = $(B)/WiRSaControl.o $(B)/Modes.o $(B)/Wifi.o $(B)/Setup.o $(B)/Log.o \
+      OBJS = $(B)/WiRSaControl.o $(B)/Modes.o $(B)/Wifi.o $(B)/Setup.o $(B)/Log.o $(B)/Format.o \
              $(B)/wirsactl.o $(B)/relayproto.o $(B)/relaywire.o $(B)/relaysec.o $(B)/aes.o
 
   INCLUDES = $(shell find $(HOME)/palmos_sdk/palm-os-sdk/sdk-4/include -type d | sed 's/^/-I/' | tr '\n' ' ') -I../lib -I.

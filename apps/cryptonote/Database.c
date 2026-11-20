@@ -2,6 +2,8 @@
 
 #include "Database.h"
 #include "CryptoSec35.h"
+#include "SecDb.h"
+#include "ViewList.h"
 
 #include <SysEvtMgr.h> 	//	Needed for search for EvtSysEventAvail
 
@@ -217,7 +219,6 @@ static void InitAppInfoBlock(DmOpenRef dbP,
 
 	MemHandle handle;
 	ApplicationInfoPtr appInfoP;
-	ApplicationInfoPtr initAppInfoP;
 
 	
 	/* Create the new AppInof block if it does not exit
@@ -562,14 +563,10 @@ void SynchroniseTableFontForCurrentCategory(void)
 static void SynchroniseTableFontForCurrentCategoryByRef(DmOpenRef dbRef)
 {
 	UInt16 recordNum = 0;
-	UInt16 fontRecordNum;
 
-	MemHandle handle;
-	FontRecordPtr fontRecordP;
 
 	UInt32 recordID;
 	Err err;
-	Err err2;
 
 	err = DmSeekRecordInCategory (dbRef, &recordNum, 
 			0, dmSeekForward, currentCategory);
@@ -690,7 +687,6 @@ void CreateFontRecord(DmOpenRef dbRef, UInt32 recordID)
 
 void DeleteFontRecord(DmOpenRef dbRef, UInt32 recordID)
 {
-	UInt16 index;
 	UInt16 fontRecordNum = 0;
 
 	MemHandle handle;
@@ -744,6 +740,16 @@ Boolean SetOrGetRecordFont(DmOpenRef dbRef, UInt32 recordID,
 
 	Err		err;
 	Err		err2;
+
+	/* Per-memo fonts are kept for the main and Memo Pad databases only (the
+	 * font records key on unique IDs, which repeat across databases). */
+	if (dbRef != dbMemoPadRef && dbRef != dbMainRef) {
+		if (SetOrGet == getFont) {
+			currentTableFont = stdFont;
+			currentFieldFont = stdFont;
+		}
+		return (true);
+	}
 
 	err2 = DmSeekRecordInCategory (dbCryptoFontRef, 
 		&fontRecordNum, 0, dmSeekForward, dmAllCategories);
@@ -861,6 +867,7 @@ void ChangeCategory (UInt16 category)
 	currentCategory = category;
 	topRecord = 0;
 	topDB = memoPadDB;
+	ViewInvalidate();
 }
 
 /**************************************
@@ -896,7 +903,10 @@ Boolean CreateRecord(void)
 	UInt32 recordID;
 	FontID currentFont = currentTableFont;
 
+	/* new memos go to the main database (Memo Details > Database moves them) */
 	currentDB = cryptoPadDB;
+	SrcSelect(cryptoPadDB);
+	ViewInvalidate();
 
 	/* Db35-suite-style Sec35 wrap: "New" used to create every fresh memo
 	 * in the ROM's plain MemoPad DB first (pre-dating the Sec35 retrofit) --
@@ -1122,7 +1132,10 @@ void Search (FindParamsPtr findParams, Boolean appIsActive)
 	if ((findParams->newSearch) || !appIsActive) {
 		dbID = memoPadDbID;
 		findDB = memoPadDB;
-   	} else dbID = findParams->appDbID;
+   	} else {
+		dbID = findParams->appDbID;
+		findDB = (dbID == memoPadDbID) ? memoPadDB : ((dbID == cryptoPadDbID) ? cryptoPadDB : 2);
+	}
 
    // Open the Memo database.
    dbP = DmOpenDatabase(cardNum, dbID, findParams->dbAccesMode);
@@ -1168,16 +1181,31 @@ void Search (FindParamsPtr findParams, Boolean appIsActive)
 
 		recordH = DmQueryNextInCategory (dbP, &recordNum, dmAllCategories);
 
-		// Have we run out of records?
-		if ((! recordH) && (appIsActive)) {
-				if ((dbID == memoPadDbID) && (globalPasswordP != 0)) {
-					DmCloseDatabase (dbP);
-					dbID = cryptoPadDbID;
-					recordNum = 0;
-					findDB = cryptoPadDB;
-					dbP = DmOpenDatabase(cardNum, dbID, findParams->dbAccesMode);
-					recordH = DmQueryNextInCategory (dbP, &recordNum, dmAllCategories);
+		// Have we run out of records? While CryptoNote runs, go on into the
+		// main database and then the user databases (CryptoNoteDB_*).
+		while ((! recordH) && (appIsActive)) {
+				LocalID nextID = 0;
+				if (dbID == memoPadDbID) nextID = cryptoPadDbID;
+				else {
+					DmSearchStateType st;
+					Boolean first = true, takeNext = (dbID == cryptoPadDbID);
+					UInt16 c;
+					LocalID id;
+					while (DmGetNextDatabaseByTypeCreator (first, &st, secDbType,
+							cryptoPadCreator, false, &c, &id) == errNone) {
+						first = false;
+						if (takeNext) { nextID = id; break; }
+						if (id == dbID) takeNext = true;
+					}
 				}
+				if (! nextID) break;
+				DmCloseDatabase (dbP);
+				dbID = nextID;
+				recordNum = 0;
+				findDB = (dbID == cryptoPadDbID) ? cryptoPadDB : 2;
+				dbP = DmOpenDatabase(cardNum, dbID, findParams->dbAccesMode);
+				if (! dbP) { findParams->more = false; return; }
+				recordH = DmQueryNextInCategory (dbP, &recordNum, dmAllCategories);
 		}
 
 	 	if (! recordH){
@@ -1237,7 +1265,7 @@ void Search (FindParamsPtr findParams, Boolean appIsActive)
 
 		MemHandleUnlock(recordH);
 
-		if (dbID == cryptoPadDbID) {
+		if (dbID != memoPadDbID) {
 			DmReleaseRecord(dbP, recordNum, false);
 		}
 
@@ -1268,6 +1296,12 @@ void GoToItem (GoToParamsPtr goToParams, Boolean launchingApp)
 
 	recordNum = goToParams->recordNum;
 	currentDB = goToParams->matchCustom;
+	/* a user database: find its source by the database ID */
+	if (currentDB > cryptoPadDB) {
+		UInt8 s = SrcOfDbID (goToParams->dbID);
+		currentDB = (s == 0xFF) ? cryptoPadDB : s;
+	}
+	SrcSelect (currentDB);
 	
 	//   vvvvvvvvv----DmRecordInfo is side effect of that if statement
 

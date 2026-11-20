@@ -74,7 +74,11 @@ void SetFieldEdit(UInt16 id, const char *text)
 	StrCopy((char *) MemHandleLock(h), text);
 	MemHandleUnlock(h);
 	FldSetTextHandle(fld, h);
-	if (old) MemHandleFree(old);
+	if (old) {							/* wiped: it may have held a shown password */
+		MemSet(MemHandleLock(old), (Int32) MemHandleSize(old), 0);
+		MemHandleUnlock(old);
+		MemHandleFree(old);
+	}
 	FldRecalculateField(fld, true);
 	if (FrmVisible(FrmGetActiveForm()))
 		FldDrawField(fld);
@@ -92,6 +96,13 @@ void GetFieldEdit(UInt16 id, char *out, UInt16 cap)
 
 /* ---- masked password fields --------------------------------------------- */
 
+/* Like the suite's other password fields: '*'s, the character just typed in clear for a second (gMaskReveal),
+ * Show reveals it all. EventLoop wakes up for the reveal and MaskRevealTick masks it again. */
+#define kMaskRevealTicks	(SysTicksPerSecond())
+static WCMasked *gMaskReveal = NULL;		/* the field whose last character is shown */
+static UInt32 gMaskRevealUntil = 0;			/* tick it is masked again, 0 = none */
+static WCMasked *gMaskActive = NULL;		/* the masked field of the open form (MaskUse) */
+
 void MaskRedraw(WCMasked *m)
 {
 	char disp[65];
@@ -99,10 +110,92 @@ void MaskRedraw(WCMasked *m)
 	FieldPtr fld = GetField(m->fieldID);
 
 	for (i = 0; i < len; i++)
-		disp[i] = m->show ? m->real[i] : '*';
+		disp[i] = (m->show || (m == gMaskReveal && i == len - 1)) ? m->real[i] : '*';
 	disp[len] = '\0';
 	SetFieldEdit(m->fieldID, disp);
 	FldSetInsPtPosition(fld, len);
+	MemSet(disp, sizeof(disp), 0);
+}
+
+static void MaskRevealStop(void)
+{
+	gMaskReveal = NULL;
+	gMaskRevealUntil = 0;
+}
+
+static void MaskRevealTick(void)
+{
+	WCMasked *m = gMaskReveal;
+
+	if (! gMaskRevealUntil || TimGetTicks() < gMaskRevealUntil) return;
+	MaskRevealStop();
+	if (m) MaskRedraw(m);
+}
+
+void MaskShow(WCMasked *m, Boolean on)
+{
+	m->show = on;
+	MaskRevealStop();
+	MaskRedraw(m);
+}
+
+/* The form is going (FrmReturnToForm sends no close event, so callers do this first): the field's text is
+ * wiped, not just freed with the form. frm is the form that holds the field. */
+void MaskEnd(WCMasked *m, FormPtr frm)
+{
+	FieldPtr fld;
+	MemHandle h;
+	UInt16 ix;
+
+	if (gMaskReveal == m) MaskRevealStop();
+	if (gMaskActive == m) gMaskActive = NULL;
+	if (! frm || ! m->fieldID) return;
+	ix = FrmGetObjectIndex(frm, m->fieldID);
+	if (ix == frmInvalidObjectId) return;
+	fld = (FieldPtr) FrmGetObjectPtr(frm, ix);
+	h = FldGetTextHandle(fld);
+	if (h) {
+		MemSet(MemHandleLock(h), (Int32) MemHandleSize(h), 0);
+		MemHandleUnlock(h);
+	}
+}
+
+/* The on-screen keyboard (Edit > Keyboard, or "abc"/"123" in the Graffiti area) edits the field's text
+ * directly, without key events, so MaskKey never saw it and m->real kept its old value. Open the keyboard on
+ * the real text ourselves (shown in clear while the keyboard is up) and take the result back, masked again. */
+void MaskUse(WCMasked *m) { gMaskActive = m; }
+
+static void MaskKeyboardRun(WCMasked *m, UInt16 kbd)
+{
+	FieldPtr fld = GetField(m->fieldID);
+	Char *t;
+
+	MaskRevealStop();
+	SetFieldEdit(m->fieldID, m->real);
+	SysKeyboardDialog((KeyboardType) kbd);
+	t = fld ? FldGetTextPtr(fld) : NULL;
+	StrNCopy(m->real, t ? t : "", sizeof(m->real) - 1);
+	m->real[sizeof(m->real) - 1] = '\0';
+	MaskRedraw(m);
+}
+
+/* Event loop, before SysHandleEvent (which would open the keyboard on the masked text itself). */
+static Boolean MaskKeyboardEvent(EventPtr e)
+{
+	FormPtr frm;
+	UInt16 focus;
+	WChar c;
+
+	if (e->eType != keyDownEvent || ! gMaskActive || ! (e->data.keyDown.modifiers & commandKeyMask)) return false;
+	c = e->data.keyDown.chr;
+	if (c != vchrKeyboard && c != vchrKeyboardAlpha && c != vchrKeyboardNumeric) return false;
+	frm = FrmGetActiveForm();
+	if (! frm) return false;
+	focus = FrmGetFocus(frm);
+	if (focus == noFocus || FrmGetObjectId(frm, focus) != gMaskActive->fieldID) return false;
+	MaskKeyboardRun(gMaskActive, c == vchrKeyboardNumeric ? kbdNumbersAndPunc :
+		(c == vchrKeyboardAlpha ? kbdAlpha : kbdDefault));
+	return true;
 }
 
 /* Append/backspace only, like Bitwarden's unlock dialog. */
@@ -113,6 +206,7 @@ Boolean MaskKey(WCMasked *m, EventPtr e)
 
 	if (c == chrBackspace) {
 		if (len > 0) m->real[len - 1] = '\0';
+		MaskRevealStop();
 		MaskRedraw(m);
 		return true;
 	}
@@ -120,6 +214,8 @@ Boolean MaskKey(WCMasked *m, EventPtr e)
 		if (len < sizeof(m->real) - 1) {
 			m->real[len] = (char) c;
 			m->real[len + 1] = '\0';
+			gMaskReveal = m;
+			gMaskRevealUntil = TimGetTicks() + kMaskRevealTicks;
 			MaskRedraw(m);
 		}
 		return true;
@@ -135,7 +231,17 @@ Boolean EditMenu(UInt16 itemID, WCMasked *masks, UInt16 nMasks)
 	FieldPtr fld;
 	UInt16 i;
 
-	if (itemID == mniEditKeyboard) { SysKeyboardDialog(kbdDefault); return true; }
+	if (itemID == mniEditKeyboard) {
+		/* a masked field: the keyboard works on the real text (see MaskKeyboardRun) */
+		if (focus != noFocus)
+			for (i = 0; i < nMasks; i++)
+				if (FrmGetObjectId(frm, focus) == masks[i].fieldID) {
+					MaskKeyboardRun(&masks[i], kbdDefault);
+					return true;
+				}
+		SysKeyboardDialog(kbdDefault);
+		return true;
+	}
 	if (itemID == mniEditGraffiti) { SysGraffitiReferenceDialog(referenceDefault); return true; }
 	if (focus == noFocus) return true;
 	if (FrmGetObjectType(frm, focus) != frmFieldObj) return true;
@@ -147,6 +253,7 @@ Boolean EditMenu(UInt16 itemID, WCMasked *masks, UInt16 nMasks)
 			UInt16 clipLen;
 			MemHandle h = ClipboardGetItem(clipboardText, &clipLen);
 			UInt16 len = (UInt16) StrLen(masks[i].real);
+			MaskRevealStop();
 			if (h && clipLen) {
 				char *p = (char *) MemHandleLock(h);
 				if (clipLen > sizeof(masks[i].real) - 1 - len)
@@ -447,22 +554,45 @@ static void MainFillNotFound(UInt8 r)
 	SysStringByIndex(strMainNotes, note, gTxtNote, sizeof(gTxtNote));
 }
 
-/* Port open, WiRSa answered a PING. If WiRSa's menu runs at 9600 (just
- * booted, or another Palm brought it there) and this Palm prefers more, ask
- * WiRSa to move the menu up (SPEED). A rate that failed or gained nothing
- * isn't asked for again until Preferences or Find WiRSa. */
+/* The next lower rate to try when one fails (0 = none left above 9600). */
+static UInt32 SpeedLower(UInt32 b)
+{
+	if (b > 57600) return 57600;
+	if (b > 38400) return 38400;
+	if (b > 28800) return 28800;
+	if (b > 19200) return 19200;
+	if (b > 14400) return 14400;
+	return 0;
+}
+
+/* The lowest rate that failed while the app has been open (0 = none): only rates below it are tried, so a rate
+ * this Palm or the line cannot carry costs one try per run, not one per refresh. Not saved. */
+static UInt32 gSpeedBad = 0;
+
+void SpeedRetry(void)
+{
+	gSpeedBad = 0;
+}
+
+/* Port open, WiRSa answered a PING. If WiRSa's menu runs at 9600 (just booted or woke from deep sleep, or
+ * another Palm brought it there) and this Palm prefers more, ask WiRSa to move the menu up (SPEED): the
+ * Preferred Baud, and if that fails the next lower rates down to 14400. */
 static void SpeedUp(void)
 {
-	UInt32 got;
+	UInt32 got, rate;
 
-	if (gPrefs.preferredBaud <= rpBaudIdle || gPrefs.speedSkip == gPrefs.preferredBaud)
+	if (gPrefs.preferredBaud <= rpBaudIdle)
 		return;
 	if (! (gWCtlInfo.flags & wctlFlagSpeed) || gWCtlInfo.mode != 'M' || gWCtlInfo.menuBaud != rpBaudIdle)
 		return;
-	if (WCtlSetSpeed(gPrefs.preferredBaud, &got) == wctlOk && got != rpBaudIdle)
-		gWCtlMenuBaud = got;
-	else
-		gPrefs.speedSkip = gPrefs.preferredBaud;
+	for (rate = gPrefs.preferredBaud; rate > rpBaudIdle; rate = SpeedLower(rate)) {
+		if (gSpeedBad && rate >= gSpeedBad) continue;
+		if (WCtlSetSpeed(rate, &got) == wctlOk && got != rpBaudIdle) {
+			gWCtlMenuBaud = got;
+			return;
+		}
+		gSpeedBad = rate;
+	}
 }
 
 /* Short rate text (115.2k) for the busy box. */
@@ -631,9 +761,9 @@ Boolean PrefsHandleEvent(EventPtr e)
 			rate = PrefsRateAt(LstGetSelection((ListPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, lstPrefsBaud))));
 			if (rate != gPrefs.preferredBaud) {
 				gPrefs.preferredBaud = rate;
-				gPrefs.speedSkip = 0;
 				PrefsSave();
 			}
+			SpeedRetry();
 			FrmReturnToForm(frmMain);
 			FrmUpdateForm(frmMain, updRefresh);	/* ask WiRSa now */
 			return true;
@@ -705,10 +835,11 @@ static Boolean MainHandleEvent(EventPtr e)
 		switch (e->data.menu.itemID) {
 		case mniMainFind:
 			gPrefs.lastMode = 0;
-			gPrefs.speedSkip = 0;		/* ask for the Preferred Baud again */
+			SpeedRetry();				/* ask for the Preferred Baud again */
 			MainRefresh(true, false);	/* every rate */
 			return true;
 		case mniMainReboot:
+			if (FrmAlert(altReboot) != 0) return true;
 			MainSimpleCommand(wctlTypeReboot, NULL, 0, "Rebooting WiRSa...", "WiRSa is restarting.");
 			return true;
 		case mniMainFactory:
@@ -716,12 +847,15 @@ static Boolean MainHandleEvent(EventPtr e)
 				MainSimpleCommand(wctlTypeFactory, (const UInt8 *) "RESET", 5,
 					"Resetting WiRSa...", "WiRSa settings were erased; it is restarting.");
 			return true;
+		case mniMainFormat:
+			FormatOpenFromMain();
+			return true;
 		case mniMainPrefs:
 			FrmPopupForm(frmPrefs);
 			return true;
 		case mniMainSystem:
 			SysOpenFromMain();
-			break;
+			return true;
 		case mniMainLogs:
 			LogOpenFromMain();
 			return true;
@@ -784,7 +918,14 @@ static void EventLoop(void)
 			wait = (Int32) (gNextAutoRefresh - TimGetTicks());
 			if (wait < 1) wait = 1;
 		}
+		if (gMaskRevealUntil) {					/* a password's typed character to mask */
+			Int32 w = (Int32) (gMaskRevealUntil - TimGetTicks());
+			if (w < 1) w = 1;
+			if (wait == evtWaitForever || w < wait) wait = w;
+		}
 		EvtGetEvent(&e, wait);
+		if (e.eType == nilEvent) MaskRevealTick();
+		if (MaskKeyboardEvent(&e)) continue;		/* on-screen keyboard over a masked field */
 		if (SysHandleEvent(&e)) continue;
 		if (MenuHandleEvent(0, &e, &err)) continue;
 		if (AppHandleEvent(&e)) continue;
@@ -796,6 +937,7 @@ UInt32 PilotMain(UInt16 cmd, MemPtr cmdPBP, UInt16 launchFlags)
 {
 	if (cmd == sysAppLaunchCmdNormalLaunch) {
 		PrefsLoad();
+		gPrefs.unused = 0;				/* an older build's saved skip: rates are tried again on every run */
 		FrmGotoForm(frmMain);
 		EventLoop();
 		FrmCloseAllForms();

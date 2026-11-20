@@ -297,6 +297,11 @@ controls. Beam **export** still writes an alarm token (harmless); **import**'s
 `TranslateAlarm` parses it but the app never fires. Flag any live alarm control if
 one appears.
 
+Bug-hunt clean-up (2026-11-16): the unbuilt `DateAlarm.c`/`.h`, the Reminder dialog
+(form 2000), the Invalid Alarm alert (2007), the alarm strings (1800, 2000, 2001), the
+Preferences alarm help (1812) and the AlarmPreset copy into new events were removed.
+The preferences struct keeps its ROM alarm fields (format compatibility only).
+
 ---
 
 ## 8. Day View & Agenda ↔ ToDo35 integration
@@ -638,7 +643,6 @@ apps/datebook35/
   Src/DateAgenda.{c,h}  agenda view + ToDo35 5-col table (sec003)
   Src/DatePref.{c,h}    Preferences dialog (sec002)
   Src/DateDisplay.{c,h} Display Options dialog (sec002)
-  Src/DateAlarm.{c,h}   alarm stubs (removed; ~empty)
   Src/DateTransfer.{c,h} beam SEND(sec003) + RECEIVE(main=SEC_RECV)
   Src/ToDoDB.{c,h}      shared To Do DB reader for the agenda (sec002)
   Src/DateDAV.{c,h}     read-only CalDAV Sync rows (CDDV mirror DB) for Day/Week/Month/
@@ -672,6 +676,21 @@ format is untouched, mirroring ToDo35's `todoext.c` extras-DB precedent
 (§8.1) rather than adding a new optional field to the appointment record.
 
 ### 13.1 Storage (`apps/lib/locdb.{c,h}`)
+
+**Encrypted at rest (2026-11-16).** Both databases hold addresses (an Address35
+pick is a full copy of the contact's address, which Address35 keeps encrypted), so
+while a Sec35 password is set the `DlxLocation` part of every record is AES-CTR
+encrypted with its own store key: `ENC_STORE_DBLOC` (`'DbLk'`, link records,
+`LinkRecord.reserved` bit 0, nonce `(apptUid, 'LK')`, same size) and
+`ENC_STORE_DBLHIST` (`'DbLh'`, history, one trailing marker byte, nonce
+`(record uid, 'LH')`). Written while locked = plaintext, sealed by `LocSealAll`
+from `ApptSealAllPlaintext` (launch and close). Locked reads: a link comes back
+masked (`"******"` name; the Day view shows no suffix for a masked row anyway);
+encrypted history entries are hidden from Previous Loc. Password set / change /
+removal / wipe: `LocRekey` from `ApptRekey`, rekey ordinals 1 and 2 after the
+appointments (0). `locdb.c` moved to **sec004** (`-DLOCDB_SEG_NAME=sec004`) for
+room. Behaviour is unchanged: a pick is still an independent copy, edits still go
+to `LocationsDB`, Address35 is only read.
 
 Two databases, both owned by Datebook35 (creator `'Db35'`), structurally
 cloning `todoext.c`'s `TdxGetDatabase`/`TdxGet`/`TdxSet` pattern:
@@ -1653,3 +1672,26 @@ text ("Ann Adams - 46th Birthday", "Bob Baker - 16th Wedding"; Other anniversari
   with correct ages, tapping one opens that contact in Address35, Done returns to the main list,
   and with Sec35 locked the tap shows the locked alert. Not exercised: Agenda view (same code path)
   and real iCloud data on a device.
+
+## 22. UI round (2026-11-18)
+
+- "Go to" back to the ROM Date Book's 28 px width in all four views.
+- **Date & Time:** rows 20/36, buttons 8 px below, bottom-anchored.
+- **Duplicate Event:** 8 px clear above and below the question, dialog 4 px shorter.
+- **About:** Address35's About layout.
+- **Location:** standard 37x12 OK/Clear/Cancel, 12 px top buttons, rows 14 apart, even 5-6 px gaps between the blocks.
+- **Address35/Country and Previous Locations pickers:** Address35's picker style (Cancel on the list's right edge, 2 px clear above and below, Find field to the buttons, no Graffiti indicator); Del moved left of Cancel.
+- Everything else already matched the ROM Date Book; Event Details unchanged.
+- **Graffiti indicator:** its middle lines up with the buttons' middle (y = button y + 1 for 12 px buttons). Full-screen forms put it 4 px from the screen's right edge (x=148), dialogs 5 px from the frame like the buttons (x=143); it keeps 4 px clear of anything to its right and at least 4 px from the item on its left. The glyph is 8 px wide in every state. In the Day view there are only 12 px between Go to and the scroll arrows, so it is centred there (x=138, 2 px each side) and the buttons stay where the ROM puts them.
+
+## Find crash from another app (fixed 2026-11-19)
+
+Global Find started from another app crashed in Datebook35 ("changed the emulated program counter to 0x0000185F").
+`Search()` runs in a no-globals Find launch, but `ApptGetRecord` decrypts through `ApptGetDecrypted`
+(ENCCORE segment, global buffer), neither of which exists there. `Search()` now takes `appIsActive`
+(`sysAppLaunchFlagSubCall`) and, when Datebook35 is not running, skips encrypted appointments
+(`ApptRecordIsEncrypted`, main segment, raw flag only). To make room in the full main segment, `DrawTime`
+moved to sec002 (only the Day and Agenda views call it).
+
+Still open (pre-existing): Find started inside Datebook35 does not match encrypted appointments either
+(seen with the build before this fix too).

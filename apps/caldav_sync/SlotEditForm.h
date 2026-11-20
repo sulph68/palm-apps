@@ -10,5 +10,7 @@
  * Sec35-encrypted) is written back into *s and this returns true. On
  * Cancel, *s is left untouched and this returns false. */
 Boolean SlotEditFormRun(CDDVSlot *s, UInt8 slotIdx) SEC001;
+/* Empty and zero every text field of a form before it is deleted (decrypted values). */
+void ZeroFormFields(FormPtr frm);
 
 #endif

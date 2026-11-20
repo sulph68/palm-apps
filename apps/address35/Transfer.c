@@ -39,7 +39,7 @@ void A35BeamRecord(DmOpenRef db, UInt16 index)
 	vclen = A35RecordToVCard(db, &rec, vc, a35VcardMax);
 	A35RecordDisplayName(db, index, desc, sizeof(desc));
 	A35ReleaseRecord(h);
-	if (vclen == 0) { MemPtrFree(vc); return; }
+	if (vclen == 0) { A35FreeWiped(vc); return; }
 
 	if (!desc[0]) StrCopy(desc, "Contact");
 	StrCopy(fname, desc);
@@ -58,7 +58,7 @@ void A35BeamRecord(DmOpenRef db, UInt16 index)
 		err = ExgSendAll(&sock, vc, vclen);
 		ExgDisconnect(&sock, err);
 	}
-	MemPtrFree(vc);
+	A35FreeWiped(vc);
 }
 
 void A35BeamCategory(DmOpenRef db, UInt16 category)
@@ -110,7 +110,7 @@ void A35BeamCategory(DmOpenRef db, UInt16 category)
 		}
 		index++;
 	}
-	MemPtrFree(vc);
+	A35FreeWiped(vc);
 	ExgDisconnect(&sock, err);
 }
 

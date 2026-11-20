@@ -48,6 +48,7 @@
 #define mniChatAll				3203
 #define mniChatDetail			3204
 #define mniChatClear			3205
+#define mniChatRead				3206	/* Mark all read: the open conversation */
 #define mniSendAlert			3210
 #define mniSendInfo				3211
 #define mniSendPos				3212
@@ -153,6 +154,7 @@
 #define lstChRole				1903
 #define fldChKey				1904
 #define fldChKeyNote			1905
+#define ckChKeyShow				1906	/* reveals fldChKey (unlabelled, no room) */
 #define btnChNewKey				1910
 #define btnChOk					1911
 #define btnChCancel				1912

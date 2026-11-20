@@ -8,6 +8,12 @@
 	.lcomm	__text__,4
 	.globl	__text__sec001
 	.lcomm	__text__sec001,4
+	.globl	__text__sec002
+	.lcomm	__text__sec002,4
+	.globl	__text__sec003
+	.lcomm	__text__sec003,4
+	.globl	__text__sec004
+	.lcomm	__text__sec004,4
 
 .text
 	.globl	_GccRelocateData

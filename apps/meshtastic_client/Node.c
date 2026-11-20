@@ -471,6 +471,138 @@ MC_SEC static void NewKey(char *out)
 	out[44] = '\0';
 }
 
+/* ---- channel key entry, masked like the suite's passwords: the field shows '*'s (the just-typed character in
+ * clear for a second), Show reveals it all; the real key lives only in gChKeyPlain, wiped with the field
+ * text when the form closes. Edits are append / backspace at the end; Copy, Cut and Paste work on the real key. */
+#define chKeyMax		44
+#define chKeyRevealSecs	1
+UInt32 gChKeyRevealUntil = 0;
+static char gChKeyPlain[chKeyMax + 1];
+static Boolean gChKeyShow = false, gChKeyRevealLast = false;
+
+MC_SEC static void ChKeyRedraw(void)
+{
+	FieldPtr fld = GetField(fldChKey);
+	UInt16 len = (UInt16) StrLen(gChKeyPlain), i, cur;
+	char disp[chKeyMax + 1];
+
+	for (i = 0; i < len; i++)
+		disp[i] = (char) ((gChKeyShow || (gChKeyRevealLast && i == len - 1)) ? gChKeyPlain[i] : '*');
+	disp[len] = '\0';
+	cur = FldGetTextLength(fld);
+	if (cur) { FldSetInsPtPosition(fld, cur); FldDelete(fld, 0, cur); }
+	if (len) FldInsert(fld, disp, len);
+	FldSetInsPtPosition(fld, len);
+	if (FrmVisible(FrmGetActiveForm())) FldDrawField(fld);
+	MemSet(disp, sizeof(disp), 0);
+}
+
+MC_SEC static void ChKeySet(const char *key)
+{
+	StrNCopy(gChKeyPlain, key, chKeyMax);
+	gChKeyPlain[chKeyMax] = '\0';
+	gChKeyRevealLast = false;
+	gChKeyRevealUntil = 0;
+	ChKeyRedraw();
+}
+
+MC_SEC void ChKeyRevealTick(void)
+{
+	if (gChKeyRevealUntil && TimGetTicks() >= gChKeyRevealUntil) {
+		gChKeyRevealUntil = 0;
+		gChKeyRevealLast = false;
+		ChKeyRedraw();
+	}
+}
+
+/* True if the key field has the focus. */
+MC_SEC static Boolean ChKeyFocused(void)
+{
+	FormPtr frm = FrmGetActiveForm();
+	UInt16 ix = FrmGetFocus(frm);
+	return (Boolean) (ix != noFocus && FrmGetObjectId(frm, ix) == fldChKey);
+}
+
+MC_SEC static Boolean ChKeyKeyDown(EventPtr e)
+{
+	WChar c = e->data.keyDown.chr;
+	UInt16 len = (UInt16) StrLen(gChKeyPlain);
+
+	if (c == chrBackspace) {
+		if (len) gChKeyPlain[len - 1] = '\0';
+		gChKeyRevealLast = false;
+		gChKeyRevealUntil = 0;
+		ChKeyRedraw();
+		return true;
+	}
+	if (TxtCharIsPrint(c) && c != ' ' && len < chKeyMax) {
+		gChKeyPlain[len] = (char) c;
+		gChKeyPlain[len + 1] = '\0';
+		gChKeyRevealLast = true;
+		gChKeyRevealUntil = TimGetTicks() + (SysTicksPerSecond() * chKeyRevealSecs);
+		ChKeyRedraw();
+		return true;
+	}
+	return false;
+}
+
+/* Copy / Cut / Paste on the key field act on the real key (the field only holds '*'s); Undo does nothing there. */
+MC_SEC static Boolean ChKeyEditMenu(UInt16 id)
+{
+	FieldPtr fld = GetField(fldChKey);
+	UInt16 a, b, len = (UInt16) StrLen(gChKeyPlain), i;
+
+	FldGetSelection(fld, &a, &b);
+	if (a > len) a = len;
+	if (b > len) b = len;
+	switch (id) {
+	case mniEditUndo:
+		return true;
+	case mniEditCopy:
+	case mniEditCut:
+		if (b <= a) return true;
+		ClipboardAddItem(clipboardText, &gChKeyPlain[a], (UInt16) (b - a));
+		if (id == mniEditCut) {
+			for (i = a; i + (b - a) <= len; i++) gChKeyPlain[i] = gChKeyPlain[i + (b - a)];
+			gChKeyRevealLast = false;
+			gChKeyRevealUntil = 0;
+			ChKeyRedraw();
+		}
+		return true;
+	case mniEditPaste: {
+		UInt16 clipLen;
+		MemHandle h = ClipboardGetItem(clipboardText, &clipLen);
+		const char *p;
+		if (! h || ! clipLen) return true;
+		p = (const char *) MemHandleLock(h);
+		for (i = 0; i < clipLen && len < chKeyMax; i++)
+			if (p[i] > ' ') gChKeyPlain[len++] = p[i];		/* no spaces or line breaks in a key */
+		gChKeyPlain[len] = '\0';
+		MemHandleUnlock(h);
+		gChKeyRevealLast = false;
+		gChKeyRevealUntil = 0;
+		ChKeyRedraw();
+		return true;
+	}
+	}
+	return false;
+}
+
+/* The form is closing: wipe the real key and the field's text. */
+MC_SEC static void ChKeyEnd(void)
+{
+	FieldPtr fld = GetField(fldChKey);
+	UInt16 cur = FldGetTextLength(fld);
+	MemHandle h;
+
+	if (cur) FldDelete(fld, 0, cur);
+	h = FldGetTextHandle(fld);
+	if (h) { MemSet(MemHandleLock(h), (Int32) MemHandleSize(h), 0); MemHandleUnlock(h); }
+	MemSet(gChKeyPlain, sizeof(gChKeyPlain), 0);
+	gChKeyShow = gChKeyRevealLast = false;
+	gChKeyRevealUntil = 0;
+}
+
 MC_SEC Boolean ChEditHandleEvent(EventPtr e)
 {
 	FormPtr frm;
@@ -481,7 +613,10 @@ MC_SEC Boolean ChEditHandleEvent(EventPtr e)
 		frm = FrmGetActiveForm();
 		SetFieldEdit(fldChName, gNodeCfg.chan[gChanSel].name);
 		SetPopup(popChRole, lstChRole, gNodeCfg.chan[gChanSel].role, gLabel1, sizeof(gLabel1));
-		SetFieldEdit(fldChKey, gNodeCfg.chan[gChanSel].key);
+		gChKeyShow = false;
+		CtlSetValue((ControlPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, ckChKeyShow)), 0);
+		SetFieldEdit(fldChKey, "");
+		ChKeySet(gNodeCfg.chan[gChanSel].key);
 		CtlSetValue((ControlPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, ckChUplink)), gNodeCfg.chan[gChanSel].link & 1 ? 1 : 0);
 		CtlSetValue((ControlPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, ckChDownlink)), gNodeCfg.chan[gChanSel].link & 2 ? 1 : 0);
 		SetFieldPtr(fldChKeyNote, "Empty key = AQ== (default). Primary name may be empty.");
@@ -497,9 +632,15 @@ MC_SEC Boolean ChEditHandleEvent(EventPtr e)
 		break;
 
 	case menuEvent:
+		if (ChKeyFocused() && ChKeyEditMenu(e->data.menu.itemID)) return true;
 		return EditMenu(e->data.menu.itemID);
 
+	case keyDownEvent:
+		if (ChKeyFocused() && ChKeyKeyDown(e)) return true;
+		break;
+
 	case frmCloseEvent:
+		ChKeyEnd();
 		FldSetTextPtr(GetField(fldChKeyNote), NULL);
 		break;
 
@@ -507,12 +648,19 @@ MC_SEC Boolean ChEditHandleEvent(EventPtr e)
 		switch (e->data.ctlSelect.controlID) {
 		case btnChNewKey:
 			NewKey(key);
-			SetFieldEdit(fldChKey, key);
+			ChKeySet(key);
+			MemSet(key, sizeof(key), 0);
+			return true;
+		case ckChKeyShow:
+			gChKeyShow = (Boolean) (e->data.ctlSelect.on != 0);
+			gChKeyRevealLast = false;
+			gChKeyRevealUntil = 0;
+			ChKeyRedraw();
 			return true;
 		case btnChOk: {
 			Int16 role = GetListSel(lstChRole);
 			GetFieldEdit(fldChName, name, sizeof(name));
-			GetFieldEdit(fldChKey, key, sizeof(key));
+			StrCopy(key, gChKeyPlain);		/* the real key: the field only shows '*'s */
 			if (role != 0 && gChanSel != 0 && ! name[0]) { Info("The channel needs a name.", NULL, NULL); return true; }	/* the primary's may be empty */
 			if (role != 0 && ! key[0]) StrCopy(key, "AQ==");								/* an empty key is the default one */
 			if (gChanSel == 0 && role != 1) { Info("Slot 0 is the primary channel.", NULL, NULL); return true; }
@@ -524,11 +672,13 @@ MC_SEC Boolean ChEditHandleEvent(EventPtr e)
 				(CtlGetValue((ControlPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, ckChDownlink))) ? 2 : 0));
 			gNodeCfg.chan[gChanSel].role = (UInt8) role;
 			gNodeCfg.dirty = true;
+			ChKeyEnd();					/* no frmCloseEvent with FrmReturnToForm */
 			FrmReturnToForm(frmChList);
 			FrmUpdateForm(frmChList, updRefresh);
 			return true;
 		}
 		case btnChCancel:
+			ChKeyEnd();					/* no frmCloseEvent with FrmReturnToForm */
 			FrmReturnToForm(frmChList);
 			return true;
 		}

@@ -9,7 +9,8 @@ static void PrvStreamFlush(StreamType *streamP) BEAM_SECTION;
 static UInt32 PrvStreamWrite(StreamType *streamP, const Char * stringP, Int32 length, Err *errP) BEAM_SECTION;
 static UInt32 WriteFunction(void * stream, const Char * const bufferP, Int32 length) BEAM_SECTION;
 static Err MemoSendRecordTryCatch (MemPtr, ExgSocketPtr) BEAM_SECTION;
-static Err MemoSendCategoryTryCatch (DmOpenRef dbP, UInt16 categoryNum, ExgSocketPtr exgSocketP, UInt16 index) BEAM_SECTION;
+static Err MemoSendCategoryTryCatch (DmOpenRef memoDb, DmOpenRef cryptoDb, UInt16 categoryNum, ExgSocketPtr exgSocketP) BEAM_SECTION;
+static Boolean BeamOpenNoSecret (DmOpenRef dbP, DmOpenRef* outP) BEAM_SECTION;
 
 
 /***********************************************************************
@@ -22,10 +23,39 @@ extern void MemoSendRecord (DmOpenRef dbP, Int16 recordNum)
 	Char * recordP;
 	MemHandle recordH = NULL;
 	MemHandle cryptoTextH = NULL;
+
+	// Db35-suite-style Sec35 wrap: a CryptoPad record is a packed
+	// PackedRecordType (possibly Sec35-ciphertext), never a plain
+	// C-string like a MemoPad record.
+	if (dbP == dbCryptoPadRef) {
+		if (! CryptoCopyTextToHandle (dbP, recordNum, &cryptoTextH)) return;
+		recordP = (Char *) MemHandleLock (cryptoTextH);
+	} else {
+		recordH = DmQueryRecord (dbP, recordNum);
+		recordP = MemHandleLock(recordH);
+	}
+
+	MemoSendText (recordP);
+
+	if (recordH) MemHandleUnlock(recordH);
+	if (cryptoTextH) {
+		MemSet (recordP, (Int32) MemHandleSize (cryptoTextH), 0);	/* plaintext copy */
+		MemHandleUnlock(cryptoTextH); MemHandleFree(cryptoTextH);
+	}
+}
+
+/***********************************************************************
+ * MemoSendText
+ * Beam one memo's text (for a memo with its own password: the decrypted
+ * text the edit form is showing, after the user agreed to send it as
+ * plain text). The text is not changed or stored.
+ ***********************************************************************/
+
+extern void MemoSendText (Char * recordP)
+{
 	Err error;
 	ExgSocketType exgSocket;
 
-	Boolean descriptionFit;
 	UInt16 descriptionSize;
 	Int16 descriptionWidth;
 	Int16 unused;
@@ -43,22 +73,9 @@ extern void MemoSendRecord (DmOpenRef dbP, Int16 recordNum)
 
 	// Form a description of what's being sent.  This will be displayed
 	// by the system send dialog on the sending and receiving devices.
-	//
-	// Db35-suite-style Sec35 wrap: a CryptoPad record is a packed
-	// PackedRecordType (possibly Sec35-ciphertext), never a plain
-	// C-string like a MemoPad record -- the caller (EditForm.c's
-	// itemRecordBeamMemo) already blocks beaming a layer-2-encrypted memo,
-	// but Sec35 wrapping is independent of that, so this is still needed.
-	if (dbP == dbCryptoPadRef) {
-		if (! CryptoCopyTextToHandle (dbP, recordNum, &cryptoTextH)) return;
-		recordP = (Char *) MemHandleLock (cryptoTextH);
-	} else {
-		recordH = DmQueryRecord (dbP, recordNum);
-		recordP = MemHandleLock(recordH);
-	}
 
 	// Set the description to be the beginning of the memo
-	exgSocket.description ; NULL;
+	exgSocket.description = NULL;
 	
 	// Set the exg description to the record's description.
 	descriptionSize = StrLen(recordP);
@@ -130,9 +147,6 @@ extern void MemoSendRecord (DmOpenRef dbP, Int16 recordNum)
 		DmReleaseResource(filenameH);
 	}
 
-	if (recordH) MemHandleUnlock(recordH);
-	if (cryptoTextH) { MemHandleUnlock(cryptoTextH); MemHandleFree(cryptoTextH); }
-
 	return;
 }
 
@@ -141,95 +155,89 @@ extern void MemoSendRecord (DmOpenRef dbP, Int16 recordNum)
  * Send all visible records in a category.  
  ***********************************************************************/
 
-extern void MemoSendCategory (DmOpenRef dbP, UInt16 categoryNum)
+/* Secret records are not sent with a category (they must be beamed one by
+ * one): if dbP shows them, open a second reference that doesn't. *outP is
+ * the reference to use; true = it was opened here (close it afterwards). */
+static Boolean BeamOpenNoSecret (DmOpenRef dbP, DmOpenRef* outP)
+{
+	UInt16	mode, cardNum = cardNo;
+	LocalID	dbID;
+
+	*outP = dbP;
+	DmOpenDatabaseInfo(dbP, &dbID, NULL, &mode, &cardNum, NULL);
+	if (! (mode & dmModeShowSecret)) return false;
+	*outP = DmOpenDatabase(cardNum, dbID, dmModeReadOnly);
+	if (! *outP) { *outP = dbP; return false; }
+	return true;
+}
+
+/***********************************************************************
+ * MemoSendCategory
+ * Send every memo of the category: the ones still in Memo Pad and the
+ * CryptoNote notes. A CryptoNote note with its own password is skipped
+ * (beam it on its own from the memo, which asks first); the user is told
+ * how many were skipped. Sec35 locked: hand off to Sec35 to unlock first.
+ ***********************************************************************/
+extern void MemoSendCategory (UInt16 categoryNum)
 {
 	Err error;
-   Char description[dmCategoryLength];
-	UInt16 index;
-	Boolean foundAtLeastOneRecord;
+	Char description[dmCategoryLength];
 	ExgSocketType exgSocket;
-	UInt16 mode;
-	LocalID dbID;
-	UInt16 cardNum = cardNo;
-	Boolean databaseReopened;
-	
-	
-	// If the database was opened to show secret records, reopen it to not see 
-	// secret records.  The idea is that secret records are not sent when a 
-	// category is sent.  They must be explicitly sent one by one.
-	DmOpenDatabaseInfo(dbP, &dbID, NULL, &mode, &cardNum, NULL);
-	if (mode & dmModeShowSecret)
-		{
-		dbP = DmOpenDatabase(cardNum, dbID, dmModeReadOnly);
-		databaseReopened = true;
-		}
-	else
-		databaseReopened = false;
-	
-	
+	DmOpenRef memoDb, cryptoDb;
+	Boolean memoOpened, cryptoOpened;
+	UInt16 index, sendable = 0, skipped = 0;
+
+	memoOpened = BeamOpenNoSecret (dbMemoPadRef, &memoDb);
+	cryptoOpened = BeamOpenNoSecret (dbCryptoPadRef, &cryptoDb);
+
+	for (index = 0; DmSeekRecordInCategory(memoDb, &index, 0, dmSeekForward, categoryNum) == 0; index++)
+		if (DmQueryRecord(memoDb, index)) sendable++;
+	for (index = 0; DmSeekRecordInCategory(cryptoDb, &index, 0, dmSeekForward, categoryNum) == 0; index++) {
+		if (! DmQueryRecord(cryptoDb, index)) continue;
+		if (CryptoLockedBounce(cryptoDb, index)) goto done;	/* gone to Sec35 */
+		if (CryptoGetRecordFlag(cryptoDb, index)) skipped++;	/* own password */
+		else sendable++;
+	}
+
+	if (sendable == 0) {
+		FrmAlert(skipped ? altBeamCategoryAllPassword : NoDataToBeamAlert);
+		goto done;
+	}
+
 	// important to init structure to zeros...
 	MemSet(&exgSocket, sizeof(exgSocket), 0);
-	
-	// Make sure there is at least one record in the category.
-	index = 0;
-	foundAtLeastOneRecord = false;
-	while (true)
-		{
-		if (DmSeekRecordInCategory(dbP, &index, 0, dmSeekForward, categoryNum) != 0)
-			break;
-		
-		foundAtLeastOneRecord = DmQueryRecord(dbP, index) != 0;
-		if (foundAtLeastOneRecord)
-			break;
-		
-		
-		index++;
-		}
-	
-	
-	// We should send the category because there's at least one record to send.
-	if (foundAtLeastOneRecord)
-		{
-		// Form a description of what's being sent.  This will be displayed
-		// by the system send dialog on the sending and receiving devices.
-		CategoryGetName (dbP, categoryNum, description);
-		exgSocket.description = description;
-		
-		// Now form a file name
-		exgSocket.name = MemPtrNew(StrLen(description) + StrLen(memoFilenameExtension) + sizeof('\0'));
-		if (exgSocket.name)
-			{
-			StrCopy(exgSocket.name, description);
-			StrCat(exgSocket.name, memoFilenameExtension);
-			}
 
-		exgSocket.length = 0;		// rough guess
-        if (newMemoDB) {
-            exgSocket.target = memoPadCreatorNew;
-        }
-        else {
-		    exgSocket.target = memoPadCreator;
-        }
-		error = ExgPut(&exgSocket);   // put data to destination
-		
-		if (!error)
-			{
-			error = MemoSendCategoryTryCatch (dbP, categoryNum, &exgSocket, index);
-			
-			ExgDisconnect(&exgSocket, error);
-			}
-		
-		// Clean up
-		if (exgSocket.name)
-			MemPtrFree(exgSocket.name);
-		}
-	else
-		FrmAlert(NoDataToBeamAlert);
+	// Form a description of what's being sent.  This will be displayed
+	// by the system send dialog on the sending and receiving devices.
+	CategoryGetName (dbMemoPadRef, categoryNum, description);
+	exgSocket.description = description;
 
-	if (databaseReopened)
-		DmCloseDatabase(dbP);
-	
-	return;
+	// Now form a file name
+	exgSocket.name = MemPtrNew(StrLen(description) + StrLen(memoFilenameExtension) + sizeof('\0'));
+	if (exgSocket.name) {
+		StrCopy(exgSocket.name, description);
+		StrCat(exgSocket.name, memoFilenameExtension);
+	}
+
+	exgSocket.length = 0;		// rough guess
+	exgSocket.target = newMemoDB ? memoPadCreatorNew : memoPadCreator;
+	error = ExgPut(&exgSocket);   // put data to destination
+	if (!error) {
+		error = MemoSendCategoryTryCatch (memoDb, cryptoDb, categoryNum, &exgSocket);
+		error = ExgDisconnect(&exgSocket, error);	/* the beam's final outcome */
+	}
+	if (exgSocket.name)
+		MemPtrFree(exgSocket.name);
+
+	if (skipped && !error) {
+		Char num[8];
+		StrIToA(num, skipped);
+		FrmCustomAlert(altBeamCategorySkipped, num, "", "");
+	}
+
+done:
+	if (memoOpened) DmCloseDatabase(memoDb);
+	if (cryptoOpened) DmCloseDatabase(cryptoDb);
 }
 
 
@@ -338,67 +346,86 @@ static Err MemoSendRecordTryCatch (MemPtr recordP, ExgSocketPtr exgSocketP)
  * Send all visible records in a category.  
  ***********************************************************************/
 
- static Err MemoSendCategoryTryCatch (DmOpenRef dbP, UInt16 categoryNum, 
-	ExgSocketPtr exgSocketP, UInt16 index)
+/***********************************************************************
+ * MemoSendCategoryTryCatch
+ * Send the category's Memo Pad memos, then its CryptoNote notes without
+ * their own password (read through Sec35; each plaintext copy is wiped).
+ ***********************************************************************/
+static Err MemoSendCategoryTryCatch (DmOpenRef memoDb, DmOpenRef cryptoDb, UInt16 categoryNum,
+	ExgSocketPtr exgSocketP)
 {
 	volatile Err error = 0;
-	volatile MemHandle outRecordH = 0;
+	volatile MemHandle outRecordH = 0;		/* Memo Pad record, locked */
+	volatile MemHandle textH = 0;			/* CryptoNote plaintext copy */
 	MemPtr outRecordP;
 	StreamType stream;
-	
-	// An error can happen anywhere during the send process.  It's easier just to 
+	UInt16 index;
+
+	// An error can happen anywhere during the send process.  It's easier just to
 	// catch the error.  If an error happens, we must pass it into ExgDisconnect.
 	// It will then cancel the send and display appropriate ui.
 	ErrTry
 		{
-
 		PrvStreamInit(&stream, exgSocketP);
-		
+
 		// Write out the beginning of a multipart mime message
-		WriteFunction(&stream, 
+		WriteFunction(&stream,
 			mimeVersionString
 			"Content-type: multipart/mixed; boundary=\"" simpleBoundary "\"" crlf crlf, stringZLen);
-      
-		// Loop through all records in the category.
-		while (DmSeekRecordInCategory(dbP, &index, 0, dmSeekForward, categoryNum) == 0)
-			{
 
-			// Emit the record.  If the record is private do not emit it.
-			outRecordH = DmQueryRecord (dbP, index);
-			
+		// 1. Memos still in Memo Pad.
+		for (index = 0; DmSeekRecordInCategory(memoDb, &index, 0, dmSeekForward, categoryNum) == 0; index++)
+			{
+			outRecordH = DmQueryRecord (memoDb, index);
 			if (outRecordH != 0)
 				{
 				outRecordP = MemHandleLock(outRecordH);
-				
-				// Emit a mime boundary
 				WriteFunction(&stream, delimiter crlf, stringZLen);
-
 				MemoExportMime(outRecordP, &stream, WriteFunction, true);
-
 				MemHandleUnlock(outRecordH);
 				}
-			
-			index++;
+			outRecordH = 0;
 			}
-		outRecordH = 0;
-		dbP = 0;
-		
+
+		// 2. CryptoNote notes, except the ones with their own password.
+		for (index = 0; DmSeekRecordInCategory(cryptoDb, &index, 0, dmSeekForward, categoryNum) == 0; index++)
+			{
+			MemHandle h = 0;
+			if (! DmQueryRecord (cryptoDb, index) || CryptoGetRecordFlag (cryptoDb, index))
+				continue;
+			if (! CryptoCopyTextToHandle (cryptoDb, index, &h))
+				continue;
+			textH = h;
+			outRecordP = MemHandleLock(h);
+			WriteFunction(&stream, delimiter crlf, stringZLen);
+			MemoExportMime(outRecordP, &stream, WriteFunction, true);
+			MemSet(outRecordP, (Int32) MemHandleSize(h), 0);	/* plaintext copy */
+			MemHandleUnlock(h);
+			MemHandleFree(h);
+			textH = 0;
+			}
+
 		// All done.  Write out an epilogue.
 		WriteFunction(&stream, delimiter "--" crlf crlf, stringZLen);
 		}
-	
+
 	ErrCatch(inErr)
 		{
 		error = inErr;
-		
 		if (outRecordH)
 			MemHandleUnlock(outRecordH);
+		if (textH)
+			{
+			MemHandleUnlock(textH);
+			MemHandleFree(textH);
+			}
 		} ErrEndCatch
-	
+
 	PrvStreamFlush(&stream);
-	
-	return error;	
+
+	return error;
 }
+
 
 /************************************************************
  * MemoExportMime

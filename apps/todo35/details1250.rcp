@@ -1,5 +1,5 @@
-/* Td35: Change Repeat dialog (form 1250) -- geometry matched to Datebook35's
- * Repeat dialog (form 1400) exactly. Writes gDetailsExt.repeat. */
+/* Td35: Change Repeat dialog (form 1250) -- geometry matched to the ROM Date Book's
+ * Repeat dialog (form 1400), as Datebook35's is. Writes gDetailsExt.repeat. */
 FORM ID 1250 AT (2 2 156 156)
 MODAL
 BEGIN
@@ -31,7 +31,7 @@ BEGIN
   PUSHBUTTON "Date" ID 1276 AT (104 72 40 12) GROUP 4 NONUSABLE
   LABEL "Tap one of the above\rbuttons to set a repeat\rinterval." ID 1277 AT (7 38) FONT 1 NONUSABLE
   FIELD ID 1280 AT (10 100 136 22) MULTIPLELINES MAXCHARS 200
-  BUTTON "OK" ID 1278 AT (4 140 25 12)
-  BUTTON "Cancel" ID 1279 AT (35 140 36 12)
+  BUTTON "OK" ID 1278 AT (5 139 25 12)
+  BUTTON "Cancel" ID 1279 AT (36 139 36 12)
   POPUPLIST ID 1264 1265
 END

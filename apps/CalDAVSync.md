@@ -640,3 +640,13 @@ copy, no second database:
 - After a contacts sync (once the link to WiRSa is closed) the commit shows "Saving contacts...", "Sorting contacts..." and "Updating index..." in the same box, so the pause after the BYE is never silent (2026-10-21).
 - Tested in POSE: menu item and Re-Sort with Address35 installed and no contacts databases.
   Sorting and the list value need a real sync.
+
+## 13. UI round (2026-11-18)
+
+- **Main:** Edit / Clear DB / Sync on the standard bottom row (y=147, 12 px, from x=1); Sync, the most used, takes the rest of the row. No Graffiti indicator on this form (it has no editable field).
+- **Duplicate Slot:** rows 20/36, note lines 12 apart, OK/Cancel 5/48 37x12, 8 px gaps, bottom-anchored.
+- **Edit Slot:** Save/Delete/Cancel 37x12 at 5/48/91, 5 px above the bottom (same for every slot type).
+- **Edit Text:** bottom row at 147; **Help:** Done at x=5; **Syncing:** 37x12 Cancel.
+- **Preferences:** first row 8 px under the title, text lines 12 apart, OK at x=5.
+- **Graffiti indicator:** its middle lines up with the buttons' middle (y = button y + 1 for 12 px buttons). Full-screen forms put it 4 px from the screen's right edge (x=148), dialogs 5 px from the frame like the buttons (x=143); it keeps 4 px clear of anything to its right and at least 4 px from the item on its left. The glyph is 8 px wide in every state.
+- **Menu:** Preferences /P becomes /R; Duplicate Slot, Recompute Times and Re-Sort Contacts lose their shortcuts.

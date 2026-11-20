@@ -35,10 +35,10 @@ BEGIN
 	 * for a plain SINGLELINE field, see fldchangedevent-not-per-keystroke-
 	 * gotcha in project memory). No graffiti indicator on this row, same as
 	 * Address35's frmMain - no room once the field is present. */
-	BUTTON "Upload"			ID 1004 AT (1 145 40 12)
-	FIELD				ID 1007 AT (45 146 75 12)
+	BUTTON "Upload"			ID 1004 AT (1 147 40 12)
+	FIELD				ID 1007 AT (45 147 75 12)
 							EDITABLE UNDERLINED SINGLELINE MAXCHARS 60
-	BUTTON "Cancel"			ID 1008 AT (125 145 34 12)
+	BUTTON "Cancel"			ID 1008 AT (125 147 34 12)
 END
 
 /* Same folder/up-navigation icons already used for SD-card browsing in
@@ -58,10 +58,10 @@ MENU ID 1600
 BEGIN
 	PULLDOWN "Network"
 	BEGIN
-		MENUITEM "Connect"	ID 1601 "C"
+		MENUITEM "Connect"	ID 1601 "O"
 		MENUITEM SEPARATOR
 		MENUITEM "Disconnect Server"	ID 1602 "D"
-		MENUITEM "Disconnect Network"	ID 1608 "K"
+		MENUITEM "Disconnect Network"	ID 1608
 	END
 	/* Was "Folder" - renamed "Edit" and given Cut/Paste (a move, implemented
 	 * via FtpRename/RNFR+RNTO - see FileActions.c's DoCut/DoPaste) once the
@@ -77,19 +77,19 @@ BEGIN
 	 * selected the same way a file can. */
 	PULLDOWN "Edit"
 	BEGIN
-		MENUITEM "Cut"	ID 1610 "T"
-		MENUITEM "Paste"	ID 1611 "V"
-		MENUITEM "Delete"	ID 1607 "X"
+		MENUITEM "Cut"	ID 1610 "X"
+		MENUITEM "Paste"	ID 1611 "P"
+		MENUITEM "Delete"	ID 1607
 		MENUITEM SEPARATOR
 		MENUITEM "New Folder"	ID 1603 "N"
 		MENUITEM "Rename Folder"	ID 1612 "M"
-		MENUITEM "Refresh"	ID 1605 "R"
+		MENUITEM "Refresh"	ID 1605
 	END
 	PULLDOWN "Options"
 	BEGIN
-		MENUITEM "Preferences"	ID 1606 "P"
+		MENUITEM "Preferences..."	ID 1606 "R"
 		MENUITEM "Logs"	ID 1609 "L"
-		MENUITEM "About"	ID 1604 "A"
+		MENUITEM "About lazyFTP"	ID 1604
 	END
 END
 
@@ -105,17 +105,17 @@ END
  * dialog visibly narrower than the screen; value fields widened to match
  * (88->96) so they actually reach the new right edge instead of just the
  * form outline growing. */
-FORM ID 1200 AT (2 22 156 134)
+FORM ID 1200 AT (2 27 156 131)
 FRAME MODAL
 BEGIN
 	TITLE "Connect"
 
-	LABEL "Profile:"				ID 1210 AT (6 20) FONT 1
-	POPUPTRIGGER "1"				ID 1201 AT (59 20 30 12)
-	LIST "1" "2" "3"				ID 1202 AT (59 20 30 33) VISIBLEITEMS 3 NONUSABLE
+	LABEL "Profile:"				ID 1210 AT (6 18) FONT 1
+	POPUPTRIGGER "1"				ID 1201 AT (59 18 30 12)
+	LIST "1" "2" "3"				ID 1202 AT (59 18 30 33) VISIBLEITEMS 3 NONUSABLE
 	POPUPLIST ID 1201 1202
 
-	LABEL "Retry:"					ID 1218 AT (95 20) FONT 1
+	LABEL "Retry:"					ID 1218 AT (95 18) FONT 1
 	/* Width narrowed from 20 to 15 (real-hardware report: the popup left a
 	 * leftover screen artifact after the Connect dialog closed) - at width
 	 * 20 the list's right edge sat only 3px from the form's own right edge
@@ -125,36 +125,36 @@ BEGIN
 	 * still comfortably fits a single digit + dropdown arrow (already
 	 * confirmed rendering fine at 20 - this is strictly about restore-
 	 * region margin, not content clipping) and leaves 8px of clearance. */
-	POPUPTRIGGER "1"				ID 1219 AT (133 20 15 12)
-	LIST "1" "2" "3"				ID 1220 AT (133 20 15 33) VISIBLEITEMS 3 NONUSABLE
+	POPUPTRIGGER "1"				ID 1219 AT (133 18 15 12)
+	LIST "1" "2" "3"				ID 1220 AT (133 18 15 33) VISIBLEITEMS 3 NONUSABLE
 	POPUPLIST ID 1219 1220
 
-	LABEL "Server:"					ID 1211 AT (6 38) FONT 1
-	FIELD						ID 1203 AT (62 37 88 12)
+	LABEL "Server:"					ID 1211 AT (6 36) FONT 1
+	FIELD						ID 1203 AT (62 35 88 12)
 									EDITABLE UNDERLINED SINGLELINE MAXCHARS 63
 
-	LABEL "Port:"					ID 1212 AT (6 53) FONT 1
-	FIELD						ID 1204 AT (62 52 88 12)
+	LABEL "Port:"					ID 1212 AT (6 51) FONT 1
+	FIELD						ID 1204 AT (62 50 88 12)
 									EDITABLE UNDERLINED SINGLELINE NUMERIC MAXCHARS 5
 
-	LABEL "Username:"				ID 1213 AT (6 68) FONT 1
-	FIELD						ID 1205 AT (62 67 88 12)
+	LABEL "Username:"				ID 1213 AT (6 66) FONT 1
+	FIELD						ID 1205 AT (62 65 88 12)
 									EDITABLE UNDERLINED SINGLELINE MAXCHARS 63
 
-	LABEL "Password:"				ID 1214 AT (6 83) FONT 1
-	FIELD						ID 1206 AT (62 82 88 12)
+	LABEL "Password:"				ID 1214 AT (6 81) FONT 1
+	FIELD						ID 1206 AT (62 80 88 12)
 									EDITABLE UNDERLINED SINGLELINE MAXCHARS 32
 
-	CHECKBOX "Anonymous login"		ID 1216 AT (6 96 100 12) FONT 0
-	CHECKBOX "Show"					ID 1217 AT (108 96 44 12) FONT 0
+	CHECKBOX "Anonymous login"		ID 1216 AT (6 94 100 12) FONT 0
+	CHECKBOX "Show"					ID 1217 AT (108 94 44 12) FONT 0
 
-	BUTTON "Connect"				ID 1207 AT (6 115 44 14)
-	BUTTON "Cancel"					ID 1208 AT (54 115 44 14)
+	BUTTON "Connect"				ID 1207 AT (5 114 37 12)
+	BUTTON "Cancel"					ID 1208 AT (48 114 37 12)
 
 	/* Own row below the buttons, right-aligned - was sharing the button row
 	 * at the same y as Cancel, landing INSIDE its bounds (78-144) and
 	 * obscuring it. */
-	GRAFFITISTATEINDICATOR AT (145 118)
+	GRAFFITISTATEINDICATOR AT (143 115)
 END
 
 /* Options > Preferences: 3/4-height (120 of 160px), bottom-aligned to
@@ -170,21 +170,21 @@ END
  * Checkboxes sized 14x14 (was 10x10, which clipped/truncated the native
  * control's own rendered box - PalmOS checkboxes need a bit more than
  * just the visible square). */
-FORM ID 1300 AT (2 36 156 120)
+FORM ID 1300 AT (2 84 156 74)
 FRAME MODAL
 BEGIN
 	TITLE "Preferences"
 
-	LABEL "Large Dir Cache TTL:"	ID 1310 AT (6 22) FONT 1
-	POPUPTRIGGER "30s"		ID 1301 AT (110 23 38 12)
-	LIST "30s" "1 min" "2 min" "3 min" ID 1302 AT (110 23 38 51) VISIBLEITEMS 4 NONUSABLE
+	LABEL "Large Dir Cache TTL:"	ID 1310 AT (6 20) FONT 1
+	POPUPTRIGGER "30s"		ID 1301 AT (110 19 38 12)
+	LIST "30s" "1 min" "2 min" "3 min" ID 1302 AT (110 19 38 51) VISIBLEITEMS 4 NONUSABLE
 	POPUPLIST ID 1301 1302
 
-	LABEL "Disconnect on exit:"	ID 1312 AT (6 40) FONT 1
-	CHECKBOX ""			ID 1304 AT (112 40 14 14)
+	LABEL "Disconnect on exit:"	ID 1312 AT (6 36) FONT 1
+	CHECKBOX ""			ID 1304 AT (112 35 14 14)
 
-	BUTTON "OK"			ID 1305 AT (6 100 44 14)
-	BUTTON "Cancel"			ID 1306 AT (54 100 44 14)
+	BUTTON "OK"			ID 1305 AT (5 57 37 12)
+	BUTTON "Cancel"			ID 1306 AT (48 57 37 12)
 END
 
 ALERT ID 1700
@@ -237,7 +237,7 @@ END
  * unchanged). Bottom-aligned per the standing rule: AT (2 y 156 H) with
  * y+H=156 - a previous edit's y/H pair here had drifted off that (some
  * prior height change wasn't matched with a corresponding y adjustment). */
-FORM ID 1710 AT (2 64 156 92)
+FORM ID 1710 AT (2 65 156 93)
 FRAME MODAL
 BEGIN
 	TITLE "File Action"
@@ -247,10 +247,10 @@ BEGIN
 								NONEDITABLE MULTIPLELINES
 
 	/* 2x2 grid, both columns/rows symmetric (70w x14h each). */
-	BUTTON "Preview"			ID 1712 AT (6 56 70 14)
-	BUTTON "Delete"				ID 1713 AT (82 56 70 14)
-	BUTTON "Rename"				ID 1714 AT (6 74 70 14)
-	BUTTON "Cancel"				ID 1715 AT (82 74 70 14)
+	BUTTON "Preview"			ID 1712 AT (5 60 71 12)
+	BUTTON "Delete"				ID 1713 AT (80 60 71 12)
+	BUTTON "Rename"				ID 1714 AT (5 76 71 12)
+	BUTTON "Cancel"				ID 1715 AT (80 76 71 12)
 END
 
 /* Shared by the file-action sheet's own Delete button AND Edit > Delete
@@ -355,16 +355,16 @@ END
  * the graffiti indicator riding along on the same row) shifted down into
  * the newly added 4px, keeping their own 4px clearance from the form's
  * OWN bottom edge. */
-FORM ID 1400 AT (2 86 156 72)
+FORM ID 1400 AT (2 90 156 68)
 FRAME MODAL
 BEGIN
 	TITLE "                    "
-	LABEL "                              "	ID 1410 AT (6 16) FONT 1
-	FIELD					ID 1401 AT (6 30 148 12)
+	LABEL "                              "	ID 1410 AT (6 17) FONT 1
+	FIELD					ID 1401 AT (6 31 148 12)
 							EDITABLE UNDERLINED SINGLELINE MAXCHARS 63
-	BUTTON "OK"				ID 1402 AT (6 54 44 14)
-	BUTTON "Cancel"				ID 1403 AT (54 54 44 14)
-	GRAFFITISTATEINDICATOR AT (135 54)
+	BUTTON "OK"				ID 1402 AT (5 51 37 12)
+	BUTTON "Cancel"				ID 1403 AT (48 51 37 12)
+	GRAFFITISTATEINDICATOR AT (143 52)
 END
 
 /* Full-screen text file preview + "Import to Memo". Same hand-rolled
@@ -385,8 +385,8 @@ BEGIN
 	FIELD							ID 1501 AT (2 16 149 125)
 									NONEDITABLE UNDERLINED MULTIPLELINES
 	SCROLLBAR ID 1502 AT (153 16 7 125) USABLE VALUE 0 MIN 0 MAX 0 PAGESIZE 10
-	BUTTON "Import to Memo"		ID 1503 AT (1 145 90 14)
-	BUTTON "Close"					ID 1504 AT (99 145 60 14)
+	BUTTON "Import to Memo"		ID 1503 AT (1 147 76 12)
+	BUTTON "Close"					ID 1504 AT (81 147 36 12)
 END
 
 /* Full-screen "Logs" viewer (Options > Logs) - same layout as frmPreview
@@ -401,7 +401,7 @@ BEGIN
 	FIELD							ID 1521 AT (2 16 149 125)
 									NONEDITABLE UNDERLINED MULTIPLELINES
 	SCROLLBAR ID 1522 AT (153 16 7 125) USABLE VALUE 0 MIN 0 MAX 0 PAGESIZE 10
-	BUTTON "Close"					ID 1523 AT (1 145 60 14)
+	BUTTON "Close"					ID 1523 AT (1 147 36 12)
 END
 
 /* Full-screen installed-database picker for Upload (Folder... no, main
@@ -415,11 +415,11 @@ USABLE
 BEGIN
 	TITLE "Upload"
 	LIST " " ID 1801 AT (1 18 158 125) VISIBLEITEMS 11
-	BUTTON "Cancel" ID 1802 AT (1 145 45 14)
+	BUTTON "Cancel" ID 1802 AT (1 147 37 12)
 	/* Same bottom-bar Find idiom as frmMain's own fldMainFilter (live
 	 * per-keystroke filter, no separate Find button/Clear needed - typing
 	 * filters, clearing the field shows everything again). */
-	FIELD			ID 1803 AT (49 146 109 12)
+	FIELD			ID 1803 AT (42 147 116 12)
 					EDITABLE UNDERLINED SINGLELINE MAXCHARS 60
 END
 

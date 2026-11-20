@@ -14,6 +14,7 @@
 #include "FtpProtocol.h"
 #include "PrefsForm.h"
 #include "LzTPLog.h"
+#include "LzTPSec35.h"	/* LzTPRekey, kSecLaunchRekey */
 
 static Boolean AppHandleEvent(EventType *e)
 {
@@ -62,6 +63,7 @@ static void StopApplication(void)
 	 * stronger action via the "Disconnect on exit" preference (Options >
 	 * Preferences, default off) - otherwise left up for whatever's next. */
 	if (FtpIsConnected()) FtpDisconnectServer();
+	FtpForgetPassword();				/* also after a dropped connection (kept for reconnecting) */
 	if (gUiPrefs.disconnectNetworkOnExit) FtpDisconnectNetwork();
 	FrmCloseAllForms();
 }
@@ -69,6 +71,13 @@ static void StopApplication(void)
 UInt32 PilotMain(UInt16 cmd, void *cmdPBP, UInt16 launchFlags)
 {
 	Err err;
+
+	if (cmd == kSecLaunchRekey) {
+		/* Sec35: re-encrypt our saved passwords (LzTPSec35.c). Needs globals. */
+		if (launchFlags & sysAppLaunchFlagNewGlobals)
+			LzTPRekey((struct EncRekeyParamTag *) cmdPBP);
+		return errNone;
+	}
 
 	if (cmd == sysAppLaunchCmdNormalLaunch) {
 		err = StartApplication();

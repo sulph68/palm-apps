@@ -32,72 +32,72 @@ BEGIN
 
   BUTTON "Lock" ID 1004 AT (1 145 84 14)
   BUTTON "Help" ID 1012 AT (91 145 38 14)
-  GRAFFITISTATEINDICATOR AT (150 150)
+  GRAFFITISTATEINDICATOR AT (148 147)
 END
 
 /* Set Password: 2 rows only (no Current), compact + bottom-aligned. */
-FORM ID 1100 AT (2 78 156 80)
+FORM ID 1100 AT (2 85 156 73)
 MODAL
 BEGIN
   TITLE "Set Password"
   LABEL "New:" ID 1107 AT (6 20) FONT 1
-  FIELD ID 1102 AT (62 19 84 12) MAXCHARS 32 UNDERLINED
-  LABEL "Confirm:" ID 1108 AT (6 40) FONT 1
-  FIELD ID 1103 AT (62 39 84 12) MAXCHARS 32 UNDERLINED
-  BUTTON "OK" ID 1104 AT (4 60 36 12)
-  BUTTON "Cancel" ID 1105 AT (44 60 42 12)
-  GRAFFITISTATEINDICATOR AT (144 62)
+  FIELD ID 1102 AT (62 20 89 12) MAXCHARS 32 UNDERLINED
+  LABEL "Confirm:" ID 1108 AT (6 36) FONT 1
+  FIELD ID 1103 AT (62 36 89 12) MAXCHARS 32 UNDERLINED
+  BUTTON "OK" ID 1104 AT (5 56 37 12)
+  BUTTON "Cancel" ID 1105 AT (48 56 37 12)
+  GRAFFITISTATEINDICATOR AT (143 57)
 END
 
 /* Change Password: Current + New + Confirm, Delete right-aligned, bottom-aligned. */
-FORM ID 1200 AT (2 58 156 100)
+FORM ID 1200 AT (2 69 156 89)
 MODAL
 BEGIN
   TITLE "Change Password"
   LABEL "Current:" ID 1106 AT (6 20) FONT 1
-  FIELD ID 1101 AT (62 19 84 12) MAXCHARS 32 UNDERLINED
-  LABEL "New:" ID 1107 AT (6 40) FONT 1
-  FIELD ID 1102 AT (62 39 84 12) MAXCHARS 32 UNDERLINED
-  LABEL "Confirm:" ID 1108 AT (6 60) FONT 1
-  FIELD ID 1103 AT (62 59 84 12) MAXCHARS 32 UNDERLINED
-  BUTTON "OK" ID 1104 AT (4 82 36 12)
-  BUTTON "Cancel" ID 1105 AT (44 82 42 12)
-  BUTTON "Delete" ID 1109 AT (108 82 44 12)
-  GRAFFITISTATEINDICATOR AT (144 66)
+  FIELD ID 1101 AT (62 20 89 12) MAXCHARS 32 UNDERLINED
+  LABEL "New:" ID 1107 AT (6 36) FONT 1
+  FIELD ID 1102 AT (62 36 89 12) MAXCHARS 32 UNDERLINED
+  LABEL "Confirm:" ID 1108 AT (6 52) FONT 1
+  FIELD ID 1103 AT (62 52 89 12) MAXCHARS 32 UNDERLINED
+  BUTTON "OK" ID 1104 AT (5 72 37 12)
+  BUTTON "Cancel" ID 1105 AT (48 72 37 12)
+  BUTTON "Delete" ID 1109 AT (114 72 37 12)
+  GRAFFITISTATEINDICATOR AT (102 73)
 END
 
 /* Resume Re-key: shown automatically at launch when a password CHANGE was cut off
  * (reset/power-loss) partway through re-encrypting -- some records may still be
  * under the old password. Old/New only (no Confirm, no Delete); 3/4 of the screen,
  * bottom-aligned, same visual style as Change Password. The warning text is bold
- * (FONT 1) and given generous spacing so it's unmistakable, and the button row
- * sits 2px above the form's own bottom edge. */
-FORM ID 2100 AT (2 38 156 120)
+ * (FONT 1), and the dialog follows the suite layout (OK/Cancel 5/48, 37x12, 5 px
+ * above the bottom). */
+FORM ID 2100 AT (2 45 156 113)
 MODAL
 BEGIN
   TITLE "Password Re-key"
-  LABEL "Re-key interrupted." ID 2102 AT (6 16) FONT 1
-  LABEL "Corrupted records exist." ID 2103 AT (6 28)
-  LABEL "Recover with old & new passwords." ID 2104 AT (6 40) 
+  LABEL "Password change unfinished." ID 2102 AT (6 20) FONT 1
+  LABEL "Some apps are not done yet." ID 2103 AT (6 32)
+  LABEL "Finish with old & new passwords." ID 2104 AT (6 44)
   LABEL "Old:" ID 2105 AT (6 60) FONT 1
-  FIELD ID 1101 AT (62 59 84 12) MAXCHARS 32 UNDERLINED
-  LABEL "New:" ID 2106 AT (6 78) FONT 1
-  FIELD ID 1102 AT (62 77 84 12) MAXCHARS 32 UNDERLINED
-  BUTTON "OK" ID 2101 AT (4 106 36 12)
-  BUTTON "Cancel" ID 1105 AT (44 106 42 12)
-  GRAFFITISTATEINDICATOR AT (144 108)
+  FIELD ID 1101 AT (62 60 89 12) MAXCHARS 32 UNDERLINED
+  LABEL "New:" ID 2106 AT (6 76) FONT 1
+  FIELD ID 1102 AT (62 76 89 12) MAXCHARS 32 UNDERLINED
+  BUTTON "OK" ID 2101 AT (5 96 37 12)
+  BUTTON "Cancel" ID 1105 AT (48 96 37 12)
+  GRAFFITISTATEINDICATOR AT (143 97)
 END
 
 /* Unlock: dedicated password-only prompt (from the Lock/Unlock button). */
-FORM ID 1300 AT (2 78 156 80)
+FORM ID 1300 AT (2 101 156 57)
 MODAL
 BEGIN
   TITLE "Unlock"
-  LABEL "Password:" ID 1304 AT (6 24) FONT 1
-  FIELD ID 1301 AT (62 23 84 12) MAXCHARS 32 UNDERLINED
-  BUTTON "OK" ID 1302 AT (4 58 40 13)
-  BUTTON "Cancel" ID 1303 AT (50 58 46 13)
-  GRAFFITISTATEINDICATOR AT (144 60)
+  LABEL "Password:" ID 1304 AT (6 20) FONT 1
+  FIELD ID 1301 AT (62 20 89 12) MAXCHARS 32 UNDERLINED
+  BUTTON "OK" ID 1302 AT (5 40 37 12)
+  BUTTON "Cancel" ID 1303 AT (48 40 37 12)
+  GRAFFITISTATEINDICATOR AT (143 41)
 END
 
 /* Menu on the main form: Preferences + the "Forget Password" security wipe. */
@@ -105,7 +105,7 @@ MENU ID 1600
 BEGIN
   PULLDOWN "Options"
   BEGIN
-    MENUITEM "Preferences..." ID 1602
+    MENUITEM "Preferences..." ID 1602 "R"
     MENUITEM SEPARATOR
     MENUITEM "Forget Password..." ID 1601
   END
@@ -114,16 +114,16 @@ END
 /* Preferences: choose how passwords are entered on the Set/Change/Unlock forms.
  * Bottom-aligned like this app's other dialogs (frmPwSet/frmPwChange/frmUnlock/
  * frmDelay all end at y=158, 2px above the screen bottom). */
-FORM ID 1800 AT (2 98 156 60)
+FORM ID 1800 AT (2 101 156 57)
 MODAL
 BEGIN
   TITLE "Preferences"
-  LABEL "Type:" ID 1801 AT (6 22) FONT 1
-  POPUPTRIGGER "Text Entry" ID 1802 AT (40 21 108 13)
-  LIST "Text Entry" "Numeric Keypad" ID 1803 AT (40 10 108 24) VISIBLEITEMS 2 NONUSABLE
+  LABEL "Type:" ID 1801 AT (6 20) FONT 1
+  POPUPTRIGGER "Text Entry" ID 1802 AT (40 20 111 12)
+  LIST "Text Entry" "Numeric Keypad" ID 1803 AT (40 9 111 24) VISIBLEITEMS 2 NONUSABLE
   POPUPLIST ID 1802 1803
-  BUTTON "OK" ID 1804 AT (5 42 36 12)
-  BUTTON "Cancel" ID 1805 AT (45 42 42 12)
+  BUTTON "OK" ID 1804 AT (5 40 37 12)
+  BUTTON "Cancel" ID 1805 AT (48 40 37 12)
 END
 
 /* Numeric Keypad: iPhone-style PIN entry, popped up instead of graffiti/keyboard text
@@ -176,12 +176,12 @@ END
 /* Countdown dialog: incorrect-password lockout ("Security35") and the active-delay
  * block ("Unlock Security Delay"). Title + both text lines are set/drawn by the C
  * code; the [HH:MM:SS] line is redrawn every second. */
-/* Same footprint as the Unlock form (1300) so it covers it exactly. */
-FORM ID 1500 AT (2 78 156 80)
+/* Bottom-anchored and a little taller than the Unlock form (1300), so it covers it. */
+FORM ID 1500 AT (2 89 156 69)
 MODAL
 BEGIN
   TITLE "Security35"
-  BUTTON "OK" ID 1501 AT (58 60 40 13)
+  BUTTON "OK" ID 1501 AT (60 52 37 12)
 END
 
 ALERT ID 2001
@@ -253,3 +253,31 @@ BEGIN
   MESSAGE "Password change completed. ^1"
   BUTTONS "OK"
 END
+
+ALERT ID 2009
+WARNING
+BEGIN
+  TITLE "Not Finished"
+  MESSAGE "^1 could not finish: ^2. Your data is safe. ^3"
+  BUTTONS "OK"
+END
+
+ALERT ID 2010
+ERROR
+BEGIN
+  TITLE "New Password"
+  MESSAGE "That is not the new password of the change in progress. Enter the " \
+          "new password you chose when the change started."
+  BUTTONS "OK"
+END
+
+ALERT ID 2011
+CONFIRMATION
+BEGIN
+  TITLE "Remove Password"
+  MESSAGE "Your encrypted records will be decrypted. Saved passwords in lazyFTP " \
+          "and CalDAV Sync will be cleared; you will have to enter them (or sign " \
+          "in to Google) again. Remove the password?"
+  BUTTONS "Cancel" "Remove"
+END
+

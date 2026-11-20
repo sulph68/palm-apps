@@ -219,11 +219,6 @@ static const char * const kEmailDomains[] = {
 static const char * const kEmailLabels[] = { "Home", "Work", "iCloud", "Other" };
 #define kEmailLabelCount	4
 
-const char *EditEmailLabelName(UInt8 sub)
-{
-	return (sub < kEmailLabelCount) ? kEmailLabels[sub] : kEmailLabels[0];
-}
-
 Boolean EditEmailDialog(char *value, UInt16 maxLen, UInt8 *labelP)
 {
 	FormPtr prev = FrmGetActiveForm();
@@ -1107,8 +1102,9 @@ static void DateLayout(FormPtr f, Boolean isAnniv)
 	DlgMoveTo(f, lblDateUnknown, 96, (Int16) (y + 2));
 	y += kDateRowStep;
 
-	DlgMoveTo(f, btnDateOK, 13, (Int16) (y + 5));
-	DlgMoveTo(f, btnDateCancel, 59, (Int16) (y + 5));
+	DlgMoveTo(f, btnDateOK, 5, (Int16) (y + 4));		/* ROM dialog buttons: x 5/48, 37 wide */
+	DlgMoveTo(f, btnDateCancel, 48, (Int16) (y + 4));
+	A35PlaceGsi(f, 143, (Coord) (y + 5));				/* centred on the buttons (button y + 1) */
 
 	r.topLeft.x = 2;
 	r.topLeft.y = (Coord) (158 - formH);
@@ -1294,12 +1290,42 @@ static char gRelContactLbl[48];		/* CtlSetLabel keeps the pointer, not a copy */
 static void RelSetContactLabel(FormPtr f, UInt32 uid)
 {
 	UInt16 idx;
+	RectangleType r;
 
-	if (uid != 0 && A35FindByUniqueID(gAddrDB, uid, &idx))
+	if (uid != 0 && A35FindByUniqueID(gAddrDB, uid, &idx)) {
 		A35RecordDisplayName(gAddrDB, idx, gRelContactLbl, sizeof(gRelContactLbl));
-	else
+		/* a name wider than the button ends in "..." instead of being clipped */
+		FrmGetObjectBounds(f, FrmGetObjectIndex(f, btnRelPick), &r);
+		A35FitText(gRelContactLbl, (Int16) (r.extent.x - 6));
+	} else
 		StrCopy(gRelContactLbl, "Pick a contact\205");
 	CtlSetLabel((ControlPtr) DlgObj(f, btnRelPick), gRelContactLbl);
+}
+
+void A35PlaceGsi(FormPtr f, Coord x, Coord y)
+{
+	UInt16 i, n = FrmGetNumberOfObjects(f);
+
+	for (i = 0; i < n; i++)
+		if (FrmGetObjectType(f, i) == frmGraffitiStateObj) {
+			FrmSetObjectPosition(f, i, x, y);
+			return;
+		}
+}
+
+void A35FitText(char *s, Int16 maxW)
+{
+	FontID old = FntSetFont(stdFont);
+	Int16 len = (Int16) StrLen(s);
+	Boolean fits;
+
+	if (FntCharsWidth(s, len) > maxW) {
+		maxW = (Int16) (maxW - FntCharWidth(chrEllipsis));
+		FntCharsInWidth(s, &maxW, &len, &fits);
+		s[len] = chrEllipsis;
+		s[len + 1] = '\0';
+	}
+	FntSetFont(old);
 }
 
 /* case-insensitive substring filter over the contact set; fills ptrs[]/shownUids[]

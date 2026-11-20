@@ -14,6 +14,9 @@
 #include "Database.h"
 #include "AesCrypt.h"
 #include "CryptoSec35.h"
+#include "SecDb.h"
+#include "ViewList.h"
+#include "DbForms.h"
 /******************************************
  * isEncrypted:
  * Tells the status of the given record
@@ -136,6 +139,14 @@ Boolean ApplicationHandleEvent(EventPtr eventP)
 
 			case frmKeypadForm:
 				FrmSetEventHandler(formP, KeypadFormHandleEvent);
+				break;
+
+			case frmManageDbForm:
+				FrmSetEventHandler(formP, ManageDbFormHandleEvent);
+				break;
+
+			case frmSecurityForm:
+				FrmSetEventHandler(formP, SecurityFormHandleEvent);
 				break;
 		}
 
@@ -387,6 +398,7 @@ static Err StartApplication(void)
 	dbCryptoPadRef = OpenOrCreateCryptoDatabase(mode);
 	dbMemoPadRef = OpenMemoDatabase(mode);
 	dbCryptoFontRef = OpenOrCreateFontDatabase();
+	SrcOpenAll(mode);		/* the user databases (SecDb.c) */
 
 	SynchroniseCategories();
 	CatSync();		/* union category names across the era apps + ROM apps */
@@ -403,6 +415,8 @@ static Err StartApplication(void)
 
 	/* Read the application preferences */
 	GetApplicationPrefs(&currentRecordID);
+	/* user databases may have changed since: restart on the main one */
+	if (currentDB > cryptoPadDB) currentDB = cryptoPadDB;
 	{ CryptoDefaults d; GetCryptoDefaults(&d); showHidden = d.showHidden; }
 
 	/* Change the sort order of MemoPad if it is
@@ -472,7 +486,7 @@ static void EventLoop(void)
 	UInt32 timeout;
 
 	do {
-		/* Password masking reveal timer (PasswordForm.c) -- wake up exactly
+		/* Password masking reveal timer (PwMask.c) -- wake up exactly
 		 * when a just-typed character's reveal window ends even with no
 		 * other event pending, instead of only masking on the next keystroke. */
 		timeout = evtWaitForever;
@@ -483,18 +497,22 @@ static void EventLoop(void)
 		EvtGetEvent(&event, timeout);
 		if (event.eType == nilEvent) {
 			if (gPwRevealUntilTicks && TimGetTicks() >= gPwRevealUntilTicks)
-				PasswordMaskPendingReveal();
+				PwMaskPendingReveal();
 		}
 
 		if (event.eType == keyDownEvent)
 			if ((event.data.keyDown.chr == hardPowerChr) || 
 				(event.data.keyDown.chr == autoOffChr)) {
-				if ((currentDB == cryptoPadDB) && (currentPasswordP != 0)) {
+				if ((currentDB != memoPadDB) && (currentPasswordP != 0)) {
 					FrmCloseAllForms();
 					FrmGotoForm(frmMainForm);
 				}
-			globalPasswordP = 0;
+			PwFreeWiped(&globalPasswordP);	/* forget it (zeroed) on power-off */
 			}
+
+		/* on-screen keyboard over a masked password field (PwMask.c) */
+		if (event.eType == keyDownEvent && PwMaskKeyboard(&event))
+			continue;
 
 		if (!SysHandleEvent(&event))
 			if (!MenuHandleEvent(0, &event, &error))
@@ -520,6 +538,7 @@ static void StopApplication(void)
 	// be written to the database.
 	FrmCloseAllForms();
 	EncUnregisterSleepWipe();
+	SrcSelect(cryptoPadDB);
 
 	/* Get the current record's unique id and save it with the state
 	 * information.
@@ -531,6 +550,8 @@ static void StopApplication(void)
 	 */
 	SetApplicationPrefs(scrollPosition);
 
+	ViewFree();
+	SrcCloseAll();
 	DmCloseDatabase(dbMemoPadRef);
 	DmCloseDatabase(dbCryptoPadRef);
 	DmCloseDatabase(dbCryptoFontRef);
@@ -551,6 +572,11 @@ UInt32 PilotMain(UInt16 cmd, MemPtr cmdPBP, UInt16 launchFlags)
 		StopApplication();
 	}
 
+	else if (cmd == kSecLaunchRekey) {
+		/* Sec35: re-encrypt our own notes (CryptoSec35.c). Needs globals. */
+		if (launchFlags & sysAppLaunchFlagNewGlobals)
+			CryptoRekey ((struct EncRekeyParamTag*) cmdPBP);
+	}
 	else if (cmd == sysAppLaunchCmdFind) {
 		appIsActive = launchFlags & sysAppLaunchFlagSubCall;
 		Search ((FindParamsPtr)cmdPBP, appIsActive);

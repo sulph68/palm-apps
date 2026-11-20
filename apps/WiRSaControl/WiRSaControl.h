@@ -28,7 +28,7 @@ typedef struct {
 	UInt8	reserved;
 	UInt32	menuBaud;		/* WiRSa's menu rate, from its last PONG (0 = unknown) */
 	UInt32	preferredBaud;	/* Options > Preferences: rate this Palm asks WiRSa's menu for (9600 = don't ask) */
-	UInt32	speedSkip;		/* preferredBaud that failed or gained nothing - don't ask again (0 = none) */
+	UInt32	unused;			/* was speedSkip (a failed rate, saved): now kept for this run only (SpeedRetry) */
 } WCPrefs;
 
 /* STATUS reply */
@@ -46,7 +46,7 @@ typedef struct {
 	UInt8	battery;		/* 0 none/not reported, 1 present */
 	UInt16	battMv;
 	UInt8	battPct;
-	char	sdText[16];		/* "used/total" in SASD's short units, "" = not reported */
+	char	sdText[24];		/* "used/total" in SASD's short units ("1023.999MB/14.8GB"), "" = not reported */
 	Boolean	diskKnown;		/* WiRSa sent the SASD disk setting */
 	UInt8	sasdDisk;		/* the SASD disk setting (0 auto, 1 SD card, 2 virtual) */
 } WCStatus;
@@ -73,13 +73,18 @@ void BusyHide(void);
 void ShowResult(UInt8 r);							/* error alert for a WCtl result */
 Int16 ModeIndex(UInt8 letter);						/* -1 if unknown */
 UInt8 StatusFetch(void);							/* port must be open; fills gStatus */
+void SpeedRetry(void);								/* ask for the Preferred Baud again (from the top) */
 void MaskRedraw(WCMasked *m);
 Boolean MaskKey(WCMasked *m, EventPtr e);			/* true if consumed */
+void MaskShow(WCMasked *m, Boolean on);				/* the Show checkbox */
+void MaskUse(WCMasked *m);							/* the open form's masked field (on-screen keyboard) */
+void MaskEnd(WCMasked *m, FormPtr frm);				/* leaving the form: wipe the field's text, stop the reveal */
 Boolean EditMenu(UInt16 itemID, WCMasked *masks, UInt16 nMasks);
 
 /* Modes.c / Wifi.c / Setup.c */
 Boolean ModesHandleEvent(EventPtr e);
 Boolean WifiHandleEvent(EventPtr e);
+void FormatOpenFromMain(void);						/* Format.c: Options > Format SD Card... */
 Boolean SetupOpenFromMain(void);					/* fetch settings, then pop up frmSetup */
 Boolean SetupHandleEvent(EventPtr e);
 Boolean FtpHandleEvent(EventPtr e);

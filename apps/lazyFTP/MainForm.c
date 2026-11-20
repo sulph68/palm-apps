@@ -117,7 +117,7 @@ static void DoConnect(void)
 	 * Cancel had the exact same artifact and was still missing it. */
 	connectTapped = ConnectFormRun(&p);
 	ListingDraw();
-	if (!connectTapped) return;	/* user cancelled */
+	if (!connectTapped) { MemSet(&p, sizeof(p), 0); return; }	/* user cancelled */
 
 	/* A new connection is starting (regardless of whether it goes on to
 	 * succeed or fail below) - any cut buffer from a previous session/server
@@ -128,7 +128,9 @@ static void DoConnect(void)
 	FileActionsClearCut();
 
 	LzTPBusyBegin("Connecting...");
-	if (!FtpConnect(&p, err, sizeof(err))) {
+	connectTapped = FtpConnect(&p, err, sizeof(err));
+	MemSet(&p, sizeof(p), 0);			/* the password copy is not left on the stack */
+	if (!connectTapped) {
 		LzTPBusyEnd();
 		FrmCustomAlert(altErr, err, NULL, NULL);
 		return;

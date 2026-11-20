@@ -12,9 +12,10 @@
 #define CL_FIRST	1				/* the line starts a message: the sender's name goes in front */
 #define CL_LAST		2				/* the line ends a message: the time goes at its right */
 #define CL_HEAD		4				/* a date heading */
+#define CL_NEW		8				/* the "New" mark: on its own line, or (with CL_HEAD) in the date heading above the first unread message */
 
 typedef struct {
-	UInt8	msg;					/* index in gMsg, 0xFF for a date heading */
+	UInt8	msg;					/* index in gMsg, 0xFF for a date heading or the New line (then off is the message it belongs to, len the unread count) */
 	UInt8	len;
 	UInt16	off;					/* into the message's text; for a heading, the message it dates */
 	UInt8	flags;
@@ -24,7 +25,7 @@ typedef struct {
 static CLine gLine[CL_MAX];
 static UInt16 gNLine, gTop;
 static Int16 gSelA = -1, gSelB = -1;	/* the selected messages (gMsg indexes), -1 none */
-static char gTitle[40], gInfo[44], gCnt[12];
+static char gTitle[40], gTitleShown[40], gInfo[44], gCnt[12];		/* gTitle: the name in full; gTitleShown: what the title bar has (cut to fit) */
 
 /* What each of the eight rows shows now: only a row that differs from this is drawn again. */
 typedef struct {
@@ -108,6 +109,45 @@ static MC_UI Boolean Add(UInt8 msg, UInt16 off, UInt8 len, UInt8 flags)
 	return true;
 }
 
+/* ---- what is new --------------------------------------------------------------------------------------- */
+
+/* Conv.unread counts the newest incoming messages of a thread that were not read yet. They are read in order (see ChatDwell), so the
+ * unread ones are always the newest ones and no per-message flag is kept (the saved data keeps its format).
+ * The "New" mark sits before the first message that was unread when the thread was opened. It stays there while the thread is open
+ * (messages read meanwhile do not move it), its count is what is still unread, and it goes once nothing is. */
+static Boolean gDivOn;					/* the thread was opened with unread messages: show the mark */
+static UInt16 gReadNow;					/* messages read since the thread was opened */
+static UInt16 gDivMsg = 0xFFFF;			/* gMsg index the mark is before */
+static UInt8 gDivCnt;					/* the count it shows */
+static UInt16 gDivLine = 0xFFFF;		/* its line, when laid out */
+static UInt8 gDwellMsg = 0xFF;			/* the first unread message while it is waited on */
+static UInt32 gDwellAt;
+static UInt16 gDwellTop, gDwellLines;
+
+/* The gMsg index of the n-th newest incoming message of this thread (the oldest one there is if n is more than there are), 0xFFFF if none. */
+static MC_UI UInt16 NthNewest(UInt16 n)
+{
+	UInt16 i, found = 0xFFFF;
+
+	for (i = gNMsg; i > 0 && n; i--) {
+		if (gMsg[i - 1].conv != gCurConv || gMsg[i - 1].out) continue;
+		found = (UInt16) (i - 1);
+		n--;
+	}
+	return found;
+}
+
+static MC_UI void DivFind(void)
+{
+	UInt16 k = (UInt16) (gConv[gCurConv].unread + gReadNow);
+
+	gDivMsg = 0xFFFF;
+	if (! gDivOn || gConv[gCurConv].unread == 0) return;		/* the mark goes once everything is read */
+	gDivMsg = NthNewest(k);
+	k = gConv[gCurConv].unread;			/* the count is what is still unread: it counts down while reading */
+	gDivCnt = k > 255 ? 255 : (UInt8) k;
+}
+
 /* The lines of the conversation, leaving out the first `skip` messages. False if they do not all fit. */
 static MC_UI Boolean Layout(UInt16 skip)
 {
@@ -117,20 +157,27 @@ static MC_UI Boolean Layout(UInt16 skip)
 	Boolean ok = true;
 
 	gNLine = 0;
+	gDivLine = 0xFFFF;
 	for (i = 0; i < gNMsg && ok; i++) {
 		const Msg *m = &gMsg[i];
 		const char *text;
 		UInt16 off = 0, n, shown, off2;
 		Int16 pw, tw, lw;
-		Boolean first = true;
+		Boolean first = true, mk;
 
 		if (m->conv != gCurConv) continue;
 		if (skip) { skip--; continue; }
 		text = MsgText(m);
 		day = DayOf(m->when);
+		mk = (Boolean) (gDivMsg != 0xFFFF && i >= gDivMsg && gDivLine == 0xFFFF);	/* the mark's message, or the first one laid out when it is older than those */
+		if (mk) gDivLine = gNLine;
 		if (day != lastDay) {
 			lastDay = day;
-			ok = Add(0xFF, i, 0, CL_HEAD);
+			ok = Add(0xFF, i, mk ? gDivCnt : 0, (UInt8) (CL_HEAD | (mk ? CL_NEW : 0)));	/* the mark shares the heading when the day changes here */
+			if (! ok) break;
+		}
+		else if (mk) {
+			ok = Add(0xFF, i, gDivCnt, CL_NEW);
 			if (! ok) break;
 		}
 		Prefix(m, pre);
@@ -171,6 +218,7 @@ static MC_UI Boolean Layout(UInt16 skip)
 #define WIN_MSGS	6				/* what a thread opens with: enough to fill the screen twice, unless the messages are short (OpenWindow) */
 #define MORE_MSGS	12				/* what scrolling to the top adds */
 #define WIN_LINES	(LIST_ROWS * 2)
+#define WIN_NEW		30				/* the most messages a thread opens with to reach its first unread one */
 static UInt16 gSkip;
 
 static MC_UI UInt16 ThreadCount(void)
@@ -185,6 +233,7 @@ static MC_UI void BuildLines(void)
 {
 	UInt16 n = ThreadCount();
 
+	DivFind();
 	if (gSkip > n) gSkip = n;
 	while (! Layout(gSkip) && gSkip < n) gSkip = (UInt16) (gSkip + (n - gSkip + 1) / 2);	/* a window too long for the table: fewer */
 }
@@ -210,12 +259,23 @@ static MC_UI void OpenWindow(void)
 	UInt16 n = ThreadCount(), tries;
 
 	gSkip = n > WIN_MSGS ? (UInt16) (n - WIN_MSGS) : 0;
+	DivFind();
+	if (gDivMsg != 0xFFFF) {			/* the window reaches back to the first unread message and one before it (up to WIN_NEW messages) */
+		UInt16 i, before = 0, want;
+
+		for (i = 0; i < gDivMsg; i++) if (gMsg[i].conv == gCurConv) before++;
+		want = (UInt16) (n - before + 1);
+		if (want > WIN_NEW) want = WIN_NEW;
+		if (n > want && (UInt16) (n - want) < gSkip) gSkip = (UInt16) (n - want);
+		else if (n <= want) gSkip = 0;
+	}
 	for (tries = 0; tries < 8; tries++) {
 		BuildLines();
 		if (gSkip == 0 || gNLine >= WIN_LINES) break;
 		gSkip = gSkip > WIN_MSGS ? (UInt16) (gSkip - WIN_MSGS) : 0;
 	}
 	gTop = MaxTop();
+	if (gDivLine != 0xFFFF && gDivLine < gTop) gTop = gDivLine;		/* the mark at the top: read down from there */
 	ScrollSet();
 }
 
@@ -233,17 +293,34 @@ static MC_UI Boolean Selected(UInt8 msg)
 
 static MC_UI void DrawLine(const CLine *l, Coord x0, Coord y)
 {
-	char buf[32], pre[12];
+	char buf[44], pre[12];
 	Int16 w;
 	RectangleType r;
 
-	if (l->flags & CL_HEAD) {
-		FmtDay(gMsg[l->off].when, buf);
+	if (l->flags & (CL_HEAD | CL_NEW)) {
+		Coord x;
+
+		if (l->flags & CL_HEAD) FmtDay(gMsg[l->off].when, buf);
+		else buf[0] = '\0';
+		if (l->flags & CL_NEW) {
+			if (buf[0]) StrCat(buf, " - ");
+			StrCat(buf, "New (");
+			StrIToA(buf + StrLen(buf), l->len);
+			StrCat(buf, ")");
+		}
 		FntSetFont(boldFont);
 		w = FntCharsWidth(buf, (Int16) StrLen(buf));
-		WinDrawChars(buf, (Int16) StrLen(buf), (Coord) (x0 + (152 - w) / 2), y);
+		x = (Coord) (x0 + (152 - w) / 2);
+		WinDrawChars(buf, (Int16) StrLen(buf), x, y);
 		FntSetFont(stdFont);
-		WinDrawLine(x0, (Coord) (y + 10), (Coord) (x0 + 151), (Coord) (y + 10));
+		if (l->flags & CL_HEAD)										/* a date heading (with or without the mark): the rule under it */
+			WinDrawLine(x0, (Coord) (y + 10), (Coord) (x0 + 151), (Coord) (y + 10));
+		else {														/* the mark alone: two rules either side of it, at half height */
+			WinDrawLine(x0, (Coord) (y + 5), (Coord) (x - 4), (Coord) (y + 5));
+			WinDrawLine(x0, (Coord) (y + 6), (Coord) (x - 4), (Coord) (y + 6));
+			WinDrawLine((Coord) (x + w + 3), (Coord) (y + 5), (Coord) (x0 + 151), (Coord) (y + 5));
+			WinDrawLine((Coord) (x + w + 3), (Coord) (y + 6), (Coord) (x0 + 151), (Coord) (y + 6));
+		}
 		return;
 	}
 	{
@@ -624,6 +701,8 @@ static MC_UI void ChatSend(Boolean bell)
 	if (! gWirsaUp) { Info("Not connected. Connect first.", NULL, NULL); return; }
 	if (! LinkSend(gCurConv, text))
 		Info(gLinkText[0] ? gLinkText : "The message was not sent.", NULL, NULL);
+	gReadNow = (UInt16) (gReadNow + gConv[gCurConv].unread);		/* one who answers has read the thread (the mark goes) */
+	gConv[gCurConv].unread = 0;
 	if (p) FldDelete(fld, 0, FldGetTextLength(fld));
 	Counter(false);
 	SortConv();
@@ -700,6 +779,93 @@ static MC_UI void Scroll(Int16 lines)
 	PaintList();
 }
 
+/* ---- reading ---------------------------------------------------------------------------------------------- */
+
+static MC_UI Boolean WhollyShown(UInt16 msg)
+{
+	UInt16 k, a = 0xFFFF, b = 0;
+
+	for (k = 0; k < gNLine; k++) {
+		if (gLine[k].msg != msg) continue;
+		if (a == 0xFFFF) a = k;
+		b = k;
+	}
+	return a != 0xFFFF && a >= gTop && b < (UInt16) (gTop + LIST_ROWS);
+}
+
+/* Scrolled past: all of the message's lines are above the screen, or it is older than the messages laid out (a thread opens with its
+ * newest WIN_NEW at most, at the oldest of those when there are more unread). */
+static MC_UI Boolean ScrolledPast(UInt16 msg)
+{
+	UInt16 k, b = 0xFFFF;
+
+	for (k = 0; k < gNLine; k++) if (gLine[k].msg == msg) b = k;
+	return b != 0xFFFF ? b < gTop : (Boolean) (gSkip != 0);
+}
+
+static MC_UI Boolean Seen(UInt16 msg)
+{
+	return WhollyShown(msg) || ScrolledPast(msg);
+}
+
+/* Nothing is unread any more: the New mark is taken out. A mark on its own line above the screen moves what is shown up by
+ * a line, so the place is kept. */
+static MC_UI void DivDrop(void)
+{
+	if (gDivLine != 0xFFFF && gDivLine < gTop && ! (gLine[gDivLine].flags & CL_HEAD)) gTop--;
+	gDivOn = false;
+	Rebuild(false);
+}
+
+/* The thread is opened (or switched to): which messages are new is decided now. */
+static MC_UI void NewStart(void)
+{
+	gReadNow = 0;
+	gDivOn = gConv[gCurConv].unread > 0;
+	gDwellMsg = 0xFF;
+}
+
+MC_UI Boolean ChatWantsTick(void)
+{
+	return gConv[gCurConv].unread > 0;
+}
+
+/* The unread messages that are wholly on the screen, or were scrolled past, are read once the screen has stood still for a second. They
+ * are taken in order, from the first unread one. The New mark counts down and goes when none is left. Called while idle. */
+MC_UI void ChatDwell(void)
+{
+	UInt16 u = gConv[gCurConv].unread, f, got = 0;
+
+	if (! u) { gDwellMsg = 0xFF; return; }
+	f = NthNewest(u);
+	if (f == 0xFFFF) { gConv[gCurConv].unread = 0; return; }		/* none of them is held any more */
+	if (! Seen(f)) { gDwellMsg = 0xFF; return; }
+	if (gDwellMsg != (UInt8) f || gDwellTop != gTop || gDwellLines != gNLine) {		/* a new first message, or the screen moved: the second starts again */
+		gDwellMsg = (UInt8) f; gDwellTop = gTop; gDwellLines = gNLine;
+		gDwellAt = TimGetTicks();
+		return;
+	}
+	if (TimGetTicks() - gDwellAt < SysTicksPerSecond()) return;
+	while (gConv[gCurConv].unread > 0) {
+		f = NthNewest(gConv[gCurConv].unread);
+		if (f == 0xFFFF || ! Seen(f)) break;
+		gConv[gCurConv].unread--;
+		gReadNow++;
+		got++;
+	}
+	gDwellMsg = 0xFF;
+	if (! got) return;
+	if (gDivOn && gConv[gCurConv].unread == 0) DivDrop();
+	else if (gDivLine != 0xFFFF) {						/* the mark's count: a changed line is drawn again */
+		gDivCnt = gConv[gCurConv].unread > 255 ? 255 : (UInt8) gConv[gCurConv].unread;
+		gLine[gDivLine].len = gDivCnt;
+		PaintList();
+	}
+	StatusLine(gInfo, STATUS_PX);
+	SetFieldPtr(fldChatInfo, gInfo);
+	BattRedraw(gadChatBatt);							/* the unread note may be gone */
+}
+
 /* Another conversation from the pop-up: the form stays, only its title, list and lines change (reloading the form and drawing all of it again is the slow part). */
 static MC_UI void SwitchConv(UInt16 conv)
 {
@@ -710,8 +876,9 @@ static MC_UI void SwitchConv(UInt16 conv)
 	gCurConv = conv;
 	ConvLabel(gCurConv, gTitle);
 	FlatName(gTitle);
-	FrmSetTitle(frm, gTitle);
-	gConv[gCurConv].unread = 0;
+	FitTitle(frm, popChatConv, gTitle, gTitleShown, sizeof(gTitleShown));
+	RetitleForm(frm, popChatConv, gTitleShown);
+	NewStart();
 	PopFill();
 	if (! gConv[gCurConv].isChan) LinkAskKey(gConv[gCurConv].index);
 	if (len) FldDelete(fld, 0, len);						/* a typed text does not go to the other thread */
@@ -728,6 +895,19 @@ static MC_UI void SwitchConv(UInt16 conv)
 
 /* ---- the form -------------------------------------------------------------------------------------------- */
 
+/* Chat > Mark all read: the open conversation's messages count as read and its "New" mark goes. */
+static MC_UI void ChatMarkRead(void)
+{
+	if (! gConv[gCurConv].unread) { Info("Nothing here is unread.", NULL, NULL); return; }
+	if (! Ask("Mark all messages in this conversation as read?", NULL, NULL)) return;
+	gConv[gCurConv].unread = 0;
+	gDwellMsg = 0xFF;
+	if (gDivOn) DivDrop(); else Rebuild(false);
+	StatusLine(gInfo, STATUS_PX);
+	SetFieldPtr(fldChatInfo, gInfo);
+	BattRedraw(gadChatBatt);
+}
+
 MC_UI Boolean ChatHandleEvent(EventPtr e)
 {
 	FormPtr frm;
@@ -737,8 +917,9 @@ MC_UI Boolean ChatHandleEvent(EventPtr e)
 		frm = FrmGetActiveForm();
 		ConvLabel(gCurConv, gTitle);
 		FlatName(gTitle);
-		FrmSetTitle(frm, gTitle);
-		gConv[gCurConv].unread = 0;
+		FitTitle(frm, popChatConv, gTitle, gTitleShown, sizeof(gTitleShown));
+		FrmSetTitle(frm, gTitleShown);
+		NewStart();
 		FrmSetGadgetHandler(frm, FrmGetObjectIndex(frm, gadChatBatt), BattGadget);
 		FrmSetGadgetHandler(frm, FrmGetObjectIndex(frm, gadChatLine), LineGadget);
 		FrmSetGadgetHandler(frm, FrmGetObjectIndex(frm, gadChatSep), LineGadget);
@@ -758,7 +939,6 @@ MC_UI Boolean ChatHandleEvent(EventPtr e)
 		return true;
 
 	case frmUpdateEvent:
-		gConv[gCurConv].unread = 0;
 		StatusLine(gInfo, STATUS_PX);
 		SetFieldPtr(fldChatInfo, gInfo);
 		BattRedraw(gadChatBatt);					/* the unread note may have come or gone */
@@ -828,6 +1008,7 @@ MC_UI Boolean ChatHandleEvent(EventPtr e)
 			else ShowDetail((UInt8) gSelB);
 			return true;
 		case mniChatClear:	ChatClear(); return true;
+		case mniChatRead:	ChatMarkRead(); return true;
 		case mniSendAlert:	ChatSend(true); return true;
 		case mniSendInfo:	ChatReq(1); return true;
 		case mniSendPos:	ChatReq(2); return true;
@@ -906,7 +1087,7 @@ static MC_UI void BuildDetail(void)
 	FlatName(p);
 }
 
-/* The fields follow the header's height: three lines for a received message, four for one sent. */
+/* The fields follow the header's height: three lines for a received message, four for one sent. The text ends 8 px above Done (139). */
 static MC_UI void MsgLayout(void)
 {
 	FormPtr frm = FrmGetActiveForm();
@@ -917,10 +1098,10 @@ static MC_UI void MsgLayout(void)
 	r.extent.y = headH;
 	FrmSetObjectBounds(frm, FrmGetObjectIndex(frm, fldMsgHead), &r);
 	FrmGetObjectBounds(frm, FrmGetObjectIndex(frm, fldMsgText), &r);
-	r.topLeft.y = top; r.extent.y = (Coord) (135 - top);
+	r.topLeft.y = top; r.extent.y = (Coord) (131 - top);
 	FrmSetObjectBounds(frm, FrmGetObjectIndex(frm, fldMsgText), &r);
 	FrmGetObjectBounds(frm, FrmGetObjectIndex(frm, sclMsg), &r);
-	r.topLeft.y = top; r.extent.y = (Coord) (135 - top);
+	r.topLeft.y = top; r.extent.y = (Coord) (131 - top);
 	FrmSetObjectBounds(frm, FrmGetObjectIndex(frm, sclMsg), &r);
 	gMsgRuleY = (Coord) (17 + headH + 2);			/* the line sits 2 pixels under the last header line */
 }

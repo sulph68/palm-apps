@@ -20,11 +20,12 @@ BEGIN
   LIST " 1" " 2" " 3" " 4" " 5" ID 1011 AT (20 20 13 1) VISIBLEITEMS 5 NONUSABLE
   LIST "Today" "Tomorrow" "One week later" "No Date" "Choose date..." ID 1012 AT (0 0 65 1) VISIBLEITEMS 5 NONUSABLE
   LIST "" ID 1013 AT (86 1 72 0) VISIBLEITEMS 0 NONUSABLE
-  GRAFFITISTATEINDICATOR AT (135 150)
+  GRAFFITISTATEINDICATOR AT (136 148)
 END
 
 FORM ID 1400 AT (2 2 156 156)
 MODAL
+HELPID 1415
 BEGIN
   TITLE "To Do Preferences"
   LABEL "Sort by:" ID 1402 AT (7 18) FONT 1
@@ -43,22 +44,24 @@ END
 
 FORM ID 1500 AT (2 61 156 97)
 MODAL
+HELPID 1508
 BEGIN
   TITLE "Purge"
-  // UNHANDLED tFBM id=1502
+  FORMBITMAP AT (8 19) BITMAP 10005
   LABEL "Delete all To Do items\rmarked completed?" ID 1503 AT (32 19) FONT 1
-  CHECKBOX "Save archive copy on PC" ID 1504 AT (12 54 136 14) FONT 0
+  CHECKBOX "Save archive copy on PC" ID 1504 AT (12 54 136 14) FONT 1
   BUTTON "OK" ID 1506 AT (5 80 37 12)
   BUTTON "Cancel" ID 1507 AT (48 80 37 12)
 END
 
 FORM ID 1600 AT (2 61 156 97)
 MODAL
+HELPID 1608
 BEGIN
   TITLE "Delete To Do"
-  // UNHANDLED tFBM id=1602
+  FORMBITMAP AT (8 19) BITMAP 10005
   LABEL "Delete selected To Do\ritem?" ID 1603 AT (32 19) FONT 1
-  CHECKBOX "Save archive copy on PC" ID 1604 AT (12 54 136 14) FONT 0
+  CHECKBOX "Save archive copy on PC" ID 1604 AT (12 54 136 14) FONT 1
   BUTTON "OK" ID 1606 AT (5 80 37 12)
   BUTTON "Cancel" ID 1607 AT (48 80 37 12)
 END
@@ -67,7 +70,7 @@ MENU ID 1000
 BEGIN
   PULLDOWN "Record"
   BEGIN
-    MENUITEM "Duplicate Item" ID 106 "U"
+    MENUITEM "Duplicate Item" ID 106
     MENUITEM "Delete Item..." ID 100 "D"
     MENUITEM "Attach Note" ID 101 "A"
     MENUITEM "Delete Note..." ID 102 "O"
@@ -92,7 +95,7 @@ BEGIN
     MENUITEM "Font..." ID 300 "F"
     MENUITEM "Phone Lookup" ID 301 "L"
     MENUITEM "Security..." ID 302 "H"
-    MENUITEM "About To Do List" ID 303
+    MENUITEM "About ToDo35" ID 303
   END
 END
 

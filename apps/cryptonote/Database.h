@@ -252,9 +252,13 @@ extern DmOpenRef dbCryptoFontRef;	/* Database */
 
 extern Boolean newMemoDB;
 			
-#define currentDBRef	((currentDB == cryptoPadDB) ? dbCryptoPadRef : dbMemoPadRef)
-#define recordDBRef	((recordDB == cryptoPadDB) ? dbCryptoPadRef : dbMemoPadRef)
-#define selectedDBRef	((selectedDB == cryptoPadDB) ? dbCryptoPadRef : dbMemoPadRef)
+/* currentDB / selectedDB / recordDB hold a source number (SecDb.h): 0 Memo Pad,
+ * 1 the main database, 2.. user databases. dbCryptoPadRef points at the source
+ * of the memo being worked on (SrcSelect). */
+#define IsCryptoSrc(s)	((s) != memoPadDB)
+#define currentDBRef	((currentDB != memoPadDB) ? dbCryptoPadRef : dbMemoPadRef)
+#define recordDBRef	((recordDB != memoPadDB) ? dbCryptoPadRef : dbMemoPadRef)
+#define selectedDBRef	((selectedDB != memoPadDB) ? dbCryptoPadRef : dbMemoPadRef)
 
 extern UInt16   currentForm;
 extern UInt16   currentCategory;

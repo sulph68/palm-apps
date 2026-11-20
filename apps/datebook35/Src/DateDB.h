@@ -230,6 +230,10 @@ Err 		ApptGetWhenRepeat (DmOpenRef dbP, UInt16 index, ApptDBRecordPtr r,
 Boolean	ApptDbHasEncrypted (DmOpenRef dbP) ENCCORE_SECTION;
 Boolean	ApptRecEncrypted (DmOpenRef dbP, UInt16 index) ENCCORE_SECTION;
 void		ApptSealAllPlaintext (DmOpenRef dbP) ENCCORE_SECTION;
+/* zero then free a handle that held decrypted text */
+void		DbFreeWiped (MemHandle h) ENCCORE_SECTION;
+struct EncRekeyParamTag;
+void		ApptRekey (struct EncRekeyParamTag *p) ENCCORE_SECTION;	/* kSecLaunchRekey */
 void		ApptEncryptOne (DmOpenRef dbP, UInt16 index) ENCCORE_SECTION;
 
 Err 		ApptNewRecord (DmOpenRef dbP, ApptDBRecordPtr r, UInt16 *index);
@@ -244,6 +248,7 @@ Boolean 	ApptFindFirst (DmOpenRef dbP, DateType date, UInt16 * indexP);
 Boolean	ApptRepeatsOnDate  (ApptDBRecordPtr apptRec, DateType date);
 
 Boolean	ApptNextRepeat (ApptDBRecordPtr apptRec, DatePtr dateP);
+Boolean	ApptRecordIsEncrypted (DmOpenRef dbP, UInt16 index);	/* main, no globals needed */
 
 Boolean	ApptHasMultipleOccurences (ApptDBRecordPtr apptRec);
 

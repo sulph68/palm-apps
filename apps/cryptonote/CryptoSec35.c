@@ -7,12 +7,16 @@
  * calls. */
 #include <VFSMgr.h>
 #include "CryptoSec35.h"
+#include "encrekey.h"	/* kSecLaunchRekey record loop */
 #include "MainRsc.h"	/* altMigrateMemoPadAlert */
 #include "CardIO.h"	/* cardMaxName -- CryptoImportText title buffer sizing */
 #include "CardCrypt.h"	/* CardBusyShow/CardBusyHide -- shared busy-dialog style */
 #include "Utils.h"	/* SafeStrLen -- ROM StrLen's Int16 return wraps past 32767 bytes */
 #include "AesCrypt.h"	/* AESCryptEx/AesCtrAdvanceIV -- streaming decrypt for large encrypted card files */
 #include "Database.h"	/* globalPasswordP */
+#include "EditForm.h"	/* EncryptRecord */
+#include "MainForm.h"	/* DecryptRecord */
+#include "SecDb.h"		/* record metadata, dbMainRef */
 
 /* Read-time TTL: effectively "as long as Sec35 says the key is valid" --
  * Sec35's own alarm enforces the real lock. Matches Datebook35's
@@ -59,6 +63,13 @@ static MemHandle gCryptoDecH = NULL;
  * unlock at the START of the NEXT call (once the caller must be done
  * with the previous result), never before returning. */
 static MemHandle gCryptoLastLockedH = NULL;
+
+/* Drop the lock the last CryptoGetRecord left (see above) once the caller has
+ * copied what it needed -- before the record is resized or deleted. */
+void CryptoReleaseLast (void)
+{
+	if (gCryptoLastLockedH) { MemHandleUnlock (gCryptoLastLockedH); gCryptoLastLockedH = NULL; }
+}
 
 /* ------------------------------------------------------------------ *
  *  Sec35 bounce gate (mirrors Datebook35's Sec35Installed/SwitchToSec35/
@@ -121,8 +132,12 @@ static Boolean CryptoRecordMigrated (DmOpenRef dbRef, UInt16 index)
 
 Boolean CryptoLockedBounce (DmOpenRef dbRef, UInt16 index)
 {
-	if (! EncKeyPresent () && CryptoRecordWrapped (dbRef, index))
+	/* A database still in key scheme 1 (e.g. restored from an old backup)
+	 * reads as locked too: Sec35 converts it (kSecConvertFtr). */
+	if ((! EncKeyPresent () || ! EncDbHasStoreKeys (dbRef)) && CryptoRecordWrapped (dbRef, index))
 		{
+		if (! EncDbHasStoreKeys (dbRef))
+			FtrSet (ENC_CREATOR, kSecConvertFtr, 1);
 		if (CryptoSec35Installed ())
 			CryptoSwitchToSec35 ();
 		return true;
@@ -199,9 +214,10 @@ Boolean CryptoGetRecord (DmOpenRef dbRef, UInt16 index, RecordPtr recordP)
 
 	/* Wrapped. */
 	{
-	UInt32		size = (UInt32) MemHandleSize (h) - 1;
+	/* the plain date trailer (SecDb.h) is not part of the wrap */
+	UInt32		size = (UInt32) MemHandleSize (h) - 1 - MetaTrailerLen (raw, MemHandleSize (h));
 	UInt8		key[ENC_KEY_BYTES];
-	Boolean		haveKey = EncGetKey (key, kCryptoEncTtl);
+	Boolean		haveKey = EncGetStoreKeyDb (key, ENC_STORE_CRNT, dbRef);
 
 	if (! haveKey)
 		{
@@ -334,9 +350,9 @@ Boolean CryptoGetRecordTitle (DmOpenRef dbRef, UInt16 index, Char* outTitle, UIn
 
 	/* Wrapped: bounded-prefix decrypt only. */
 	{
-	UInt32	fullSize = (UInt32) MemHandleSize (h) - 1;
+	UInt32	fullSize = (UInt32) MemHandleSize (h) - 1 - MetaTrailerLen (raw, MemHandleSize (h));
 	UInt8	key[ENC_KEY_BYTES];
-	Boolean	haveKey = EncGetKey (key, kCryptoEncTtl);
+	Boolean	haveKey = EncGetStoreKeyDb (key, ENC_STORE_CRNT, dbRef);
 	UInt8	hdr[kCryptoRecHeaderLen];
 	UInt32	uid = 0;
 	UInt16	hdrLen = (UInt16) ((fullSize < kCryptoRecHeaderLen) ? fullSize : kCryptoRecHeaderLen);
@@ -414,9 +430,9 @@ Boolean CryptoGetRecordFlag (DmOpenRef dbRef, UInt16 index)
 		result = (Boolean) (raw[1] == recEncrypted);
 	else
 		{
-		UInt32	fullSize = (UInt32) MemHandleSize (h) - 1;
+		UInt32	fullSize = (UInt32) MemHandleSize (h) - 1 - MetaTrailerLen (raw, MemHandleSize (h));
 		UInt8	key[ENC_KEY_BYTES];
-		if (EncGetKey (key, kCryptoEncTtl))
+		if (EncGetStoreKeyDb (key, ENC_STORE_CRNT, dbRef))
 			{
 			UInt8	hdr[kCryptoRecHeaderLen];
 			UInt32	uid = 0;
@@ -459,9 +475,9 @@ Boolean CryptoRecordTooLargeToEdit (DmOpenRef dbRef, UInt16 index)
 		MemMove (&textLen, raw + 3, sizeof (textLen));		/* +1 for the marker byte */
 	else
 		{
-		UInt32	fullSize = (UInt32) MemHandleSize (h) - 1;
+		UInt32	fullSize = (UInt32) MemHandleSize (h) - 1 - MetaTrailerLen (raw, MemHandleSize (h));
 		UInt8	key[ENC_KEY_BYTES];
-		if (EncGetKey (key, kCryptoEncTtl))
+		if (EncGetStoreKeyDb (key, ENC_STORE_CRNT, dbRef))
 			{
 			UInt8	hdr[kCryptoRecHeaderLen];
 			UInt32	uid = 0;
@@ -519,84 +535,73 @@ Boolean CryptoEditGuardBlockKey (Boolean tooLarge, Boolean *warnedP)
 void CryptoSealRecord (DmOpenRef dbRef, UInt16 index)
 {
 	MemHandle	h = DmQueryRecord (dbRef, index);
-	UInt32		plainSize;
+	UInt32		plainSize, total, created, modified;
 	UInt8*		rec;
 	MemHandle	tmpH;
 	UInt8*		tmp;
+	UInt8		key[ENC_KEY_BYTES];
+	Boolean		wrap = false, trailer;
+	UInt8		bits;
+	WinHandle	busy = NULL;
 
 	if (! h) return;
 	plainSize = (UInt32) MemHandleSize (h);
-	rec = (UInt8 *) MemHandleLock (h);
+
+	/* Only the main database is Sec35-wrapped; memos in user databases are
+	 * protected by their own password only (SecDb.h). */
+	if (dbRef == dbMainRef && EncEncryptionActive ())
+		wrap = EncGetStoreKeyDb (key, ENC_STORE_CRNT, dbRef);
+	/* (key unexpectedly unavailable even though a passcode is active: store
+	 * unwrapped rather than lose the edit) */
+
+	/* marker bits + the read-only flag and dates the save path captured */
+	bits = MetaSealBits (dbRef, index, wrap, &created, &modified, &trailer);
+	total = 1 + plainSize + (trailer ? kRecTrailerLen : 0);
 
 	/* MemHandleNew (movable/relocatable), NOT MemPtrNew (a fixed,
 	 * non-relocatable chunk) -- this buffer needs to hold the WHOLE
 	 * plaintext body (e.g. after a multi-part SD-card import), and
 	 * MemPtrNew's non-movable allocation was failing outright for
 	 * anything past roughly 20-30KB on a real/emulated device's
-	 * fragmented dynamic heap (a movable handle can be satisfied by
-	 * compacting existing allocations; a fixed chunk can't). This was
-	 * the actual cause of "Import Failed" for a 33KB file -- every
-	 * import part runs through this same seal step. */
-	tmpH = MemHandleNew (plainSize + 1);
+	 * fragmented dynamic heap. */
+	tmpH = MemHandleNew (total);
 	if (tmpH == NULL)
 		{
-		MemHandleUnlock (h);
+		if (wrap) MemSet (key, ENC_KEY_BYTES, 0);
 		return;
 		}
 	tmp = (UInt8 *) MemHandleLock (tmpH);
+	rec = (UInt8 *) MemHandleLock (h);
+	tmp[0] = bits;
+	MemMove (tmp + 1, rec, plainSize);
+	MemHandleUnlock (h);					/* done with storage before EncCrypt */
 
-	if (EncEncryptionActive ())
+	if (wrap)
 		{
-		UInt8	key[ENC_KEY_BYTES];
-		if (EncGetKey (key, kCryptoEncTtl))
-			{
-			UInt32		uid = 0;
-			/* This is the actual AES-CTR pass over the whole (possibly
-			 * large, e.g. after a multi-part import) plaintext body -- the
-			 * "Done" button's own hang, previously uncovered by any busy
-			 * indicator (EditSaveCryptoPadData's "Encrypting..." only
-			 * wrapped the OPTIONAL layer-2 EncryptRecord step, not this
-			 * unconditional outer-wrap seal). */
-			WinHandle	busy = CardBusyShow ("Encrypting...");
-			DmRecordInfo (dbRef, index, NULL, &uid, NULL);
-			tmp[0] = kCryptoFmtMarker | kCryptoFmtWrappedBit;
-			MemMove (tmp + 1, rec, plainSize);
-			MemHandleUnlock (h);				/* done with storage before EncCrypt */
-			EncCrypt (key, tmp + 1, plainSize, uid, 0);
-			MemSet (key, ENC_KEY_BYTES, 0);
-
-			h = DmResizeRecord (dbRef, index, plainSize + 1);
-			if (h != NULL)
-				{
-				rec = (UInt8 *) MemHandleLock (h);
-				DmWrite (rec, 0, tmp, plainSize + 1);
-				MemHandleUnlock (h);
-				}
-			MemHandleUnlock (tmpH);
-			MemHandleFree (tmpH);
-			CardBusyHide (busy);
-			return;
-			}
-		/* Key unexpectedly unavailable even though a passcode is active --
-		 * fall through and store unwrapped rather than lose the edit. */
+		/* the AES-CTR pass over the whole (possibly large) plaintext body --
+		 * covered by a busy indicator, see the original "Done" hang note. */
+		UInt32 uid = 0;
+		busy = CardBusyShow ("Encrypting...");
+		DmRecordInfo (dbRef, index, NULL, &uid, NULL);
+		EncCrypt (key, tmp + 1, plainSize, uid, 0);
+		MemSet (key, ENC_KEY_BYTES, 0);
+		}
+	if (trailer)
+		{
+		MemMove (tmp + 1 + plainSize, &created, 4);
+		MemMove (tmp + 1 + plainSize + 4, &modified, 4);
 		}
 
-	/* No passcode active: still upgrade to the new leading-byte format
-	 * (unwrapped marker) so future reads never have to re-guess old-vs-new
-	 * format, but the record stays fully plaintext. */
-	tmp[0] = kCryptoFmtMarker;
-	MemMove (tmp + 1, rec, plainSize);
-	MemHandleUnlock (h);
-
-	h = DmResizeRecord (dbRef, index, plainSize + 1);
+	h = DmResizeRecord (dbRef, index, total);
 	if (h != NULL)
 		{
 		rec = (UInt8 *) MemHandleLock (h);
-		DmWrite (rec, 0, tmp, plainSize + 1);
+		DmWrite (rec, 0, tmp, total);
 		MemHandleUnlock (h);
 		}
 	MemHandleUnlock (tmpH);
 	MemHandleFree (tmpH);
+	if (busy) CardBusyHide (busy);
 }
 
 /* Take an ALREADY-migrated (leading marker byte present) but still-plain
@@ -617,13 +622,14 @@ static void CryptoWrapInPlace (DmOpenRef dbRef, UInt16 index)
 	UInt32		size;
 	UInt8*		p;
 
-	if (! EncGetKey (key, kCryptoEncTtl)) return;
+	if (! EncGetStoreKeyDb (key, ENC_STORE_CRNT, dbRef)) return;
 
 	h = DmGetRecord (dbRef, index);
 	if (! h) { MemSet (key, ENC_KEY_BYTES, 0); return; }
 
-	size = (UInt32) MemHandleSize (h) - 1;		/* content after the marker byte */
 	p = (UInt8 *) MemHandleLock (h);
+	/* content after the marker byte, up to the plain date trailer */
+	size = (UInt32) MemHandleSize (h) - 1 - MetaTrailerLen (p, MemHandleSize (h));
 	DmRecordInfo (dbRef, index, NULL, &uid, NULL);
 
 	{
@@ -643,7 +649,7 @@ static void CryptoWrapInPlace (DmOpenRef dbRef, UInt16 index)
 	MemSet (key, ENC_KEY_BYTES, 0);
 
 	{
-	UInt8	newMarker = kCryptoFmtMarker | kCryptoFmtWrappedBit;
+	UInt8	newMarker = (UInt8) (p[0] | kCryptoFmtMarker | kCryptoFmtWrappedBit);
 	DmWrite (p, 0, &newMarker, 1);
 	}
 
@@ -655,6 +661,24 @@ void CryptoMigrateRecordFormat (DmOpenRef dbRef)
 {
 	UInt16	i, n = DmNumRecords (dbRef);
 	Boolean	active = EncEncryptionActive ();
+
+	/* Key scheme 2 marker: nothing wrapped -> nothing to convert, mark it now.
+	 * A database still holding scheme-1 wrapped notes reads as locked until
+	 * Sec35 has converted it. */
+	if (! EncDbHasStoreKeys (dbRef))
+		{
+		Boolean anyWrapped = false;
+		for (i = 0; i < n && ! anyWrapped; i++)
+			{
+			MemHandle h = DmQueryRecord (dbRef, i);
+			if (! h) continue;
+			anyWrapped = (Boolean) ((((const UInt8 *) MemHandleLock (h))[0]
+				& (kCryptoFmtMarker | kCryptoFmtWrappedBit)) == (kCryptoFmtMarker | kCryptoFmtWrappedBit));
+			MemHandleUnlock (h);
+			}
+		if (! anyWrapped)
+			EncDbSetStoreKeys (dbRef);
+		}
 
 	for (i = 0; i < n; i++)
 		{
@@ -669,9 +693,14 @@ void CryptoMigrateRecordFormat (DmOpenRef dbRef)
 		isWrapped = (Boolean) (hasMarker && (marker & kCryptoFmtWrappedBit));
 
 		if (! hasMarker)
+			{
 			/* Old format (pre-dates this feature): add the marker, and
-			 * wrap immediately too if a passcode is already active. */
+			 * wrap immediately too if a passcode is already active. Its
+			 * dates are unknown. */
+			MetaNoDates (true);
 			CryptoSealRecord (dbRef, i);
+			MetaNoDates (false);
+			}
 		else if (! isWrapped && active)
 			/* Already migrated, still plain, but a passcode is active NOW
 			 * -- wrap in place (marker byte already exists). */
@@ -1557,4 +1586,174 @@ void CryptoImportFromCardFile (UInt16 volRef, const char* path, const char* base
 		FrmCustomAlert (altCardImportComplete, countStr, "", "");
 	else
 		FrmCustomAlert (altCardImportFailed, countStr, "", "");
+}
+
+/* See CryptoSec35.h. */
+Boolean CryptoEncryptLayer2 (DmOpenRef dbRef, UInt16 index, Char* password)
+{
+	RecordType	rec, newRecord;
+	MemHandle	copyH, handle;
+	Char*		p;
+	UInt32		len, nOffset;
+
+	if (SrcRecReadOnly (SrcOfRef (dbRef), index)) return false;
+	if (! CryptoGetRecord (dbRef, index, &rec)) return false;
+	if (rec.flag == recEncrypted) return false;
+
+	len = SafeStrLen (rec.textP);
+	nOffset = 0;
+	while (nOffset <= len)
+		{
+		if (rec.textP[nOffset++] == '\n') break;
+		}
+	if (nOffset >= len) return false;			/* one line only */
+
+	copyH = MemHandleNew (len + 1);
+	if (! copyH) return false;
+	p = (Char*) MemHandleLock (copyH);
+	MemMove (p, rec.textP, len + 1);
+	/* rec.textP aliases a handle CryptoGetRecord left locked: let go of it
+	 * before PackRecord resizes the storage record. */
+	if (gCryptoLastLockedH) { MemHandleUnlock (gCryptoLastLockedH); gCryptoLastLockedH = NULL; }
+
+	newRecord.flag      = recDecrypted;
+	newRecord.passwdLen = 0;
+	newRecord.textLen   = (UInt16) len;
+	newRecord.passwordP = "";
+	newRecord.textP     = p;
+	MemSet (newRecord.pwIV, sizeof (newRecord.pwIV), 0);
+	MemSet (newRecord.bodyIV, sizeof (newRecord.bodyIV), 0);
+	MemSet (newRecord.kdfSalt, sizeof (newRecord.kdfSalt), 0);
+	newRecord.kdfRounds = 0;
+
+	MetaCapture (dbRef, index);
+	handle = DmGetRecord (dbRef, index);
+	PackRecord (&newRecord, handle);
+	DmReleaseRecord (dbRef, index, true);
+	MemHandleUnlock (copyH);
+	MemHandleFree (copyH);
+
+	EncryptRecord (index, password);
+	CryptoSealRecord (dbRef, index);
+	return true;
+}
+
+/* See CryptoSec35.h. */
+Boolean CryptoDecryptLayer2 (DmOpenRef dbRef, UInt16 index, Char* password)
+{
+	RecordType	rec;
+	Char*		chk;
+	Boolean		ok;
+
+	if (SrcRecReadOnly (SrcOfRef (dbRef), index)) return false;
+	SrcKeyForRecord (SrcOfRef (dbRef), index);
+	if (! CryptoGetRecord (dbRef, index, &rec)) return false;
+	if (rec.flag != recEncrypted) return false;
+
+	chk = (Char*) MemPtrNew (rec.passwdLen + 1);
+	if (! chk) return false;
+	MemSet (chk, rec.passwdLen + 1, 0);
+	AESCryptEx (rec.passwordP, chk, password, globalPasswordP, rec.pwIV,
+				rec.kdfSalt, rec.kdfRounds, rec.passwdLen, AES_DECRYPT);
+	ok = (Boolean) (StrCompare (chk, password) == 0);
+	MemPtrFree (chk);
+	if (! ok) return false;
+
+	DecryptRecord (index, password);
+	return true;
+}
+
+/* ------------------------------------------------------------------ *
+ *  kSecLaunchRekey: Sec35 asks CryptoNote to re-encrypt its own notes
+ * ------------------------------------------------------------------ *
+ * Sec35 sublaunches CryptoNote (new globals) for a password set / change /
+ * removal / forget and the key scheme 1 -> 2 conversion (enccore.h,
+ * encrekey.h). Only the Sec35 layer of CryptoNoteDB is touched: the marker
+ * byte (kCryptoFmtMarker, + kCryptoFmtWrappedBit when the rest is Sec35
+ * ciphertext, nonce (uid,0)); a note's own per-memo password layer inside the
+ * blob and the SD card files (their own password) are left alone. Records with
+ * no marker are the pre-Sec35 legacy format: a SET gives them the marker and
+ * wraps them, as CryptoSealRecord would. Nothing changes on failure. */
+static Boolean CryptoRekeyIsEnc (const UInt8* rec, UInt32 size) AES_SECTION;
+static Boolean CryptoRekeyIsEnc (const UInt8* rec, UInt32 size)
+{
+	return (Boolean) (size >= 1 && (rec[0] & (kCryptoFmtMarker | kCryptoFmtWrappedBit))
+		== (kCryptoFmtMarker | kCryptoFmtWrappedBit));
+}
+
+static Err CryptoRekeyRecord (DmOpenRef db, UInt16 i, const UInt8* fromK, const UInt8* toK) AES_SECTION;
+static Err CryptoRekeyRecord (DmOpenRef db, UInt16 i, const UInt8* fromK, const UInt8* toK)
+{
+	MemHandle	h = DmGetRecord (db, i);
+	UInt8*		rec;
+	UInt8*		buf;
+	UInt32		size, uid = 0;
+	Boolean		hasMarker;
+
+	if (! h) return dmErrIndexOutOfRange;
+	rec = (UInt8*) MemHandleLock (h);
+	size = MemHandleSize (h);
+	hasMarker = (Boolean) (size >= 1 && (rec[0] & kCryptoFmtMarker));
+	DmRecordInfo (db, i, NULL, &uid, NULL);
+
+	if (fromK)		/* wrapped: re-key, or unwrap (marker stays, wrapped bit cleared) */
+		{
+		UInt8 m;
+		UInt32 enc;
+		if (size < 1) { MemHandleUnlock (h); DmReleaseRecord (db, i, false); return errNone; }
+		/* keep the read-only/date bits; the plain date trailer is not wrapped */
+		m = (UInt8) (rec[0] & ~kCryptoFmtWrappedBit);
+		if (toK) m |= kCryptoFmtWrappedBit;
+		enc = size - 1 - MetaTrailerLen (rec, size);
+		buf = (UInt8*) MemPtrNew (size);
+		if (! buf) { MemHandleUnlock (h); DmReleaseRecord (db, i, false); return memErrNotEnoughSpace; }
+		MemMove (buf, rec + 1, enc);
+		EncCrypt (fromK, buf, enc, uid, 0);
+		if (toK) EncCrypt (toK, buf, enc, uid, 0);
+		DmWrite (rec, 1, buf, enc);
+		DmWrite (rec, 0, &m, 1);
+		MemSet (buf, size, 0);
+		MemPtrFree (buf);
+		MemHandleUnlock (h);
+		DmReleaseRecord (db, i, true);
+		return errNone;
+		}
+
+	/* SET: plaintext (marked or legacy) -> wrapped. Same size when already
+	 * marked; one byte more when the marker is added. A marked record keeps
+	 * its flag bits and its plain date trailer. */
+	{
+	UInt32 trail = hasMarker ? MetaTrailerLen (rec, size) : 0;
+	UInt32 plain = hasMarker ? size - 1 : size;
+	buf = (UInt8*) MemPtrNew (plain + 1);
+	if (! buf) { MemHandleUnlock (h); DmReleaseRecord (db, i, false); return memErrNotEnoughSpace; }
+	buf[0] = (UInt8) ((hasMarker ? rec[0] : 0) | kCryptoFmtMarker | kCryptoFmtWrappedBit);
+	MemMove (buf + 1, hasMarker ? rec + 1 : rec, plain);
+	EncCrypt (toK, buf + 1, plain - trail, uid, 0);
+	MemHandleUnlock (h);
+	if (plain + 1 != size)
+		{
+		h = DmResizeRecord (db, i, plain + 1);
+		if (! h) { MemSet (buf, plain + 1, 0); MemPtrFree (buf); DmReleaseRecord (db, i, false); return memErrNotEnoughSpace; }
+		}
+	rec = (UInt8*) MemHandleLock (h);
+	DmWrite (rec, 0, buf, plain + 1);
+	MemHandleUnlock (h);
+	MemSet (buf, plain + 1, 0);
+	MemPtrFree (buf);
+	DmReleaseRecord (db, i, true);
+	return errNone;
+	}
+}
+
+void CryptoRekey (EncRekeyParam* p)
+{
+	DmOpenRef db = DmOpenDatabaseByTypeCreator (cryptoPadType, cryptoPadCreator,
+		dmModeReadWrite | dmModeShowSecret);
+
+	p->result = kRekeyResultDone;
+	if (! db) return;
+	p->result = EncRekeyDb (db, ENC_STORE_CRNT, p, 0, cryptoPadCreator,
+		CryptoRekeyIsEnc, CryptoRekeyRecord);
+	DmCloseDatabase (db);
 }

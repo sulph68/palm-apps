@@ -38,28 +38,28 @@ FORM ID 2400 AT (2 2 156 156) MODAL	// LocationDialog
 	MENUID 2440
 BEGIN
 	TITLE "Location"
-	BUTTON "Address35"		ID 2401	AT (4 16 72 13)		// btnLocAddress35
-	BUTTON "Previous Loc"	ID 2402	AT (80 16 72 13)	// btnLocPreviousLoc
-	LABEL "Name:"		ID 2450	AT (4 36) FONT 1
-	FIELD	ID 2403	AT (44 34 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 39	// fldLocName
-	LABEL "Line 1:"		ID 2451	AT (4 50) FONT 1
-	FIELD	ID 2404	AT (44 48 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 59	// fldLocLine1
-	LABEL "Line 2:"		ID 2452	AT (4 64) FONT 1
-	FIELD	ID 2405	AT (44 62 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 59	// fldLocLine2
-	LABEL "Apt:"			ID 2453	AT (4 78) FONT 1
-	FIELD	ID 2406	AT (44 76 50 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 19	// fldLocApt
-	LABEL "City:"		ID 2454	AT (4 92) FONT 1
-	FIELD	ID 2407	AT (44 90 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 39	// fldLocCity
-	LABEL "State:"		ID 2455	AT (4 106) FONT 1
-	FIELD	ID 2408	AT (44 104 42 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 19	// fldLocState
-	LABEL "Zip:"			ID 2456	AT (90 106) FONT 1
-	FIELD	ID 2409	AT (114 104 38 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 15	// fldLocZip
-	LABEL "Country:"		ID 2457	AT (4 120) FONT 1
-	POPUPTRIGGER "(None)"	ID 2410	AT (50 120 108 12) LEFTANCHOR	// popLocCountry
-	BUTTON "OK"			ID 2412	AT (4 136 42 13)	// btnLocOk
-	BUTTON "Clear"		ID 2414	AT (51 136 42 13)	// btnLocClear -- wipes all fields + closes, see LocationEditForm
-	BUTTON "Cancel"		ID 2413	AT (98 136 42 13)	// btnLocCancel
-	GRAFFITISTATEINDICATOR				AT (144 138)
+	BUTTON "Address35"		ID 2401	AT (5 17 71 12)		// btnLocAddress35
+	BUTTON "Previous Loc"	ID 2402	AT (80 17 71 12)	// btnLocPreviousLoc
+	LABEL "Name:"		ID 2450	AT (4 37) FONT 1
+	FIELD	ID 2403	AT (44 35 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 39	// fldLocName
+	LABEL "Line 1:"		ID 2451	AT (4 51) FONT 1
+	FIELD	ID 2404	AT (44 49 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 59	// fldLocLine1
+	LABEL "Line 2:"		ID 2452	AT (4 65) FONT 1
+	FIELD	ID 2405	AT (44 63 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 59	// fldLocLine2
+	LABEL "Apt:"			ID 2453	AT (4 79) FONT 1
+	FIELD	ID 2406	AT (44 77 50 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 19	// fldLocApt
+	LABEL "City:"		ID 2454	AT (4 93) FONT 1
+	FIELD	ID 2407	AT (44 91 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 39	// fldLocCity
+	LABEL "State:"		ID 2455	AT (4 107) FONT 1
+	FIELD	ID 2408	AT (44 105 42 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 19	// fldLocState
+	LABEL "Zip:"			ID 2456	AT (90 107) FONT 1
+	FIELD	ID 2409	AT (114 105 38 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 15	// fldLocZip
+	LABEL "Country:"		ID 2457	AT (4 121) FONT 1
+	POPUPTRIGGER "(None)"	ID 2410	AT (50 121 108 12) LEFTANCHOR	// popLocCountry
+	BUTTON "OK"			ID 2412	AT (5 139 37 12)	// btnLocOk
+	BUTTON "Clear"		ID 2414	AT (48 139 37 12)	// btnLocClear -- wipes all fields + closes, see LocationEditForm
+	BUTTON "Cancel"		ID 2413	AT (91 139 37 12)	// btnLocCancel
+	GRAFFITISTATEINDICATOR				AT (143 140)
 END
 
 // ---- Generic searchable list picker ----------------------------------------
@@ -75,10 +75,9 @@ FORM ID 2420 AT (2 2 156 156) MODAL	// LocAddrPickDialog
 BEGIN
 	TITLE ""
 	LIST ""				ID 2421	AT (2 16 152 121) VISIBLEITEMS 11	// lstLocAddrPick
-	LABEL "Find:"		ID 2460	AT (2 144) FONT 1
-	FIELD	ID 2422	AT (26 143 86 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 30	// fldLocAddrPickFind -- filters live as you type, no Find button needed
-	BUTTON "Cancel"		ID 2424	AT (117 141 30 12)	// btnLocAddrPickCancel
-	GRAFFITISTATEINDICATOR					AT (148 145)
+	LABEL "Find:"		ID 2460	AT (2 141) FONT 1
+	FIELD	ID 2422	AT (26 141 88 11) EDITABLE UNDERLINED SINGLELINE MAXCHARS 30	// fldLocAddrPickFind -- filters live as you type, no Find button needed
+	BUTTON "Cancel"		ID 2424	AT (117 141 37 12)	// btnLocAddrPickCancel
 END
 
 // ---- "Previous Loc" picker (LocationsDB history) ---------------------------
@@ -90,12 +89,11 @@ FORM ID 2430 AT (2 2 156 156) MODAL	// LocHistoryPickDialog
 	MENUID 2440
 BEGIN
 	TITLE "Previous Locations"
-	LIST ""				ID 2431	AT (2 16 152 120) VISIBLEITEMS 11	// lstLocHistoryPick
-	BUTTON "Del"		ID 2435	AT (115 141 30 12)	// btnLocHistoryDelete
-	LABEL "Find:"		ID 2470	AT (2 144) FONT 1
-	FIELD	ID 2432	AT (26 143 52 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 30	// fldLocHistoryFind -- filters live as you type, no Find button needed
-	BUTTON "Cancel"		ID 2434	AT (80 141 30 12)	// btnLocHistoryCancel -- 2px from the form's right edge (124+30=154)
-	GRAFFITISTATEINDICATOR					AT (147 142)
+	LIST ""				ID 2431	AT (2 16 152 121) VISIBLEITEMS 11	// lstLocHistoryPick
+	BUTTON "Del"		ID 2435	AT (76 141 37 12)	// btnLocHistoryDelete
+	LABEL "Find:"		ID 2470	AT (2 141) FONT 1
+	FIELD	ID 2432	AT (26 141 47 11) EDITABLE UNDERLINED SINGLELINE MAXCHARS 30	// fldLocHistoryFind -- filters live as you type, no Find button needed
+	BUTTON "Cancel"		ID 2434	AT (117 141 37 12)	// btnLocHistoryCancel -- 2px from the form's right edge (124+30=154)
 END
 
 // "Delete this location?" confirm for the Delete button above -- same

@@ -295,6 +295,27 @@ since they're exactly the kind of thing worth checking first if HotSync ever bre
    otherwise, are simply ignored. This is the actual root cause — handshake, and the whole rest of the
    session (every subsequent DLP request/response also goes through this same ack-wait function), has
    worked cleanly on real hardware ever since.
+8. **Dropped connections, and WiRSa talking on after the Palm left (2026-11-20)**: on both T7-S3 and the
+   generic board, syncs often dropped on the first requests, some days every time, and WiRSa then
+   kept sending. Compared with pilot-link's `padp.c` again, three gaps: (a) the reply wait was 3 s
+   (5 s for writes), against `PI_PADP_RX_BLOCK_TO` 30 s: a Palm deleting or creating a big database
+   or compacting its heap answers later than that, WiRSa went on to the next request and never acked
+   the late reply, so the Palm resent it and gave up; (b) no lost-ack repair: pilot-link takes the
+   reply in place of a lost ack ("PADP TX Missing Ack") and acks a repeated packet again ("resending
+   lost ACK"), so one damaged byte (often at the baud switch) killed the session; (c) a failed request
+   did not end the session: every remaining file still went through delete/create/close with full
+   resends, minutes of traffic to a Palm that had gone. **Changed**: reply wait 30 s, resends 2 s × 10
+   (pilot-link's numbers), both lost-ack repairs, a `hsLinkDead` state that stops the walk and skips
+   EndSync, the baud switch as pilot-link's `s_changebaud()` (200 ms, `updateBaudRate()` after the
+   output drains, 200 ms; `begin()` reinstalled the driver), and the last-ack memory cleared before
+   each WAKE. INIT now answers with the Palm's CMP version capped at 1.2, as pilot-link's `cmp_tx()`
+   (it sent 1.0 to every Palm). Also found: Config > Baud Rate (Max) restarted the Palm UART with
+   `begin()` and no pins, so UART2 took its defaults, GPIO 19/20 on the S3 = the USB lines: the
+   T7-S3 dropped off USB, and on both boards the Palm line was dead until a restart
+   (`display_menu.cpp`, now passes RXD2/TXD2). Real-Palm tests on a T7-S3 (Palm OS 4.1, CMP 1.3):
+   115200 failed twice (Palm silent after the switch), then 38400 (14 s), 57600 (10 s) and 115200 three
+   times (6 s, one with the FTP server running) all worked, before the CMP-version and pin fixes.
+   What changed between the failures and the successes is not known.
 
 ### 4.5 OLED status area
 

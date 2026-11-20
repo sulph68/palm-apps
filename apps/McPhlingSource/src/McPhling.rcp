@@ -540,6 +540,16 @@ BEGIN
    BUTTONS "OK"
 END
 
+ALERT ID SelSameAsAppsAlert
+WARNING
+BEGIN
+   TITLE "Sel. Key"
+   MESSAGE "Sel. was set to the same button as Apps:, so it could never " \
+           "confirm a highlighted item. Sel. has been turned off; pick " \
+           "another button for it."
+   BUTTONS "OK"
+END
+
 ALERT ID DefaultAlert
 CONFIRMATION
 DEFAULTBUTTON 0

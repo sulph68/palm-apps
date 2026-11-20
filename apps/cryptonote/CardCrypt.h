@@ -65,5 +65,7 @@ Boolean CardPromptPassword(char *out, UInt16 outSize) AES_SECTION;
  * with CardBusyHide right after. */
 WinHandle CardBusyShow(const char *msg) AES_SECTION;
 void      CardBusyHide(WinHandle saved) AES_SECTION;
+/* Replace the text in the box CardBusyShow put up. */
+void      CardBusySetText(const char *msg) AES_SECTION;
 
 #endif /* CARDCRYPT_H */

@@ -204,6 +204,8 @@ void	A35MergePlainDB(DmOpenRef mainDB) SEC002;	/* full launch only (needs global
  * load - those must use A35GetRecordRaw instead. */
 Err		A35GetRecord(DmOpenRef dbP, UInt16 index, A35Record *out, MemHandle *recordH) SEC003;
 void	A35ReleaseRecord(MemHandle recordH) SEC003;
+/* zero a block that held decrypted text, then free it */
+void	A35FreeWiped(void *p) SEC003;
 /* Raw, NON-decrypting zero-copy view (CLEAR fields only: name/company/tag/
  * relation/birthday). Safe in a no-globals sublaunch. Release: MemHandleUnlock. */
 Err		A35GetRecordRaw(DmOpenRef dbP, UInt16 index, A35Record *out, MemHandle *recordH);
@@ -247,7 +249,6 @@ Err	A35AddReciprocalRelation(DmOpenRef dbP, UInt32 targetUid, UInt32 backUid,
 			UInt8 recipType) SEC003;	/* add backUid link to targetUid if absent */
 
 /* ---- birthday / anniversary (portable "YYYYMMDD" string) --------------- */
-Boolean	A35GetBirthday(const A35Record *r, A35Birthday *out);	/* false if none */
 /* Parse a "YYYYMMDD" string into *out (false if malformed). year 0 => !hasYear. */
 Boolean	A35ParseBirthday(const char *ymd, A35Birthday *out);
 /* Serialize *bd to a fixed "YYYYMMDD"\0 string (out must hold >= 9 bytes). */
@@ -266,7 +267,6 @@ void	A35GetSortOrder(DmOpenRef dbP, UInt8 *primary, UInt8 *secondary) SEC001;
 UInt16	A35FindSortPosition(DmOpenRef dbP, void *packedRecordP);
 
 /* ---- tag dictionary (AppInfo) ------------------------------------------ */
-UInt16		A35TagFind(DmOpenRef dbP, const char *name);	/* id, 0 if absent   */
 UInt16		A35TagAdd(DmOpenRef dbP, const char *name);		/* find-or-add id    */
 /* Copy tag <tagId>'s name into out (>= a35TagNameLen); false if id invalid. */
 Boolean		A35TagName(DmOpenRef dbP, UInt16 tagId, char *out);
@@ -275,8 +275,6 @@ Boolean		A35RecordHasTag(const A35Record *r, UInt16 tagId);
 /* ---- preferences in AppInfo -------------------------------------------- */
 UInt8	A35GetSurnameTerm(DmOpenRef dbP);
 void	A35SetSurnameTerm(DmOpenRef dbP, UInt8 term);
-/* Display string for a surname term: "Surname" / "Last Name" / "Family Name". */
-const char *A35SurnameTermStr(UInt8 term);
 
 #ifdef __cplusplus
 }

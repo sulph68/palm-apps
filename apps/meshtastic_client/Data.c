@@ -255,31 +255,7 @@ void FmtListTime(Stamp t, char *out)
 		EraDateToAscii((UInt8) d.month, (UInt8) d.day, (UInt16) d.year, ShortFmt(), out);
 }
 
-/* "5m", "3h", "12d": how long ago. */
-void FmtAgo(Stamp t, char *out)
-{
-	Int32 age = NowUtc() - t;
-
-	out[0] = '\0';
-	if (age < 1) age = 1;
-	if (age < 60) { PutNum(out, age); StrCat(out, "m"); }
-	else if (age < 2 * DAY) { PutNum(out, age / 60); StrCat(out, "h"); }
-	else { PutNum(out, age / DAY); StrCat(out, "d"); }
-}
-
 /* ---- conversations and messages ------------------------------------------------------ */
-
-void ConvName(UInt16 c, char *out)
-{
-	const Conv *v = &gConv[c];
-	out[0] = v->isChan ? '#' : '>';
-	out[1] = ' ';
-	if (v->isChan)
-		StrCopy(out + 2, gNodeCfg.chan[v->index].name);
-	else
-		StrNCopy(out + 2, gNodes[v->index].longName, 30);
-	out[32] = '\0';
-}
 
 /* The conversation's name for a list or title: no marker, a channel without a name gets its slot. */
 void ConvLabel(UInt16 c, char *out)

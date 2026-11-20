@@ -224,6 +224,13 @@ UInt32 PilotMain(UInt16 cmd, MemPtr cmdPBP, UInt16 launchFlags)
 	(void) cmdPBP;
 	(void) launchFlags;
 
+	if (cmd == kSecLaunchRekey) {
+		/* Sec35: re-encrypt our Sec35-keyed data (Store.c BwRekey). Needs globals. */
+		if (launchFlags & sysAppLaunchFlagNewGlobals)
+			BwRekey((struct EncRekeyParamTag *) cmdPBP);
+		return 0;
+	}
+
 	if (cmd == sysAppLaunchCmdNormalLaunch) {
 		err = StartApplication();
 		if (err != errNone) return err;
@@ -253,10 +260,13 @@ UInt32 PilotMain(UInt16 cmd, MemPtr cmdPBP, UInt16 launchFlags)
 			StopApplication();
 			return 0;
 		}
-		if (!EncKeyPresent()) {
+		if (!EncKeyPresent() || !BwStoreSchemeOk()) {
 			/* Bounce straight to Sec35's unlock UI before showing any of
 			 * our own UI - Sec35 switches back here via a normal re-launch
-			 * on success, which re-runs this same check and falls through. */
+			 * on success, which re-runs this same check and falls through.
+			 * Data still in key scheme 1 (first run after the update, or a
+			 * restored backup): Sec35 converts it first. */
+			if (!BwStoreSchemeOk()) FtrSet(ENC_CREATOR, kSecConvertFtr, 1);
 			BwSwitchToSec35();
 			StopApplication();
 			return 0;

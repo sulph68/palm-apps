@@ -12,6 +12,7 @@
  */
 #include "CalDAVSync.h"
 #include "LongTextDialog.h"
+#include "SlotEditForm.h"	/* ZeroFormFields */
 
 static void LtdSyncScroll(FormPtr frm, FieldPtr fld) SEC001;
 static void LtdSyncScroll(FormPtr frm, FieldPtr fld)
@@ -94,6 +95,7 @@ SEC001 Boolean LongTextEditDialog(char *buf, UInt16 bufCap)
 	/* FrmEraseForm frees the field's text handle (th) for us - matches
 	 * Address35's own EditNoteDialog exactly; an explicit MemHandleFree
 	 * here would double-free. */
+	ZeroFormFields(frm);	/* the value was decrypted - don't leave it in free memory */
 	FrmEraseForm(frm);
 	FrmDeleteForm(frm);
 	if (prev) FrmSetActiveForm(prev);

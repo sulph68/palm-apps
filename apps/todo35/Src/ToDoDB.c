@@ -23,7 +23,8 @@
 
 #include "ToDo.h"
 #include "ToDoDB.h"
-#include "enccore.h"			/* Sec35 shared-key AES-128-CTR (EncGetKey/EncCrypt) */
+#include "enccore.h"			/* Sec35 per-store AES-128-CTR (EncGetStoreKeyDb/EncCrypt) */
+#include "encrekey.h"			/* kSecLaunchRekey record loop */
 
 // Export error checking routines
 void ECToDoDBValidate(DmOpenRef dbP);
@@ -69,33 +70,31 @@ Boolean ToDoDbHasEncrypted(DmOpenRef dbP)
 	return false;
 }
 
-/* Convert one record between plaintext and the length-prefixed encrypted layout, IN
- * PLACE. (AES-CTR output can contain 0x00, which would truncate the inline
- * NUL-terminated strings, so an encrypted record stores desc/note as
- * [descLen:2][noteLen:2][encDesc][encNote] after dueDate+priority. The sort comparator
- * reads only dueDate/priority/category, so it is unaffected.) The crypto toggle itself
- * must NOT mark the record dirty for HotSync (only real user edits should), so the
- * pre-existing dirty bit is preserved. No-op if already in the target state or locked.
- * Model: the app decrypts ALL records on open (unlocked) and re-encrypts on close, so
- * records are plaintext only while the app is foreground; the rest of the app reads
- * them normally. Nonce (uid,0)=desc, (uid,1)=note. sec003 (foreground). */
-static void TdRecrypt(DmOpenRef dbP, UInt16 index, Boolean toEnc) ENCCORE_SECTION;
-static void TdRecrypt(DmOpenRef dbP, UInt16 index, Boolean toEnc)
+/* Encrypt one plaintext record IN PLACE into the length-prefixed layout. (AES-CTR output
+ * can contain 0x00, which would truncate the inline NUL-terminated strings, so an
+ * encrypted record stores desc/note as [descLen:2][noteLen:2][encDesc][encNote] after
+ * dueDate+priority. The sort comparator reads only dueDate/priority/category, so it is
+ * unaffected.) The crypto step itself must NOT mark the record dirty for HotSync (only
+ * real user edits should), so the pre-existing dirty bit is preserved. No-op if already
+ * encrypted or locked. Records are never decrypted in place: reads use throwaway copies
+ * (ToDoGetInlineCopy, below). Nonce (uid,0)=desc, (uid,1)=note. sec003 (foreground). */
+static void TdEncrypt(DmOpenRef dbP, UInt16 index) ENCCORE_SECTION;
+static void TdEncrypt(DmOpenRef dbP, UInt16 index)
 {
 	UInt8 key[ENC_KEY_BYTES];
 	UInt32 uid = 0;
 	MemHandle h;
 	UInt8 *rec, *out = NULL;
 	Int32 recSize, outSize = 0;
-	UInt16 descLen = 0, noteLen = 0, attr = 0;
+	UInt16 descLen = 0, noteLen = 0, attr = 0, noteOff;
 	Boolean wasDirty;
 
-	if (!EncGetKey(key, kTdEncTtl))
+	if (!EncGetStoreKeyDb(key, ENC_STORE_TD35, dbP))
 		return;
 	h = DmGetRecord(dbP, index);
 	if (h == NULL) { MemSet(key, ENC_KEY_BYTES, 0); return; }
 	rec = (UInt8 *) MemHandleLock(h);
-	if ((((rec[kTdPriOff] & encryptedFlag) != 0)) == toEnc) {	/* already in target state */
+	if (rec[kTdPriOff] & encryptedFlag) {				/* already encrypted */
 		MemHandleUnlock(h); DmReleaseRecord(dbP, index, false);
 		MemSet(key, ENC_KEY_BYTES, 0); return;
 	}
@@ -103,38 +102,20 @@ static void TdRecrypt(DmOpenRef dbP, UInt16 index, Boolean toEnc)
 	wasDirty = (Boolean)((attr & dmRecAttrDirty) != 0);
 	recSize = MemHandleSize(h);
 
-	if (toEnc) {						/* plaintext -> encrypted */
-		UInt16 noteOff;
-		descLen = (UInt16) StrLen((const char *)(rec + kTdDescOff));
-		noteOff = (UInt16)(kTdDescOff + descLen + 1);
-		noteLen = (noteOff < recSize) ? (UInt16) StrLen((const char *)(rec + noteOff)) : 0;
-		outSize = kTdDescOff + 4 + descLen + noteLen;
-		out = (UInt8 *) MemPtrNew(outSize);
-		if (out != NULL) {
-			MemMove(out, rec, kTdDescOff);				/* dueDate + priority */
-			out[kTdPriOff] |= encryptedFlag;
-			tdWrU16(out + kTdDescOff, descLen);
-			tdWrU16(out + kTdDescOff + 2, noteLen);
-			MemMove(out + kTdDescOff + 4, rec + kTdDescOff, descLen);
-			MemMove(out + kTdDescOff + 4 + descLen, rec + noteOff, noteLen);
-			if (descLen) EncCrypt(key, out + kTdDescOff + 4, descLen, uid, 0);
-			if (noteLen) EncCrypt(key, out + kTdDescOff + 4 + descLen, noteLen, uid, 1);
-		}
-	} else {							/* encrypted -> plaintext */
-		descLen = tdRdU16(rec + kTdDescOff);
-		noteLen = tdRdU16(rec + kTdDescOff + 2);
-		outSize = kTdDescOff + descLen + 1 + noteLen + 1;
-		out = (UInt8 *) MemPtrNew(outSize);
-		if (out != NULL) {
-			MemMove(out, rec, kTdDescOff);
-			out[kTdPriOff] &= (UInt8) ~encryptedFlag;
-			MemMove(out + kTdDescOff, rec + kTdDescOff + 4, descLen);
-			out[kTdDescOff + descLen] = 0;
-			MemMove(out + kTdDescOff + descLen + 1, rec + kTdDescOff + 4 + descLen, noteLen);
-			out[kTdDescOff + descLen + 1 + noteLen] = 0;
-			if (descLen) EncCrypt(key, out + kTdDescOff, descLen, uid, 0);
-			if (noteLen) EncCrypt(key, out + kTdDescOff + descLen + 1, noteLen, uid, 1);
-		}
+	descLen = (UInt16) StrLen((const char *)(rec + kTdDescOff));
+	noteOff = (UInt16)(kTdDescOff + descLen + 1);
+	noteLen = (noteOff < recSize) ? (UInt16) StrLen((const char *)(rec + noteOff)) : 0;
+	outSize = kTdDescOff + 4 + descLen + noteLen;
+	out = (UInt8 *) MemPtrNew(outSize);
+	if (out != NULL) {
+		MemMove(out, rec, kTdDescOff);				/* dueDate + priority */
+		out[kTdPriOff] |= encryptedFlag;
+		tdWrU16(out + kTdDescOff, descLen);
+		tdWrU16(out + kTdDescOff + 2, noteLen);
+		MemMove(out + kTdDescOff + 4, rec + kTdDescOff, descLen);
+		MemMove(out + kTdDescOff + 4 + descLen, rec + noteOff, noteLen);
+		if (descLen) EncCrypt(key, out + kTdDescOff + 4, descLen, uid, 0);
+		if (noteLen) EncCrypt(key, out + kTdDescOff + 4 + descLen, noteLen, uid, 1);
 	}
 	MemHandleUnlock(h);
 	if (out != NULL) {
@@ -144,10 +125,10 @@ static void TdRecrypt(DmOpenRef dbP, UInt16 index, Boolean toEnc)
 			DmWrite(rec, 0, out, outSize);
 			MemHandleUnlock(h);
 		}
-		MemPtrFree(out);
+		MemPtrFree(out);							/* holds ciphertext only */
 	}
 	DmReleaseRecord(dbP, index, true);
-	if (!wasDirty) {					/* the crypto toggle must not queue a HotSync */
+	if (!wasDirty) {					/* the crypto step must not queue a HotSync */
 		DmRecordInfo(dbP, index, &attr, NULL, NULL);
 		attr = (UInt16)(attr & ~dmRecAttrDirty);
 		DmSetRecordInfo(dbP, index, &attr, NULL);
@@ -161,7 +142,7 @@ void ToDoSealAllPlaintext(DmOpenRef dbP)
 	UInt8 key[ENC_KEY_BYTES];
 	UInt16 i, n;
 
-	if (!EncGetKey(key, kTdEncTtl)) return;
+	if (!EncGetStoreKeyDb(key, ENC_STORE_TD35, dbP)) return;
 	MemSet(key, ENC_KEY_BYTES, 0);
 	n = DmNumRecords(dbP);
 	for (i = 0; i < n; i++) {
@@ -169,29 +150,128 @@ void ToDoSealAllPlaintext(DmOpenRef dbP)
 		if (h != NULL) {
 			Boolean enc = (Boolean)(((const UInt8 *)MemHandleLock(h))[kTdPriOff] & encryptedFlag);
 			MemHandleUnlock(h);
-			if (!enc) TdRecrypt(dbP, i, true);
+			if (!enc) TdEncrypt(dbP, i);
 		}
 	}
 }
 
-/* Decrypt every encrypted record into the standard plaintext layout (call on open,
- * once unlocked). No-op locked. The app then reads/edits records normally. */
-void ToDoDecryptAll(DmOpenRef dbP)
+/* ---- kSecLaunchRekey (Sec35 asks ToDo35 to re-encrypt its own data) ------- *
+ * Sec35 sublaunches ToDo35 (new globals) for a password set / change / removal
+ * / forget and for the key scheme 1 -> 2 conversion; see enccore.h, encrekey.h.
+ * One record, both directions, with explicit keys (fromK NULL = the record is
+ * plaintext, toK NULL = leave it plaintext). Same layouts as TdEncrypt above,
+ * the length checks Sec35 used, and the dirty bit kept as it was (a crypto
+ * change must not queue a HotSync). Nothing changes on failure. */
+static Boolean TdRekeyIsEnc(const UInt8 *rec, UInt32 size) ENCCORE_SECTION;
+static Boolean TdRekeyIsEnc(const UInt8 *rec, UInt32 size)
 {
-	UInt8 key[ENC_KEY_BYTES];
-	UInt16 i, n;
+	return (Boolean) (size > kTdPriOff && (rec[kTdPriOff] & encryptedFlag));
+}
 
-	if (!EncGetKey(key, kTdEncTtl)) return;
-	MemSet(key, ENC_KEY_BYTES, 0);
-	n = DmNumRecords(dbP);
-	for (i = 0; i < n; i++) {
-		MemHandle h = DmQueryRecord(dbP, i);
-		if (h != NULL) {
-			Boolean enc = (Boolean)(((const UInt8 *)MemHandleLock(h))[kTdPriOff] & encryptedFlag);
-			MemHandleUnlock(h);
-			if (enc) TdRecrypt(dbP, i, false);
+static Err TdRekeyRecord(DmOpenRef dbP, UInt16 index, const UInt8 *fromK, const UInt8 *toK) ENCCORE_SECTION;
+static Err TdRekeyRecord(DmOpenRef dbP, UInt16 index, const UInt8 *fromK, const UInt8 *toK)
+{
+	MemHandle h;
+	UInt8 *rec, *out = NULL;
+	Int32 recSize, outSize = 0;
+	UInt16 descLen, noteLen, attr = 0;
+	UInt32 uid = 0;
+	Boolean wasDirty, write = false;
+
+	h = DmGetRecord(dbP, index);
+	if (h == NULL) return dmErrIndexOutOfRange;
+	rec = (UInt8 *) MemHandleLock(h);
+	recSize = MemHandleSize(h);
+	DmRecordInfo(dbP, index, &attr, &uid, NULL);
+	wasDirty = (Boolean)((attr & dmRecAttrDirty) != 0);
+
+	if (fromK && toK) {					/* re-key the payload in place (same size) */
+		descLen = tdRdU16(rec + kTdDescOff);
+		noteLen = tdRdU16(rec + kTdDescOff + 2);
+		if ((Int32)(kTdDescOff + 4 + descLen + noteLen) <= recSize) {
+			outSize = recSize;
+			out = (UInt8 *) MemPtrNew(outSize);
+			if (out == NULL) goto nomem;
+			MemMove(out, rec, recSize);
+			if (descLen) { EncCrypt(fromK, out + kTdDescOff + 4, descLen, uid, 0);
+			               EncCrypt(toK,   out + kTdDescOff + 4, descLen, uid, 0); }
+			if (noteLen) { EncCrypt(fromK, out + kTdDescOff + 4 + descLen, noteLen, uid, 1);
+			               EncCrypt(toK,   out + kTdDescOff + 4 + descLen, noteLen, uid, 1); }
+			write = true;
+		}
+	} else if (toK) {					/* plaintext -> encrypted (grows by ~2) */
+		UInt16 noteOff;
+		descLen = (UInt16) StrLen((const char *)(rec + kTdDescOff));
+		noteOff = (UInt16)(kTdDescOff + descLen + 1);
+		noteLen = (noteOff < recSize) ? (UInt16) StrLen((const char *)(rec + noteOff)) : 0;
+		outSize = kTdDescOff + 4 + descLen + noteLen;
+		out = (UInt8 *) MemPtrNew(outSize);
+		if (out == NULL) goto nomem;
+		MemMove(out, rec, kTdDescOff);				/* dueDate + priority */
+		out[kTdPriOff] |= encryptedFlag;
+		tdWrU16(out + kTdDescOff, descLen);
+		tdWrU16(out + kTdDescOff + 2, noteLen);
+		MemMove(out + kTdDescOff + 4, rec + kTdDescOff, descLen);
+		MemMove(out + kTdDescOff + 4 + descLen, rec + noteOff, noteLen);
+		if (descLen) EncCrypt(toK, out + kTdDescOff + 4, descLen, uid, 0);
+		if (noteLen) EncCrypt(toK, out + kTdDescOff + 4 + descLen, noteLen, uid, 1);
+		write = true;
+	} else if (fromK) {					/* encrypted -> plaintext (shrinks) */
+		descLen = tdRdU16(rec + kTdDescOff);
+		noteLen = tdRdU16(rec + kTdDescOff + 2);
+		if ((Int32)(kTdDescOff + 4 + descLen + noteLen) <= recSize) {
+			outSize = kTdDescOff + descLen + 1 + noteLen + 1;
+			out = (UInt8 *) MemPtrNew(outSize);
+			if (out == NULL) goto nomem;
+			MemMove(out, rec, kTdDescOff);
+			out[kTdPriOff] &= (UInt8) ~encryptedFlag;
+			MemMove(out + kTdDescOff, rec + kTdDescOff + 4, descLen);
+			out[kTdDescOff + descLen] = 0;
+			MemMove(out + kTdDescOff + descLen + 1, rec + kTdDescOff + 4 + descLen, noteLen);
+			out[kTdDescOff + descLen + 1 + noteLen] = 0;
+			if (descLen) EncCrypt(fromK, out + kTdDescOff, descLen, uid, 0);
+			if (noteLen) EncCrypt(fromK, out + kTdDescOff + descLen + 1, noteLen, uid, 1);
+			write = true;
 		}
 	}
+	MemHandleUnlock(h);
+	if (write) {
+		if (outSize != recSize) {
+			h = DmResizeRecord(dbP, index, outSize);	/* may move; relock via new h */
+			if (h == NULL) {
+				MemSet(out, outSize, 0); MemPtrFree(out);
+				DmReleaseRecord(dbP, index, false);
+				return memErrNotEnoughSpace;
+			}
+		}
+		rec = (UInt8 *) MemHandleLock(h);
+		DmWrite(rec, 0, out, outSize);
+		MemHandleUnlock(h);
+	}
+	if (out != NULL) { MemSet(out, outSize, 0); MemPtrFree(out); }	/* may hold plaintext */
+	DmReleaseRecord(dbP, index, write);
+	if (write && !wasDirty) {
+		DmRecordInfo(dbP, index, &attr, NULL, NULL);
+		attr = (UInt16)(attr & ~dmRecAttrDirty);
+		DmSetRecordInfo(dbP, index, &attr, NULL);
+	}
+	return errNone;
+
+nomem:
+	MemHandleUnlock(h);
+	DmReleaseRecord(dbP, index, false);
+	return memErrNotEnoughSpace;
+}
+
+void ToDoRekey(EncRekeyParam *p)
+{
+	DmOpenRef db = NULL;
+
+	p->result = kRekeyResultDone;
+	if (ToDoGetDatabase(&db, dmModeReadWrite | dmModeShowSecret) != errNone || db == NULL)
+		return;
+	p->result = EncRekeyDb(db, ENC_STORE_TD35, p, 0, 'Td35', TdRekeyIsEnc, TdRekeyRecord);
+	DmCloseDatabase(db);
 }
 
 /* ---- per-record helpers for the at-rest (copy-edit) model ---------------- *
@@ -204,7 +284,7 @@ void ToDoDecryptAll(DmOpenRef dbP)
 
 /* Seal a plaintext record in place (new records, or records made while locked). No-op if
  * already encrypted or locked. */
-void ToDoEncryptOne(DmOpenRef dbP, UInt16 index) { TdRecrypt(dbP, index, true); }
+void ToDoEncryptOne(DmOpenRef dbP, UInt16 index) { TdEncrypt(dbP, index); }
 
 /* Is the record empty (no description AND no note)?  Layout-aware, NO decryption/key
  * needed -> MAIN.  (For an encrypted record, emptiness is the two length prefixes = 0.) */
@@ -274,7 +354,7 @@ ToDoDBRecordPtr ToDoGetInlineCopy(DmOpenRef dbP, UInt16 index, MemHandle *outH)
 	} else {
 		UInt8 key[ENC_KEY_BYTES];
 		UInt32 uid = 0;
-		Boolean haveKey = EncGetKey(key, kTdEncTtl);
+		Boolean haveKey = EncGetStoreKeyDb(key, ENC_STORE_TD35, dbP);
 
 		descLen = tdRdU16(rec + kTdDescOff);
 		noteLen = tdRdU16(rec + kTdDescOff + 2);
@@ -316,12 +396,29 @@ ToDoDBRecordPtr ToDoGetInlineCopy(DmOpenRef dbP, UInt16 index, MemHandle *outH)
 
 void ToDoReleaseInlineCopy(MemHandle h)
 {
-	if (h != NULL) { MemHandleUnlock(h); MemHandleFree(h); }
+	if (h != NULL) {
+		MemSet(MemHandleLock(h), (Int32) MemHandleSize(h), 0);	/* decrypted text */
+		MemHandleUnlock(h);			/* the lock just taken */
+		MemHandleUnlock(h);			/* ToDoGetInlineCopy's lock */
+		MemHandleFree(h);
+	}
+}
+
+/* Free an unlocked handle that held decrypted text (a ToDoCopyDescPlain / NotePlain
+ * copy, a field's text, a row copy), zeroing it first so no plaintext is left in free
+ * memory. NULL is ignored. MAIN (no key, no crypto). */
+void ToDoFreeWiped(MemHandle h)
+{
+	if (h != NULL) {
+		MemSet(MemHandleLock(h), (Int32) MemHandleSize(h), 0);
+		MemHandleUnlock(h);
+		MemHandleFree(h);
+	}
 }
 
 /* Return a NEW handle with the decrypted DESCRIPTION (field 0) resp. NOTE (field 1) string,
  * for the ROM to edit / for per-row list drawing.  Only the requested field is decrypted
- * (cheap enough to run per row per redraw).  Caller MemHandleFree's it.  NULL on OOM /
+ * (cheap enough to run per row per redraw).  Caller frees it with ToDoFreeWiped.  NULL on OOM /
  * locked-with-key-missing.  sec003. */
 static MemHandle TdCopyField(DmOpenRef dbP, UInt16 index, UInt16 field) ENCCORE_SECTION;
 static MemHandle TdCopyField(DmOpenRef dbP, UInt16 index, UInt16 field)
@@ -347,7 +444,7 @@ static MemHandle TdCopyField(DmOpenRef dbP, UInt16 index, UInt16 field)
 	} else {											/* encrypted: decrypt just this field */
 		UInt8 key[ENC_KEY_BYTES];
 		UInt32 uid = 0;
-		if (EncGetKey(key, kTdEncTtl)) {
+		if (EncGetStoreKeyDb(key, ENC_STORE_TD35, dbP)) {
 			UInt16 descLen = tdRdU16(rec + kTdDescOff);
 			UInt16 noteLen = tdRdU16(rec + kTdDescOff + 2);
 			UInt16 ln = (field == 0) ? descLen : noteLen;
@@ -389,7 +486,7 @@ static void TdWriteEncrypted(DmOpenRef dbP, UInt16 index,
 	UInt8 *out;
 	Int32 outSize = kTdDescOff + 4 + descLen + noteLen;
 
-	if (!EncGetKey(key, kTdEncTtl)) return;
+	if (!EncGetStoreKeyDb(key, ENC_STORE_TD35, dbP)) return;
 	DmRecordInfo(dbP, index, NULL, &uid, NULL);
 	h = DmGetRecord(dbP, index);
 	if (h == NULL) { MemSet(key, ENC_KEY_BYTES, 0); return; }
@@ -907,38 +1004,6 @@ static Int16 ToDoCompareRecords(ToDoDBRecordPtr r1,
 		}
 	
 	return result;
-}
-
-
-/************************************************************
- *
- *  FUNCTION: ToDoSize
- *
- *  DESCRIPTION: Return the size of a ToDoDBRecordType
- *
- *  PARAMETERS: database record
- *
- *  RETURNS: the size in bytes
- *
- *  CREATED: 1/10/95 
- *
- *  BY: Roger Flores
- *
- *************************************************************/
-static UInt16 ToDoSize(ToDoDBRecordPtr r)
-{
-	UInt16 size;
-	char *c;
-	int cLen;
-	
-	c = &r->description;
-	cLen = StrLen(c) + 1;
-	size = sizeof (DateType) + 1 + cLen;
-	c += cLen;
-	
-	size += StrLen(c) + 1;
-
-	return size;
 }
 
 

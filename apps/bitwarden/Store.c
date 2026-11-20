@@ -15,6 +15,7 @@
  */
 #include "BitWarden.h"
 #include "enccore.h"
+#include "encrekey.h"		/* kSecLaunchRekey record loop */
 
 #define bwDBName	"BitWardenDB"
 #define bwDBType	'BWit'
@@ -238,22 +239,34 @@ static void wrU16(UInt8 *p, UInt16 v) { p[0] = (UInt8) (v >> 8); p[1] = (UInt8) 
 /* ------------------------------------------------------------------ *
  *  prefs blob
  * ------------------------------------------------------------------ */
+/* Key scheme 2 (per-store keys, enccore.h): the 2FA token in this block uses
+ * the ENC_STORE_BW key. The marker is a bit in the preference's own version
+ * number (LoadPrefs never checked it, so older builds still load the block).
+ * A token still under the old scheme reads as absent until Sec35 converts it
+ * (the launch gate asks for that); a save keeps the block's scheme. */
+#define bwPrefScheme2	0x4000
+static Boolean gBwPrefScheme2 = true;
+
 static void LoadPrefs(void)
 {
 	UInt16 sz = sizeof(gPrefs);
+	Int16 r;
 	if (gPrefsLoaded) return;
-	if (PrefGetAppPreferences(appCreator, bwPrefID, &gPrefs, &sz, false) != noPreferenceFound
-		&& sz == sizeof(gPrefs)) {
+	r = PrefGetAppPreferences(appCreator, bwPrefID, &gPrefs, &sz, false);
+	if (r != noPreferenceFound && sz == sizeof(gPrefs)) {
 		/* loaded fine */
+		gBwPrefScheme2 = (Boolean) ((r & bwPrefScheme2) || gPrefs.twoFactorRememberLen == 0);
 	} else {
 		MemSet(&gPrefs, sizeof(gPrefs), 0);
+		gBwPrefScheme2 = true;
 	}
 	gPrefsLoaded = true;
 }
 
 static void SavePrefs(void)
 {
-	PrefSetAppPreferences(appCreator, bwPrefID, 1, &gPrefs, sizeof(gPrefs), false);
+	PrefSetAppPreferences(appCreator, bwPrefID, (Int16) (1 | (gBwPrefScheme2 ? bwPrefScheme2 : 0)),
+		&gPrefs, sizeof(gPrefs), false);
 }
 
 /* ------------------------------------------------------------------ *
@@ -579,7 +592,7 @@ Boolean BwGetCachedPassword(char *outPassword, UInt16 outLen)
 	if (FtrGet(appCreator, bwCachedPwFtr, &v) != 0 || v == 0) return false;	/* can't happen - BwHasCachedPassword just confirmed it, defensive */
 	p = (BwCachedPwBlock *) v;
 	if (p->len >= outLen) return false;
-	if (!EncGetKey(sec35Key, EncGetTtlSeconds())) return false;	/* Sec35 locked - see BwHasCachedPassword for the "should we bounce" check */
+	if (!EncGetStoreKey(sec35Key, ENC_STORE_BW)) return false;	/* Sec35 locked - see BwHasCachedPassword for the "should we bounce" check */
 
 	MemMove(tmp, p->enc, p->len);
 	EncCrypt(sec35Key, tmp, p->len, bwCachedPwNonceHi, 0);
@@ -600,7 +613,7 @@ void BwSetCachedPassword(const char *password)
 	BwCachedPwBlock blk;
 
 	if (len >= bwCachedPwMax) len = bwCachedPwMax - 1;
-	if (!EncGetKey(sec35Key, EncGetTtlSeconds())) return;	/* shouldn't happen - defensive */
+	if (!EncGetStoreKey(sec35Key, ENC_STORE_BW)) return;	/* shouldn't happen - defensive */
 
 	BwWipeCachedPassword();	/* replace any existing block cleanly - same reasoning as BwCacheKeyInternal's own call to BwWipeKeyInternal */
 	e = FtrPtrNew(appCreator, bwCachedPwFtr, sizeof(BwCachedPwBlock), (void **) &v);
@@ -667,7 +680,7 @@ void BwTouchSessionKeys(void)
 	gLastSessionTouchTick = now;
 	BwTouchLocalUnlock();
 	BwTouchCachedPassword();
-	if (EncGetKey(sec35Key, EncGetTtlSeconds())) {
+	if (EncGetKey(sec35Key, EncGetTtlSeconds())) {	/* the Sec35 key itself: re-cached */
 		EncCacheKey(sec35Key);
 		MemSet(sec35Key, sizeof(sec35Key), 0);
 	}
@@ -701,7 +714,8 @@ Boolean BwGetTwoFactorRemember(char *out, UInt16 outCap)
 	out[0] = 0;
 	if (gPrefs.twoFactorRememberLen == 0 || gPrefs.twoFactorRememberLen >= outCap
 		|| gPrefs.twoFactorRememberLen > bwTwoFactorRememberMax) return false;
-	if (!EncGetKey(sec35Key, EncGetTtlSeconds())) return false;	/* Sec35 locked - can't decrypt right now */
+	if (!gBwPrefScheme2) return false;		/* old-scheme token: Sec35 converts it first */
+	if (!EncGetStoreKey(sec35Key, ENC_STORE_BW)) return false;	/* Sec35 locked - can't decrypt right now */
 
 	MemMove(tmp, gPrefs.twoFactorRememberEnc, gPrefs.twoFactorRememberLen);
 	EncCrypt(sec35Key, tmp, gPrefs.twoFactorRememberLen, bwTwoFactorNonceHi, 0);
@@ -726,7 +740,8 @@ void BwSetTwoFactorRemember(const char *token)
 		return;
 	}
 	if (len > bwTwoFactorRememberMax) len = bwTwoFactorRememberMax;
-	if (!EncGetKey(sec35Key, EncGetTtlSeconds())) return;	/* shouldn't happen mid-sync - defensive */
+	if (!gBwPrefScheme2) return;			/* old-scheme block: Sec35 converts it first */
+	if (!EncGetStoreKey(sec35Key, ENC_STORE_BW)) return;	/* shouldn't happen mid-sync - defensive */
 
 	MemMove(gPrefs.twoFactorRememberEnc, token, len);
 	EncCrypt(sec35Key, gPrefs.twoFactorRememberEnc, len, bwTwoFactorNonceHi, 0);
@@ -820,6 +835,7 @@ void BwStoreInit(void)
 	} else {
 		if (DmCreateDatabase(0, bwDBName, appCreator, bwDBType, false) != errNone) return;
 		dbID = DmFindDatabase(0, bwDBName);
+		EncDbIdSetStoreKeys(dbID);		/* new: key scheme 2 from the start */
 		gDB = DmOpenDatabase(0, dbID, dmModeReadWrite);
 	}
 
@@ -905,6 +921,7 @@ Boolean BwStoreBeginSync(void)
 
 	if (DmCreateDatabase(0, bwDBNameTemp, appCreator, bwDBType, false) == errNone) {
 		dbID = DmFindDatabase(0, bwDBNameTemp);
+		EncDbIdSetStoreKeys(dbID);		/* written under the BitWarden store key */
 		gDB = DmOpenDatabase(0, dbID, dmModeReadWrite);
 	}
 
@@ -1036,7 +1053,7 @@ static Boolean AddMarker(UInt8 markerType, UInt16 index, const char *name, UInt3
 	 * matching what WiRSa believes it sent) while actually storing nothing
 	 * from the lock point onward. Now reported as a failure so the caller
 	 * can abort the whole sync (BwStoreAbortSync) instead. */
-	if (!EncGetKey(sec35Key, EncGetTtlSeconds())) { MemSet(key, sizeof(key), 0); return false; }
+	if (!EncGetStoreKey(sec35Key, ENC_STORE_BW)) { MemSet(key, sizeof(key), 0); return false; }
 	if (nameLen > bwMaxField - 1) nameLen = bwMaxField - 1;
 
 	MemSet(gRecBuf, sizeof(gRecBuf), 0);
@@ -1126,9 +1143,19 @@ static UInt16 *gSortPerm = NULL;	/* record numbers in name order */
 static UInt16 gSortCap = 0, gSortCount = 0;
 static Boolean gSortOk = false;
 
+/* Zero then free a block that held decrypted item names (sort keys, name
+ * caches), so the names don't stay in free memory. */
+SEC001 static void FreeWiped(void *p)
+{
+	if (p) {
+		MemSet(p, (Int32) MemPtrSize(p), 0);
+		MemPtrFree(p);
+	}
+}
+
 SEC001 static void SortFree(void)
 {
-	if (gSortKeys) { MemPtrFree(gSortKeys); gSortKeys = NULL; }
+	FreeWiped(gSortKeys); gSortKeys = NULL;			/* decrypted names */
 	if (gSortPerm) { MemPtrFree(gSortPerm); gSortPerm = NULL; }
 	gSortCap = gSortCount = 0;
 	gSortOk = false;
@@ -1166,7 +1193,7 @@ SEC001 static void SortAdd(UInt16 recNum, const char *name)
 		}
 		MemMove(nk, gSortKeys, SortKeyOff(gSortCap));
 		MemMove(np, gSortPerm, SortBytes2(gSortCount));
-		MemPtrFree(gSortKeys); MemPtrFree(gSortPerm);
+		FreeWiped(gSortKeys); MemPtrFree(gSortPerm);
 		gSortKeys = nk; gSortPerm = np; gSortCap = newCap;
 	}
 	MemSet(key, sizeof(key), 0);
@@ -1266,7 +1293,7 @@ Boolean BwStoreAddItem(const BwItemFull *item)
 	if (!gDB || !BwGetKeyInternal(key, BwGetTtlSeconds())) return false;
 	/* Sec35 outer wrap - see AddMarker's own comment on this same pattern
 	 * (real-device data-loss report, 2026-09). */
-	if (!EncGetKey(sec35Key, EncGetTtlSeconds())) { MemSet(key, sizeof(key), 0); return false; }
+	if (!EncGetStoreKey(sec35Key, ENC_STORE_BW)) { MemSet(key, sizeof(key), 0); return false; }
 
 	fields[bwFieldName] = item->name;
 	fields[bwFieldNotes] = item->notes;
@@ -1450,7 +1477,7 @@ static Boolean GetMarkerName(UInt8 markerType, UInt16 index, UInt32 nonceHi, cha
 	 * Enforced here at the source so every caller (list, popup, record view)
 	 * gets the masked/locked behavior for free rather than needing its own
 	 * redundant check. */
-	if (!gDB || !EncGetKey(sec35Key, EncGetTtlSeconds())) return false;
+	if (!gDB || !EncGetStoreKey(sec35Key, ENC_STORE_BW)) return false;
 	if (!BwGetKeyInternal(key, BwGetTtlSeconds())) { MemSet(sec35Key, sizeof(sec35Key), 0); return false; }
 	n = DmNumRecords(gDB);
 	for (i = 0; i < n && !found; i++) {
@@ -1562,36 +1589,6 @@ UInt8 BwStoreGetItemType(UInt16 recIndex)
 	return t;
 }
 
-UInt16 BwStoreGetItemOrg(UInt16 recIndex)
-{
-	UInt16 dbIdx;
-	MemHandle h;
-	const UInt8 *rp;
-	UInt16 o;
-	if (!NthItemDbIndex(recIndex, &dbIdx)) return bwOrgNone;
-	h = DmQueryRecord(gDB, dbIdx);
-	if (!h) return bwOrgNone;
-	rp = (const UInt8 *) MemHandleLock(h);
-	o = rdU16(rp + 3);
-	MemHandleUnlock(h);
-	return o;
-}
-
-UInt16 BwStoreGetItemFolder(UInt16 recIndex)
-{
-	UInt16 dbIdx;
-	MemHandle h;
-	const UInt8 *rp;
-	UInt16 f;
-	if (!NthItemDbIndex(recIndex, &dbIdx)) return bwFolderNone;
-	h = DmQueryRecord(gDB, dbIdx);
-	if (!h) return bwFolderNone;
-	rp = (const UInt8 *) MemHandleLock(h);
-	f = rdU16(rp + 1);
-	MemHandleUnlock(h);
-	return f;
-}
-
 /* Raw-DB-index counterpart to BwStoreGetItemName - see
  * BwStoreGetHeaderByDbIndex's own comment on why a scanning caller
  * (MainRebuildMatches, while a search term is active) must use this
@@ -1610,7 +1607,7 @@ Boolean BwStoreGetItemNameByDbIndex(UInt16 dbIdx, char *out, UInt16 outLen)
 	if (!gDB) return false;
 	/* Sec35 outer layer first, unconditionally - see GetMarkerName's own
 	 * comment on why this is the enforcement point. */
-	if (!EncGetKey(sec35Key, EncGetTtlSeconds())) return false;
+	if (!EncGetStoreKey(sec35Key, ENC_STORE_BW)) return false;
 	if (!BwGetKeyInternal(key, BwGetTtlSeconds())) { MemSet(sec35Key, sizeof(sec35Key), 0); return false; }
 
 	h = DmQueryRecord(gDB, dbIdx);
@@ -1651,7 +1648,7 @@ Boolean BwStoreBeginNameScan(EncKeySchedule *sec35Sched, EncKeySchedule *localSc
 {
 	UInt8 key[ENC_KEY_BYTES];
 	UInt8 sec35Key[ENC_KEY_BYTES];
-	if (!EncGetKey(sec35Key, EncGetTtlSeconds())) return false;
+	if (!EncGetStoreKey(sec35Key, ENC_STORE_BW)) return false;
 	if (!BwGetKeyInternal(key, BwGetTtlSeconds())) { MemSet(sec35Key, sizeof(sec35Key), 0); return false; }
 	EncKeyScheduleInit(sec35Sched, sec35Key);
 	EncKeyScheduleInit(localSched, key);
@@ -1873,8 +1870,8 @@ SEC001 static void OrderLoad(void)
 
 SEC001 static void NameCacheFree(void)
 {
-	if (gNameCache) { MemPtrFree(gNameCache); gNameCache = NULL; }
-	if (gDisplayNameCache) { MemPtrFree(gDisplayNameCache); gDisplayNameCache = NULL; }
+	FreeWiped(gNameCache); gNameCache = NULL;				/* decrypted names */
+	FreeWiped(gDisplayNameCache); gDisplayNameCache = NULL;
 	gNameCacheCount = 0;
 	gNameBuilt = gNameDbPos = 0;
 }
@@ -2060,7 +2057,7 @@ Boolean BwStoreGetItemFull(UInt16 recIndex, BwItemFull *out)
 	if (!NthItemDbIndex(recIndex, &dbIdx)) return false;
 	/* Sec35 outer layer first, unconditionally - see GetMarkerName's own
 	 * comment on why this is the enforcement point. */
-	if (!EncGetKey(sec35Key, EncGetTtlSeconds())) return false;
+	if (!EncGetStoreKey(sec35Key, ENC_STORE_BW)) return false;
 	if (!BwGetKeyInternal(key, BwGetTtlSeconds())) { MemSet(sec35Key, sizeof(sec35Key), 0); return false; }
 
 	h = DmQueryRecord(gDB, dbIdx);
@@ -2152,3 +2149,152 @@ Boolean BwStoreGetItemFull(UInt16 recIndex, BwItemFull *out)
 	return true;
 }
 
+
+
+/* ------------------------------------------------------------------ *
+ *  Key scheme 2: launch-gate check and Sec35's kSecLaunchRekey handler
+ * ------------------------------------------------------------------ *
+ * BitWarden's Sec35-keyed data (all under ENC_STORE_BW, disjoint nonceHi
+ * ranges): the vault's OUTER layer on every record (folder/org marker names
+ * (bwFolderNonceHi / bwOrgNonceHi, index), item fields (uid, field)), the 2FA
+ * remember token in the prefs block (bwTwoFactorNonceHi, 0) and the RAM-only
+ * cached master password. The inner layer (the vault key from the Bitwarden
+ * master password) is never touched: CTR layers are independent XORs, so
+ * the outer one is re-keyed in place. Without a Sec35 password BitWarden
+ * does not run at all, so a removal/forget deletes the vault (a server copy:
+ * the next sync with a password rebuilds it) and clears the token. */
+
+/* True when nothing BitWarden keeps is still in key scheme 1. */
+SEC001 Boolean BwStoreSchemeOk(void)
+{
+	LocalID id = DmFindDatabase(0, bwDBName);
+	LoadPrefs();
+	if (!gBwPrefScheme2) return false;
+	if (id && !EncDbIdHasStoreKeys(id)) {
+		/* BwStoreInit normally has it open read-write already (a second
+		 * open would fail and look empty): count through gDB then. */
+		DmOpenRef db = gDB ? NULL : DmOpenDatabase(0, id, dmModeReadOnly);
+		UInt16 n;
+		if (!gDB && !db) return false;		/* cannot tell: treat as not converted */
+		n = DmNumRecords(gDB ? gDB : db);
+		if (db) DmCloseDatabase(db);
+		if (n) return false;
+		EncDbIdSetStoreKeys(id);		/* empty: nothing to convert */
+	}
+	return true;
+}
+
+static Boolean BwRekeyIsEnc(const UInt8 *rec, UInt32 size) SEC001;
+static Boolean BwRekeyIsEnc(const UInt8 *rec, UInt32 size)
+{
+	(void) rec;
+	return (Boolean) (size >= bwHdrFixedSize);		/* every vault record is wrapped */
+}
+
+static Err BwRekeyRecord(DmOpenRef db, UInt16 index, const UInt8 *fromK, const UInt8 *toK) SEC001;
+static Err BwRekeyRecord(DmOpenRef db, UInt16 index, const UInt8 *fromK, const UInt8 *toK)
+{
+	MemHandle h;
+	UInt8 *rec, tmp[bwMaxField];
+	UInt32 size, uid = 0, off;
+	UInt16 i, n;
+
+	if (!fromK || !toK) return errNone;			/* only re-keyed (see above) */
+	h = DmGetRecord(db, index);
+	if (h == NULL) return dmErrIndexOutOfRange;
+	rec = (UInt8 *) MemHandleLock(h);
+	size = MemHandleSize(h);
+	DmRecordInfo(db, index, NULL, &uid, NULL);
+	n = (rec[0] == 0 || rec[0] == bwOrgMarkerType) ? 1 : bwFieldCount;	/* markers: name only */
+	off = bwHdrFixedSize;
+	for (i = 0; i < n; i++) {
+		/* where the length is kept: an item's fieldLen[i] sits right after the
+		 * guid (BwStoreAddItem); a marker's name length at the offset
+		 * AddMarker/GetMarkerName use (one byte later -- they predate the
+		 * archived byte; reader and writer agree, so it is kept as is) */
+		UInt16 len = (n == 1) ? rdU16(rec + bwHdrFixedSize - bwFieldCount * 2)
+		                      : rdU16(rec + 5 + bwGuidLen + i * 2);
+		if (off + len > size || len > sizeof(tmp)) break;			/* malformed: stop here */
+		if (len) {
+			UInt32 hi = (n == 1) ? (rec[0] == 0 ? bwFolderNonceHi : bwOrgNonceHi) : uid;
+			UInt32 lo = (n == 1) ? (UInt32) rdU16(rec + 1) : (UInt32) i;
+			MemMove(tmp, rec + off, len);
+			EncCrypt(fromK, tmp, len, hi, lo);
+			EncCrypt(toK, tmp, len, hi, lo);
+			DmWrite(rec, off, tmp, len);
+		}
+		off += len;
+	}
+	MemSet(tmp, sizeof(tmp), 0);
+	MemHandleUnlock(h);
+	DmReleaseRecord(db, index, true);
+	return errNone;
+}
+
+/* Deliberately UNTAGGED (main) relay: BwRekey and EncRekeyDb are both sec001
+ * but in different files, and once sec001 grew past the threshold the direct
+ * call failed to link ("relocation truncated to fit: DISP16 EncRekeyDb" --
+ * the same-segment-across-files gotcha Datebook35's EncGetKeyHop documents).
+ * Through main it is two ordinary cross-segment calls. */
+static UInt16 EncRekeyDbHop(DmOpenRef db, UInt32 storeId, const EncRekeyParam *p,
+	UInt16 ord, UInt32 creator, EncRecIsEncFn isEnc, EncRecCryptFn crypt)
+{
+	return EncRekeyDb(db, storeId, p, ord, creator, isEnc, crypt);
+}
+
+SEC001 void BwRekey(EncRekeyParam *p)
+{
+	BwPrefsBlock pr;
+	UInt16 sz = sizeof(pr), r = kRekeyResultDone;
+	Int16 v;
+	LocalID id;
+	UInt8 kf[ENC_KEY_BYTES], kt[ENC_KEY_BYTES];
+	Boolean hf, ht;
+
+	BwWipeCachedPassword();			/* RAM only: asked for again after any change */
+
+	/* 1. the 2FA token in the prefs block */
+	v = PrefGetAppPreferences(appCreator, bwPrefID, &pr, &sz, false);
+	if (v != noPreferenceFound && sz == sizeof(pr) && EncRekeyBlobBegin(p, 0, appCreator, &pr, sizeof(pr))) {
+		if (pr.twoFactorRememberLen > bwTwoFactorRememberMax) pr.twoFactorRememberLen = 0;
+		if (pr.twoFactorRememberLen) {
+			if (p->op == kRekeyRemove || p->op == kRekeyWipe) {
+				MemSet(pr.twoFactorRememberEnc, sizeof(pr.twoFactorRememberEnc), 0);
+				pr.twoFactorRememberLen = 0;
+			} else {
+				EncRekeyKeys(p, ENC_STORE_BW, (Boolean) ((v & bwPrefScheme2) != 0), kf, &hf, kt, &ht);
+				if (hf && ht) {
+					EncCrypt(kf, pr.twoFactorRememberEnc, pr.twoFactorRememberLen, bwTwoFactorNonceHi, 0);
+					EncCrypt(kt, pr.twoFactorRememberEnc, pr.twoFactorRememberLen, bwTwoFactorNonceHi, 0);
+				}
+			}
+		}
+		PrefSetAppPreferences(appCreator, bwPrefID, (Int16) (1 | bwPrefScheme2), &pr, sizeof(pr), false);
+		EncRekeyBlobEnd(p, 0, appCreator);
+	}
+	MemSet(&pr, sizeof(pr), 0);
+	MemSet(kf, sizeof(kf), 0);
+	MemSet(kt, sizeof(kt), 0);
+
+	/* 2. the vault */
+	id = DmFindDatabase(0, bwDBNameTemp);		/* a sync's leftover staging copy */
+	if (id) DmDeleteDatabase(0, id);
+	id = DmFindDatabase(0, bwDBName);
+	if (id) {
+		if (p->op == kRekeyRemove || p->op == kRekeyWipe) {
+			DmDeleteDatabase(0, id);
+			id = DmFindDatabase(0, bwIdxDBName);	/* its name order */
+			if (id) DmDeleteDatabase(0, id);
+		} else if (p->op == kRekeySet) {
+			EncDbIdSetStoreKeys(id);
+		} else {
+			DmOpenRef db = DmOpenDatabase(0, id, dmModeReadWrite);
+			if (db) {
+				r = EncRekeyDbHop(db, ENC_STORE_BW, p, 1, appCreator, BwRekeyIsEnc, BwRekeyRecord);
+				DmCloseDatabase(db);
+			} else
+				r = kRekeyResultFailed;
+		}
+	}
+	p->result = r;
+}

@@ -55,7 +55,6 @@ Err CardReadFile(UInt16 volRef, const char *path, MemHandle *outH, UInt32 *sizeP
 /* Create/truncate a file and write the buffer. */
 Err CardWriteFile(UInt16 volRef, const char *path, const void *data, UInt32 len) SEC001;
 Err CardDeleteFile(UInt16 volRef, const char *path) SEC001;
-Err CardRename(UInt16 volRef, const char *oldPath, const char *newPath) SEC001;
 /* Does a file/dir exist? */
 Boolean CardExists(UInt16 volRef, const char *path) SEC001;
 /* Join dir + leaf into dest (dest >= cardMaxPath). Handles the root and a

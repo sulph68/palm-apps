@@ -531,3 +531,15 @@ Two databases: **Address35DB** (`DATA`/`Ad35`, the real book) and the transient
 **Address35DBPlain** (`Ad3P`/`Ad35`, beam-receive inbox — created + consumed automatically).
 Address35 stays in `apps/address35/` only — never copy the PRC into other app folders
 ([[address35-keep-in-own-folder]]).
+
+## 12. UI round (2026-11-18)
+
+Layout matched to the ROM apps, like the rest of the suite.
+- **Full-screen forms:** bottom button row at y=147, 12 px buttons from x=1; the Field and Note text areas end 8 px above it; Remove Fields rows 12 px apart.
+- **Dialogs:** first item 8 px below the title bar, last item 8 px above the buttons, OK/Cancel at x=5/48 (37x12) 5 px above the bottom, rows evenly spaced, forms anchored at the bottom. The Birthday/Anniversary dialog is laid out in code (`DateLayout`) to match, and moves its indicator with `A35PlaceGsi` (sec002).
+- **Pickers** (Select, Pick a Contact): list (2,16,152,121); Cancel's right edge on the list's, 2 px clear above and below it; the Find field runs to Cancel, no Graffiti indicator; Find, typed text and Cancel's text share one baseline.
+- CardDAV note re-wrapped to three lines aligned with "Show:".
+- **Relationship:** a contact name wider than the button ends in "..." (`A35FitText`, sec002).
+- **Contact editor:** + Field / - Field are 37 px wide (like OK/Cancel), which leaves the indicator 4 px on each side.
+- **Graffiti indicator:** its middle lines up with the buttons' middle (y = button y + 1 for 12 px buttons). Full-screen forms put it 4 px from the screen's right edge (x=148), dialogs 5 px from the frame like the buttons (x=143); it keeps 4 px clear of anything to its right and at least 4 px from the item on its left. The glyph is 8 px wide in every state.
+- **Menu:** Duplicate Contact loses /P (it clashed with Paste).

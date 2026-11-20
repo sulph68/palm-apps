@@ -23,10 +23,7 @@ SEC002 Boolean CDDVSec35Installed(void)
 
 SEC002 Boolean CDDVSec35Unlocked(void)
 {
-	UInt8 key[ENC_KEY_BYTES];
-	Boolean ok = EncGetKey(key, cddvEncTtl);
-	if (ok) MemSet(key, ENC_KEY_BYTES, 0);
-	return ok;
+	return EncKeyPresent();
 }
 
 SEC002 void CDDVSwitchToSec35(void)
@@ -52,7 +49,7 @@ SEC002 Boolean CDDVEncryptSlotSecret(CDDVSlot *slot, UInt8 slotIndex, const char
 		return true;
 	}
 	if (len > cddvSecretMaxLen) len = cddvSecretMaxLen;
-	if (!EncGetKey(key, cddvEncTtl)) return false;	/* locked - can't save right now */
+	if (!EncGetStoreKey(key, ENC_STORE_CDDV)) return false;	/* locked - can't save right now */
 
 	MemSet(slot->secret, sizeof(slot->secret), 0);
 	MemMove(slot->secret, plainSecret, len);
@@ -70,7 +67,7 @@ SEC002 Boolean CDDVDecryptSlotSecret(const CDDVSlot *slot, UInt8 slotIndex,
 
 	outPlain[0] = '\0';
 	if (len == 0) return false;
-	if (!EncGetKey(key, cddvEncTtl)) return false;	/* locked */
+	if (!EncGetStoreKey(key, ENC_STORE_CDDV)) return false;	/* locked */
 	if (len >= outLen) len = (UInt16) (outLen - 1);
 
 	MemMove(outPlain, slot->secret, len);
@@ -92,7 +89,7 @@ SEC002 Boolean CDDVEncryptSlotField(UInt8 slotIndex, CDDVField field,
 		return true;
 	}
 	if (len > cipherCap) len = cipherCap;
-	if (!EncGetKey(key, cddvEncTtl)) return false;	/* locked - can't save right now */
+	if (!EncGetStoreKey(key, ENC_STORE_CDDV)) return false;	/* locked - can't save right now */
 
 	MemSet(cipherOut, cipherCap, 0);
 	MemMove(cipherOut, plainText, len);
@@ -110,7 +107,7 @@ SEC002 Boolean CDDVDecryptSlotField(UInt8 slotIndex, CDDVField field,
 
 	outPlain[0] = '\0';
 	if (len == 0) return true;	/* nothing to decrypt - not a failure */
-	if (!EncGetKey(key, cddvEncTtl)) return false;	/* locked */
+	if (!EncGetStoreKey(key, ENC_STORE_CDDV)) return false;	/* locked */
 	if (len >= outCap) len = (UInt16) (outCap - 1);
 
 	MemMove(outPlain, cipherIn, len);
@@ -166,11 +163,11 @@ SEC002 Boolean CDDVEncryptSlotFieldsIfNeeded(CDDVSlot *slot, UInt8 slotIndex)
 	return true;
 }
 
-SEC002 Boolean CDDVCryptBytes(UInt32 nonceHi, UInt32 nonceLo, UInt8 *buf, UInt16 len)
+SEC002 Boolean CDDVCryptBytes(UInt32 storeId, UInt32 nonceHi, UInt32 nonceLo, UInt8 *buf, UInt16 len)
 {
 	UInt8 key[ENC_KEY_BYTES];
 	if (len == 0) return true;
-	if (!EncGetKey(key, cddvEncTtl)) return false;
+	if (!EncGetStoreKey(key, storeId)) return false;
 	EncCrypt(key, buf, len, nonceHi, nonceLo);
 	MemSet(key, ENC_KEY_BYTES, 0);
 	return true;

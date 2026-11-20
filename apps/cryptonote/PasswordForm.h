@@ -10,12 +10,8 @@ Boolean PasswordFormHandleEvent(EventPtr eventP) AES_SECTION;
 
 Boolean ValidatePassword(Char *) AES_SECTION;
 
-/* Password masking reveal timer (mirrors Sec35's own -- see PasswordForm.c).
- * 0 = no reveal pending. Main.c's EventLoop reads this directly (cheap, hot
- * path) to size its EvtGetEvent timeout, and calls PasswordMaskPendingReveal
- * on nilEvent once it elapses. */
-extern UInt32 gPwRevealUntilTicks;
-void PasswordMaskPendingReveal(void) AES_SECTION;
+/* Password masking + its reveal timer: PwMask.h. */
+#include "PwMask.h"
 
 /* Numeric keypad popup (frmKeypadForm) -- see PasswordForm.c. */
 Boolean KeypadFormHandleEvent(EventPtr eventP) AES_SECTION;

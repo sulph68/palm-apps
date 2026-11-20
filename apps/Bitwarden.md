@@ -662,3 +662,11 @@ already in hand when `BwStoreAddItem` stores an item, so `Store.c` keeps the ord
   only keeps `bwMaxField` = 512 bytes of notes (`BitWardenRsc.h`) anyway, so nothing visible is lost for
   notes under that.
 
+## UI round (2026-11-18)
+
+- **Main list:** type popup, filter and Clear on the standard bottom row.
+- **Item screens:** Done first, then Show, 12 px buttons at y=147 from x=1.
+- **Preferences:** rows 16 apart from y=20, 12 px Sync Now / Forget Trust, standard OK/Cancel 8 px below, bottom-anchored.
+- **Unlock, Two-Factor Code, 2FA Code Entry:** 8 px rule, OK/Cancel 5/48 37x12.
+- **New Server / Server Fingerprint:** bottom row at 147 from x=1; Syncing: 37x12 Cancel.
+- **Menu:** Sync Now loses /S; Preferences /P becomes /R (like the ROM apps).

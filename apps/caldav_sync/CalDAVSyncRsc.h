@@ -84,6 +84,7 @@
 #define btnSlotGoogleSignIn	1231
 #define fldSlotGoogleClientId	1232
 #define fldSlotGoogleClientSecret	1233
+#define chkSlotGoogleSecretShow	1234	/* toggles fldSlotGoogleClientSecret masked/plain */
 
 /* ICS Feed group */
 #define fldSlotIcsUrl		1240

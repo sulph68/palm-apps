@@ -72,8 +72,7 @@ void    FtpDisconnectServer(void) SEC004;
 void    FtpDisconnectNetwork(void) SEC004;
 
 const char *FtpCurPath(void) SEC004;
-const char *FtpCurServer(void) SEC004;
-UInt16      FtpCurPort(void) SEC004;
+void        FtpForgetPassword(void) SEC004;	/* wipes the session's password */
 
 /* Builds an absolute path (out, at most outLen-1 chars + NUL) from a
  * directory (in FtpCurPath()'s own format - root is "/", no trailing slash

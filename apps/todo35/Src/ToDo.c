@@ -280,11 +280,11 @@ static void ECToDoValidateAll ()
  *			jmp	10/4/99	Call ToDoGetDatabase() in place of similar in-line code.
  *
  ***********************************************************************/
-/* ---- Sec35 lock gate (mirror of Address35's A35LaunchGate) --------------- *
- * ToDo35 stores description+note encrypted at rest. The book is "protected" when any
- * record is encrypted OR a passcode is set (EncEncryptionActive) with records present.
- * Protected + Sec35 missing -> alert + don't open. Protected + locked -> hand off to
- * Sec35 to unlock (it switches back; we reopen with the key and decrypt on open). */
+/* ---- Sec35 hand-off ------------------------------------------------------ *
+ * ToDo35 stores description+note encrypted at rest and opens even while Sec35 is
+ * locked (encrypted items show as "******"). Editing an encrypted item while locked
+ * hands off to Sec35 to unlock (it switches back to us), or shows NoSec35Alert when
+ * Sec35 is missing: TdLockedBounce below. */
 TD35_XFER static Boolean Sec35Installed (void)
 {
 	DmSearchStateType st;
@@ -314,8 +314,12 @@ TD35_XFER static Boolean TdLockedBounce (void)
 {
 	// "Locked" = there ARE encrypted records but we have no key.  Detected from the DB (not
 	// the passcode feature, which a soft reset wipes while the records persist encrypted).
-	if (! EncKeyPresent () && ToDoDbHasEncrypted (ToDoDB))
+	// An encrypted DB still in key scheme 1 (restored from an old backup) reads as
+	// locked too: Sec35 converts it (kSecConvertFtr), then sends us back.
+	if ((! EncKeyPresent () || ! EncDbHasStoreKeys (ToDoDB)) && ToDoDbHasEncrypted (ToDoDB))
 		{
+		if (! EncDbHasStoreKeys (ToDoDB))
+			FtrSet (ENC_CREATOR, kSecConvertFtr, 1);
 		if (Sec35Installed ())
 			SwitchToSec35 ();
 		else
@@ -323,27 +327,6 @@ TD35_XFER static Boolean TdLockedBounce (void)
 		return true;
 		}
 	return false;
-}
-
-/* Returns true to proceed (open the DB). false = bounced to Sec35 / no Sec35. */
-TD35_XFER static Boolean ToDoLaunchGate (void)
-{
-	UInt8 key[ENC_KEY_BYTES];
-	Boolean active = ToDoDbHasEncrypted (ToDoDB) ||
-		(EncEncryptionActive () && DmNumRecords (ToDoDB) > 0);
-
-	if (!active)
-		return true;
-	if (!Sec35Installed ()) {
-		FrmAlert (NoSec35Alert);
-		return false;
-	}
-	if (!EncGetKey (key, 1000000000UL)) {				/* locked -> unlock via Sec35 */
-		SwitchToSec35 ();
-		return false;
-	}
-	MemSet (key, ENC_KEY_BYTES, 0);
-	return true;
 }
 
 static UInt16 StartApplication (void)
@@ -364,15 +347,9 @@ static UInt16 StartApplication (void)
 	if (err)
 		return err;
 
-	// Td35: Sec35 lock gate. Encrypted/protected + locked -> hand off to Sec35 to
-	// unlock (we get relaunched with the key); missing Sec35 -> refuse to open.
-	// TEMP (testing mid-session masking): gate disabled so the app opens even locked.
-	(void) ToDoLaunchGate;
-//	if (!ToDoLaunchGate ()) {
-//		DmCloseDatabase (ToDoDB);
-//		ToDoDB = NULL;
-//		return dmErrCantOpen;
-//	}
+	// Td35: no unlock at launch, by design (same as Address35 and Datebook35): the app
+	// opens while Sec35 is locked and shows encrypted items as "******"; TdLockedBounce
+	// hands off to Sec35 (or shows NoSec35Alert) when an encrypted item is edited.
 
 	// Td35: open (creating if needed) the time+repeat extras DB.
 	if (TdxGetDatabase (&ExtDB, dmModeReadWrite) != errNone)
@@ -395,6 +372,10 @@ static UInt16 StartApplication (void)
 	// decrypt on the fly -- so we do NOT bulk-decrypt here.  Just seal any freshly-imported
 	// plaintext records so nothing lingers unencrypted (no-op when locked / no passcode).
 	ToDoMergePlainDB (ToDoDB);
+	// Key scheme 2 marker: nothing encrypted -> nothing to convert, mark it now. A DB
+	// that still holds scheme-1 records reads as locked until Sec35 converts it.
+	if (! EncDbHasStoreKeys (ToDoDB) && ! ToDoDbHasEncrypted (ToDoDB))
+		EncDbSetStoreKeys (ToDoDB);
 	ToDoSealAllPlaintext (ToDoDB);
 
 	return err;
@@ -1305,7 +1286,6 @@ static Boolean ClearEditState (void)
 static void DetermineDueDate (UInt16 itemSelected, DateType * dueDateP)
 {
 	Int16 month, day, year;
-	Int32 adjustment;
 	UInt32 timeInSeconds;
 	Char* titleP;
 	MemHandle titleH;
@@ -2767,9 +2747,9 @@ TD35_XFER static void NoteViewLoadRecord (void)
 	enc = (Boolean) ((recordP->priority & encryptedFlag) != 0);
 	MemHandleUnlock (recordH);
 	// Per-record: an encrypted record with no key masks (reset-proof; see the list load-proc).
-	locked = (Boolean) (enc && ! EncKeyPresent ());
+	locked = (Boolean) (enc && (! EncKeyPresent () || ! EncDbHasStoreKeys (ToDoDB)));
 
-	if (gTdNoteH) { MemHandleFree (gTdNoteH); gTdNoteH = NULL; }
+	if (gTdNoteH) { ToDoFreeWiped (gTdNoteH); gTdNoteH = NULL; }
 
 	// --- Sec35 locked: show "******", read-only. ---
 	if (locked)
@@ -2849,7 +2829,7 @@ TD35_XFER static void NoteViewSave (void)
 			ToDoSetNoteEncrypted (ToDoDB, CurrentRecord, newNote ? newNote : "");
 			}
 		FldSetTextHandle (fld, 0);			// detach before we free our copy
-		MemHandleFree (gTdNoteH);
+		ToDoFreeWiped (gTdNoteH);
 		gTdNoteH = NULL;
 		}
 	else
@@ -2907,7 +2887,7 @@ TD35_XFER static Boolean NoteViewDeleteNote (void)
 	// copy) rather than rewriting the record in plaintext layout, which would corrupt it.
 	if (gTdNoteH != NULL)
 		{
-		MemHandleFree (gTdNoteH);
+		ToDoFreeWiped (gTdNoteH);
 		gTdNoteH = NULL;
 		ToDoSetNoteEncrypted (ToDoDB, CurrentRecord, "");
 		}
@@ -3400,8 +3380,8 @@ static void ListViewFreeRowCopies (void)
 {
 	Int16 i;
 	for (i = 0; i < kTdMaxRows; i++)
-		if (gTdRowH[i]) { MemHandleFree (gTdRowH[i]); gTdRowH[i] = NULL; }
-	if (gTdEditH) { MemHandleFree (gTdEditH); gTdEditH = NULL; }
+		if (gTdRowH[i]) { ToDoFreeWiped (gTdRowH[i]); gTdRowH[i] = NULL; }
+	if (gTdEditH) { ToDoFreeWiped (gTdEditH); gTdEditH = NULL; }
 	gTdEditRow = -1;
 }
 
@@ -3411,7 +3391,7 @@ static MemHandle TdSetRowCopy (Int16 row, MemHandle h)
 	if (row < 0 || row >= kTdMaxRows)
 		return h;								/* out of range: won't happen on-device */
 	if (gTdRowH[row])
-		MemHandleFree (gTdRowH[row]);
+		ToDoFreeWiped (gTdRowH[row]);
 	gTdRowH[row] = h;
 	return h;
 }
@@ -3440,7 +3420,7 @@ static Err ListViewGetDescription (void * table, Int16 row, UInt16 column,
 	// present -- NOT from the passcode feature (EncEncryptionActive), which is wiped from
 	// Feature RAM by a soft reset while the encrypted records persist on disk.  So an
 	// encrypted record with no key ALWAYS masks, and *textHP is never left unset.
-	locked = (Boolean) (enc && ! EncKeyPresent ());
+	locked = (Boolean) (enc && (! EncKeyPresent () || ! EncDbHasStoreKeys (ToDoDB)));
 
 	// --- Encrypted but no key: mask with "******", read-only (per-row copy). ---
 	if (locked)
@@ -3480,7 +3460,7 @@ static Err ListViewGetDescription (void * table, Int16 row, UInt16 column,
 		{
 		if (! (gTdEditH != NULL && gTdEditRow == row))
 			{
-			if (gTdEditH) { MemHandleFree (gTdEditH); gTdEditH = NULL; }
+			if (gTdEditH) { ToDoFreeWiped (gTdEditH); gTdEditH = NULL; }
 			gTdEditH = ToDoCopyDescPlain (ToDoDB, recordNum);
 			gTdEditRow = row;
 			}
@@ -3575,7 +3555,7 @@ static Boolean ListViewSaveDescription (void * table, Int16 row, UInt16 column)
 			ToDoSetDescEncrypted (ToDoDB, recordNum, newDesc ? newDesc : "");
 			}
 		FldSetTextHandle (fld, NULL);		// detach before we free our copy
-		MemHandleFree (gTdEditH);
+		ToDoFreeWiped (gTdEditH);
 		gTdEditH = NULL;
 		gTdEditRow = -1;
 		}
@@ -3681,7 +3661,7 @@ static UInt16 ListViewGetDescriptionHeight (UInt16 recordNum, UInt16 width, UInt
 	FntSetFont (curFont);
 
 	MemHandleUnlock (descH);
-	MemHandleFree (descH);
+	ToDoFreeWiped (descH);
 
 	return (height);
 }
@@ -5667,6 +5647,10 @@ static void ListViewResizeDescription (EventPtr event)
 static void ToDoRefreshInbox (void)
 {
 	ToDoMergePlainDB (ToDoDB);
+	// Key scheme 2 marker: nothing encrypted -> nothing to convert, mark it now. A DB
+	// that still holds scheme-1 records reads as locked until Sec35 converts it.
+	if (! EncDbHasStoreKeys (ToDoDB) && ! ToDoDbHasEncrypted (ToDoDB))
+		EncDbSetStoreKeys (ToDoDB);
 	ToDoSealAllPlaintext (ToDoDB);
 }
 
@@ -7218,6 +7202,12 @@ UInt32	PilotMain (UInt16 cmd, MemPtr cmdPBP, UInt16 launchFlags)
 		StopApplication ();
 		}
 	
+	else if (cmd == kSecLaunchRekey)
+		{
+		// Sec35: re-encrypt our own data (ToDoDB.c ToDoRekey). Needs globals.
+		if (launchFlags & sysAppLaunchFlagNewGlobals)
+			ToDoRekey ((struct EncRekeyParamTag *) cmdPBP);
+		}
 	else if (cmd == sysAppLaunchCmdFind)
 		{
 		Search ((FindParamsPtr)cmdPBP);

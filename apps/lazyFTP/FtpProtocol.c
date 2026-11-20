@@ -112,7 +112,10 @@ typedef struct {
 	char    pass[ftpNameLen];
 } FtpState;
 
-static FtpState gFtp;
+/* ctrlSock starts at -1 ("no control connection"): a zero-filled global would read as socket 0, and
+ * FtpDisconnectNetwork (Disconnect on exit, or Network > Disconnect Network before any connect) would then
+ * send QUIT on a socket that was never opened, through a Net.lib never opened - a fatal exception. */
+static FtpState gFtp = { false, 0, false, -1 };
 
 /* Guards FtpAutoReconnect against recursing into itself if the reconnect
  * attempt's own FtpCmd calls also fail - deliberately file-scope, NOT part
@@ -688,12 +691,15 @@ static Boolean FtpCmd(const char *cmd, const char *arg, Int16 *codeOut,
 			LzTPLogWrite("! no reply - connection lost");
 		}
 	}
+	if (isPass) MemSet(line, sizeof(line), 0);	/* static: the password must not stay behind in it (the retry builds it again) */
 
 	if (!ok && !gFtpReconnecting && FtpAutoReconnect()) {
 		LzTPLogWrite("~ retrying command after silent reconnect");
 		if (arg) StrPrintF(line, "%s %s\r\n", cmd, arg);
 		else StrPrintF(line, "%s\r\n", cmd);
-		if (FtpTransportSend(gFtp.ctrlSock, line, (UInt16) StrLen(line)) == -1) {
+		ok = (Boolean) (FtpTransportSend(gFtp.ctrlSock, line, (UInt16) StrLen(line)) != -1);
+		if (isPass) MemSet(line, sizeof(line), 0);
+		if (!ok) {
 			StrNCopy(textOut, "Connection lost", textLen - 1);
 			textOut[textLen - 1] = '\0';
 			FtpMarkDisconnected();
@@ -818,15 +824,6 @@ SEC004 char *FtpJoinPath(const char *dir, const char *name, char *out, UInt16 ou
 	return out;
 }
 
-SEC004 const char *FtpCurServer(void)
-{
-	return gFtp.server;
-}
-
-SEC004 UInt16 FtpCurPort(void)
-{
-	return gFtp.port;
-}
 
 SEC004 Boolean FtpConnect(const FtpConnParams *p, char *errMsg, UInt16 errMsgLen)
 {
@@ -1062,6 +1059,7 @@ static Boolean FtpAutoReconnect(void)
 	StrNCopy(p.pass, gFtp.pass, sizeof(p.pass) - 1);
 
 	ok = FtpConnect(&p, errMsg, sizeof(errMsg));
+	MemSet(&p, sizeof(p), 0);			/* static: its password copy is not kept */
 	if (ok && StrCompare(savedPath, "/") != 0) {
 		Int16 code;
 		static char resp[ftpReplyLen];
@@ -1101,7 +1099,14 @@ SEC004 void FtpDisconnectServer(void)
 	 * empty gFtp.user disables FtpAutoReconnect until the user manually
 	 * reconnects again, so it never fights a deliberate Disconnect. */
 	gFtp.user[0] = '\0';
-	gFtp.pass[0] = '\0';
+	FtpForgetPassword();
+}
+
+/* The session's password (kept for FtpAutoReconnect) is wiped: on Disconnect Server and when the app stops,
+ * whether or not the connection is still up. */
+SEC004 void FtpForgetPassword(void)
+{
+	MemSet(gFtp.pass, sizeof(gFtp.pass), 0);
 }
 
 /* Closes the server session (if still open) AND tears down the actual

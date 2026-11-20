@@ -493,7 +493,7 @@ MC_UI static void ConnectText(const char *title, const char *msg)
 
 	if (FrmGetActiveFormID() != frmConnect) return;
 	StrCopy(gConnTitle, title);
-	FrmSetTitle(frm, gConnTitle);
+	RetitleForm(frm, 0, gConnTitle);
 	fld = (FieldPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, fldConnText));
 	FldSetTextPtr(fld, (char *) msg);
 	FldRecalculateField(fld, true);
@@ -964,8 +964,10 @@ static void EventLoop(void)
 		if (! MenuIsUp()) MainConnSync();
 		/* With the link up the wait is short only to look at the local serial buffer: nothing is asked of
 		 * WiRSa, it tells the Palm when there is news. */
-		EvtGetEvent(&e, gWirsaUp ? 20 : evtWaitForever);
+		EvtGetEvent(&e, (gWirsaUp || (fid == frmChat && ChatWantsTick()) || gChKeyRevealUntil) ? 20 : evtWaitForever);
 		if (e.eType == nilEvent) {
+			if (fid == frmChEdit) ChKeyRevealTick();		/* mask the channel key's just-typed character */
+			if (fid == frmChat && ! MenuIsUp()) ChatDwell();
 			if (gRedrawPending && ! MenuIsUp()) { gRedrawPending = false; Redraw(fid); }	/* what arrived while a menu was down */
 			IdleWork(gConnUp ? frmMain : fid);
 			if (gConnUp) ConnectTick();

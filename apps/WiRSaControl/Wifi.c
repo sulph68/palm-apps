@@ -102,6 +102,7 @@ static void WifiConnect(void)
 	if (r != wctlOk) { ShowResult(r); return; }
 
 	FrmCustomAlert(altInfo, "Connected. WiRSa saved the network.", NULL, NULL);
+	MaskEnd(&gPass, FrmGetActiveForm());
 	MemSet(&gPass, sizeof(gPass), 0);
 	FrmReturnToForm(frmMain);
 	FrmUpdateForm(frmMain, updRefresh);
@@ -116,6 +117,7 @@ Boolean WifiHandleEvent(EventPtr e)
 		frm = FrmGetActiveForm();
 		MemSet(&gPass, sizeof(gPass), 0);
 		gPass.fieldID = fldWifiPass;
+		MaskUse(&gPass);
 		gNumNets = 0;
 		LstSetListChoices(WifiList(), gNetPtrs, 0);
 		if (gStatus.valid && gStatus.ssid[0])
@@ -148,14 +150,19 @@ Boolean WifiHandleEvent(EventPtr e)
 		case btnWifiScan:		WifiScan(); return true;
 		case btnWifiConnect:	WifiConnect(); return true;
 		case chkWifiShow:
-			gPass.show = e->data.ctlSelect.on;
-			MaskRedraw(&gPass);
+			MaskShow(&gPass, (Boolean) (e->data.ctlSelect.on != 0));
 			return true;
 		case btnWifiCancel:
+			MaskEnd(&gPass, FrmGetActiveForm());
 			MemSet(&gPass, sizeof(gPass), 0);
 			FrmReturnToForm(frmMain);
 			return true;
 		}
+		break;
+
+	case frmCloseEvent:					/* the app quits with the form open */
+		MaskEnd(&gPass, FrmGetFormPtr(e->data.frmClose.formID));
+		MemSet(&gPass, sizeof(gPass), 0);
 		break;
 
 	default:

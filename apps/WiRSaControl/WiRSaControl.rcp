@@ -45,10 +45,11 @@ BEGIN
 	PULLDOWN "Options"
 	BEGIN
 		MENUITEM "Find WiRSa"		ID mniMainFind		"F"
-		MENUITEM "Reboot WiRSa"		ID mniMainReboot	"R"
+		MENUITEM "Reboot WiRSa..."	ID mniMainReboot
 		MENUITEM "Factory Reset..."	ID mniMainFactory
+		MENUITEM "Format SD Card..."	ID mniMainFormat
 		MENUITEM SEPARATOR
-		MENUITEM "Preferences..."	ID mniMainPrefs
+		MENUITEM "Preferences..."	ID mniMainPrefs		"R"
 	END
 	PULLDOWN "Help"
 	BEGIN
@@ -88,10 +89,10 @@ BEGIN
 
 	/* Evenly spaced, Refresh near the left edge (x=2), Setup near the
 	 * right edge (ends at x=158). */
-	BUTTON "Refresh"	ID btnMainRefresh	AT (2 147 36 12)
-	BUTTON "WiFi"		ID btnMainWifi		AT (45 147 30 12)
-	BUTTON "Modes"		ID btnMainModes		AT (83 147 34 12)
-	BUTTON "Setup"		ID btnMainSetup		AT (124 147 34 12)
+	BUTTON "Refresh"	ID btnMainRefresh	AT (1 147 36 12)
+	BUTTON "WiFi"		ID btnMainWifi		AT (41 147 30 12)
+	BUTTON "Modes"		ID btnMainModes		AT (75 147 34 12)
+	BUTTON "Setup"		ID btnMainSetup		AT (113 147 34 12)
 END
 
 /* ---- frmModes (colons at 69, values at 72): pick one mode (they are mutually exclusive), FTP on/off.
@@ -103,21 +104,21 @@ SAVEBEHIND
 BEGIN
 	TITLE "Modes"
 
-	LABEL "Select Mode:"	AUTOID AT (RIGHT@69 18) FONT 1
-	POPUPTRIGGER "Main Menu" ID popModesMode AT (72 18 80 12) LEFTANCHOR
+	LABEL "Select Mode:"	AUTOID AT (RIGHT@69 17) FONT 1
+	POPUPTRIGGER "Main Menu" ID popModesMode AT (72 17 80 12) LEFTANCHOR
 	LIST "Main Menu" "HotSync" "SASD SD Card" "SLIP Gateway" "CalDAV Relay" "Bitwarden Relay" "Meshtastic"
 		ID lstModesMode AT (72 18 80 77) VISIBLEITEMS 7 NONUSABLE
 	POPUPLIST ID popModesMode lstModesMode
 
-	FIELD ID fldModesNote	AT (4 34 148 33) NONEDITABLE MULTIPLELINES FONT 0 MAXCHARS 160
+	FIELD ID fldModesNote	AT (4 33 148 33) NONEDITABLE MULTIPLELINES FONT 0 MAXCHARS 160
 
-	LABEL "FTP Server:"	AUTOID AT (RIGHT@69 80) FONT 1
-	PUSHBUTTON "Start"	ID pbtModesFtpStart	AT (72 79 40 12) GROUP 1
-	PUSHBUTTON "Stop"	ID pbtModesFtpStop	AT (113 79 40 12) GROUP 1
-	FIELD ID fldModesFtp	AT (72 93 80 12) NONEDITABLE SINGLELINE FONT 0 MAXCHARS 32
+	LABEL "FTP Server:"	AUTOID AT (RIGHT@69 79) FONT 1
+	PUSHBUTTON "Start"	ID pbtModesFtpStart	AT (72 78 40 12) GROUP 1
+	PUSHBUTTON "Stop"	ID pbtModesFtpStop	AT (113 78 40 12) GROUP 1
+	FIELD ID fldModesFtp	AT (72 92 80 12) NONEDITABLE SINGLELINE FONT 0 MAXCHARS 32
 
-	BUTTON "Start"		ID btnModesStart	AT (4 138 40 14)
-	BUTTON "Cancel"		ID btnModesCancel	AT (48 138 44 14)
+	BUTTON "Start"		ID btnModesStart	AT (5 139 37 12)
+	BUTTON "Cancel"		ID btnModesCancel	AT (48 139 37 12)
 END
 
 /* ---- frmWifi: scan list, SSID, password (masked), Connect. Colons at 56, values at 59. */
@@ -129,18 +130,18 @@ MENUID mnuDlgEdit
 BEGIN
 	TITLE "WiFi Setup"
 
-	BUTTON "Scan"		ID btnWifiScan		AT (4 16 36 12)
-	LIST "" ID lstWifiNets AT (4 31 148 55) VISIBLEITEMS 5
+	BUTTON "Scan"		ID btnWifiScan		AT (5 18 36 12)
+	LIST "" ID lstWifiNets AT (4 33 148 55) VISIBLEITEMS 5
 
-	LABEL "SSID:"		AUTOID AT (RIGHT@56 91) FONT 1
-	FIELD ID fldWifiSsid	AT (59 91 93 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 32
-	LABEL "Password:"	AUTOID AT (RIGHT@56 105) FONT 1
-	FIELD ID fldWifiPass	AT (59 105 93 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 64
-	CHECKBOX "Show password" ID chkWifiShow AT (57 119 95 12) FONT 0
+	LABEL "SSID:"		AUTOID AT (RIGHT@56 93) FONT 1
+	FIELD ID fldWifiSsid	AT (59 93 93 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 32
+	LABEL "Password:"	AUTOID AT (RIGHT@56 107) FONT 1
+	FIELD ID fldWifiPass	AT (59 107 93 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 64
+	CHECKBOX "Show password" ID chkWifiShow AT (57 121 95 12) FONT 0
 
-	GRAFFITISTATEINDICATOR AT (140 141)
-	BUTTON "Connect"	ID btnWifiConnect	AT (4 138 48 14)
-	BUTTON "Cancel"		ID btnWifiCancel	AT (56 138 44 14)
+	GRAFFITISTATEINDICATOR AT (143 140)
+	BUTTON "Connect"	ID btnWifiConnect	AT (5 139 37 12)
+	BUTTON "Cancel"		ID btnWifiCancel	AT (48 139 37 12)
 END
 
 /* ---- frmSetup: WiRSa settings. Colons at 68, values at 71. Orientation is hidden on a screenless
@@ -153,53 +154,53 @@ SAVEBEHIND
 BEGIN
 	TITLE "WiRSa Setup"
 
-	LABEL "Max baud:"	AUTOID AT (RIGHT@68 18) FONT 1
-	POPUPTRIGGER "9600" ID popSetupBaud AT (71 18 60 12) LEFTANCHOR
+	LABEL "Max baud:"	AUTOID AT (RIGHT@68 17) FONT 1
+	POPUPTRIGGER "9600" ID popSetupBaud AT (71 17 60 12) LEFTANCHOR
 	LIST "9600" "14400" "19200" "28800" "38400" "57600" "115200"
-		ID lstSetupBaud AT (71 18 60 77) VISIBLEITEMS 7 NONUSABLE
+		ID lstSetupBaud AT (71 17 60 77) VISIBLEITEMS 7 NONUSABLE
 	POPUPLIST ID popSetupBaud lstSetupBaud
 
-	LABEL "Log level:"	AUTOID AT (RIGHT@68 31) FONT 1
-	POPUPTRIGGER "Info" ID popSetupLog AT (71 31 60 12) LEFTANCHOR
-	LIST "Off" "Warn" "Info" "Verbose" ID lstSetupLog AT (71 31 60 44) VISIBLEITEMS 4 NONUSABLE
+	LABEL "Log level:"	AUTOID AT (RIGHT@68 30) FONT 1
+	POPUPTRIGGER "Info" ID popSetupLog AT (71 30 60 12) LEFTANCHOR
+	LIST "Off" "Warn" "Info" "Verbose" ID lstSetupLog AT (71 30 60 44) VISIBLEITEMS 4 NONUSABLE
 	POPUPLIST ID popSetupLog lstSetupLog
 
-	LABEL "Orientation:"	ID lblSetupOrient AT (RIGHT@68 44) FONT 1
-	POPUPTRIGGER "Normal" ID popSetupOrient AT (71 44 60 12) LEFTANCHOR
-	LIST "Normal" "Flipped" ID lstSetupOrient AT (71 44 60 22) VISIBLEITEMS 2 NONUSABLE
+	LABEL "Orientation:"	ID lblSetupOrient AT (RIGHT@68 43) FONT 1
+	POPUPTRIGGER "Normal" ID popSetupOrient AT (71 43 60 12) LEFTANCHOR
+	LIST "Normal" "Flipped" ID lstSetupOrient AT (71 43 60 22) VISIBLEITEMS 2 NONUSABLE
 	POPUPLIST ID popSetupOrient lstSetupOrient
 
 	/* Disk (SASD and HotSync): shown when the firmware sends it. */
-	LABEL "Disk:"	ID lblSetupDisk AT (RIGHT@68 57) FONT 1
-	POPUPTRIGGER "Auto" ID popSetupDisk AT (71 57 60 12) LEFTANCHOR
-	LIST "Auto" "SD card" "Virtual" ID lstSetupDisk AT (71 57 60 33) VISIBLEITEMS 3 NONUSABLE
+	LABEL "Disk:"	ID lblSetupDisk AT (RIGHT@68 56) FONT 1
+	POPUPTRIGGER "Auto" ID popSetupDisk AT (71 56 60 12) LEFTANCHOR
+	LIST "Auto" "SD card" "Virtual" ID lstSetupDisk AT (71 56 60 33) VISIBLEITEMS 3 NONUSABLE
 	POPUPLIST ID popSetupDisk lstSetupDisk
 
 	/* Deep sleep after this long without Palm traffic (T7-S3 firmware): shown when it sends it. */
-	LABEL "Sleep:"	ID lblSetupSleep AT (RIGHT@68 70) FONT 1
-	POPUPTRIGGER "Off" ID popSetupSleep AT (71 70 60 12) LEFTANCHOR
-	LIST "Off" "1 min" "3 min" "5 min" "15 min" ID lstSetupSleep AT (71 70 60 55) VISIBLEITEMS 5 NONUSABLE
+	LABEL "Sleep:"	ID lblSetupSleep AT (RIGHT@68 69) FONT 1
+	POPUPTRIGGER "Off" ID popSetupSleep AT (71 69 60 12) LEFTANCHOR
+	LIST "Off" "1 min" "3 min" "5 min" "15 min" ID lstSetupSleep AT (71 69 60 55) VISIBLEITEMS 5 NONUSABLE
 	POPUPLIST ID popSetupSleep lstSetupSleep
 
 	/* The blue LED while the WiFi or BLE is up: steady, a blip every 15 s / 30 s / minute, or none. Shown when the firmware sends it. */
-	LABEL "Wifi Pulse:"	ID lblSetupPulse AT (RIGHT@68 83) FONT 1
-	POPUPTRIGGER "30s" ID popSetupPulse AT (71 83 60 12) LEFTANCHOR
-	LIST "Always On" "15s" "30s" "1min" "Never" ID lstSetupPulse AT (71 83 60 55) VISIBLEITEMS 5 NONUSABLE
+	LABEL "Wifi Pulse:"	ID lblSetupPulse AT (RIGHT@68 82) FONT 1
+	POPUPTRIGGER "30s" ID popSetupPulse AT (71 82 60 12) LEFTANCHOR
+	LIST "Always On" "15s" "30s" "1min" "Never" ID lstSetupPulse AT (71 82 60 55) VISIBLEITEMS 5 NONUSABLE
 	POPUPLIST ID popSetupPulse lstSetupPulse
 
-	BUTTON "FTP Setup..."		ID btnSetupFtp		AT (4 99 72 12)
-	BUTTON "AP Setup..."		ID btnSetupAp		AT (80 99 72 12)
-	BUTTON "SLIP Address..."	ID btnSetupSlip		AT (4 114 72 12)
-	BUTTON "Exit Timers..."		ID btnSetupTimers	AT (80 114 72 12)
+	BUTTON "FTP Setup..."		ID btnSetupFtp		AT (5 98 71 12)
+	BUTTON "AP Setup..."		ID btnSetupAp		AT (80 98 71 12)
+	BUTTON "SLIP Address..."	ID btnSetupSlip		AT (5 113 71 12)
+	BUTTON "Exit Timers..."		ID btnSetupTimers	AT (80 113 71 12)
 
-	GRAFFITISTATEINDICATOR AT (140 141)
-	BUTTON "OK"			ID btnSetupOk		AT (4 138 40 14)
-	BUTTON "Cancel"		ID btnSetupCancel	AT (48 138 44 14)
+	GRAFFITISTATEINDICATOR AT (143 140)
+	BUTTON "OK"			ID btnSetupOk		AT (5 139 37 12)
+	BUTTON "Cancel"		ID btnSetupCancel	AT (48 139 37 12)
 END
 
 /* ---- frmFtp / frmAp: user (SSID) and password. Colons at 54, values at 57. Blank password =
  * keep the current one. ------------------------------------------------- */
-FORM ID frmFtp AT (2 78 156 80)
+FORM ID frmFtp AT (2 77 156 81)
 FRAME
 MODAL
 SAVEBEHIND
@@ -207,18 +208,19 @@ MENUID mnuDlgEdit
 BEGIN
 	TITLE "FTP Setup"
 
-	LABEL "User:"	AUTOID AT (RIGHT@54 16) FONT 1
-	FIELD ID fldFtpUser AT (57 16 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 32
-	LABEL "Pass:"	AUTOID AT (RIGHT@54 30) FONT 1
-	FIELD ID fldFtpPass AT (57 30 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 32
-	LABEL "Blank password = keep current" AUTOID AT (4 43) FONT 0
+	LABEL "User:"	AUTOID AT (RIGHT@54 17) FONT 1
+	FIELD ID fldFtpUser AT (57 17 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 32
+	LABEL "Pass:"	AUTOID AT (RIGHT@54 31) FONT 1
+	FIELD ID fldFtpPass AT (57 31 79 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 32
+	CHECKBOX "" ID chkFtpShow AT (138 31 15 12)
+	LABEL "Blank password = keep current" AUTOID AT (4 45) FONT 0
 
-	GRAFFITISTATEINDICATOR AT (140 63)
-	BUTTON "OK"		ID btnFtpOk		AT (4 60 40 14)
-	BUTTON "Cancel"	ID btnFtpCancel	AT (48 60 44 14)
+	GRAFFITISTATEINDICATOR AT (143 65)
+	BUTTON "OK"		ID btnFtpOk		AT (5 64 37 12)
+	BUTTON "Cancel"	ID btnFtpCancel	AT (48 64 37 12)
 END
 
-FORM ID frmAp AT (2 78 156 80)
+FORM ID frmAp AT (2 77 156 81)
 FRAME
 MODAL
 SAVEBEHIND
@@ -226,15 +228,16 @@ MENUID mnuDlgEdit
 BEGIN
 	TITLE "AP Setup"
 
-	LABEL "SSID:"	AUTOID AT (RIGHT@54 16) FONT 1
-	FIELD ID fldApSsid AT (57 16 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 32
-	LABEL "Pass:"	AUTOID AT (RIGHT@54 30) FONT 1
-	FIELD ID fldApPass AT (57 30 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 64
-	LABEL "Blank password = keep current" AUTOID AT (4 43) FONT 0
+	LABEL "SSID:"	AUTOID AT (RIGHT@54 17) FONT 1
+	FIELD ID fldApSsid AT (57 17 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 32
+	LABEL "Pass:"	AUTOID AT (RIGHT@54 31) FONT 1
+	FIELD ID fldApPass AT (57 31 79 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 64
+	CHECKBOX "" ID chkApShow AT (138 31 15 12)
+	LABEL "Blank password = keep current" AUTOID AT (4 45) FONT 0
 
-	GRAFFITISTATEINDICATOR AT (140 63)
-	BUTTON "OK"		ID btnApOk		AT (4 60 40 14)
-	BUTTON "Cancel"	ID btnApCancel	AT (48 60 44 14)
+	GRAFFITISTATEINDICATOR AT (143 65)
+	BUTTON "OK"		ID btnApOk		AT (5 64 37 12)
+	BUTTON "Cancel"	ID btnApCancel	AT (48 64 37 12)
 END
 
 /* ---- frmSlip: the four SLIP Gateway addresses, dotted. Colons at 54, values at 57. -- */
@@ -246,23 +249,23 @@ MENUID mnuDlgEdit
 BEGIN
 	TITLE "SLIP Addresses"
 
-	LABEL "Gateway:"	AUTOID AT (RIGHT@54 16) FONT 1
-	FIELD ID fldSlipGw		AT (57 16 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 15
-	LABEL "Client:"		AUTOID AT (RIGHT@54 30) FONT 1
-	FIELD ID fldSlipClient	AT (57 30 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 15
-	LABEL "Subnet:"		AUTOID AT (RIGHT@54 44) FONT 1
-	FIELD ID fldSlipMask	AT (57 44 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 15
-	LABEL "DNS:"		AUTOID AT (RIGHT@54 58) FONT 1
-	FIELD ID fldSlipDns		AT (57 58 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 15
+	LABEL "Gateway:"	AUTOID AT (RIGHT@54 17) FONT 1
+	FIELD ID fldSlipGw		AT (57 17 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 15
+	LABEL "Client:"		AUTOID AT (RIGHT@54 31) FONT 1
+	FIELD ID fldSlipClient	AT (57 31 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 15
+	LABEL "Subnet:"		AUTOID AT (RIGHT@54 45) FONT 1
+	FIELD ID fldSlipMask	AT (57 45 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 15
+	LABEL "DNS:"		AUTOID AT (RIGHT@54 59) FONT 1
+	FIELD ID fldSlipDns		AT (57 59 95 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 15
 
-	GRAFFITISTATEINDICATOR AT (140 81)
-	BUTTON "OK"			ID btnSlipOk		AT (4 78 40 14)
-	BUTTON "Cancel"		ID btnSlipCancel	AT (48 78 44 14)
+	GRAFFITISTATEINDICATOR AT (143 80)
+	BUTTON "OK"			ID btnSlipOk		AT (5 79 37 12)
+	BUTTON "Cancel"		ID btnSlipCancel	AT (48 79 37 12)
 END
 
 /* ---- frmTimers: Exit Timers - when HotSync / CalDAV Relay / Bitwarden Relay
  * go back to WiRSa's main menu by themselves. Colons at 78, values at 81. */
-FORM ID frmTimers AT (2 46 156 112)
+FORM ID frmTimers AT (2 47 156 111)
 FRAME
 MODAL
 SAVEBEHIND
@@ -270,53 +273,72 @@ MENUID mnuDlgEdit
 BEGIN
 	TITLE "Exit Timers"
 
-	LABEL "Unused mode:"	AUTOID AT (RIGHT@78 16) FONT 1
-	FIELD ID fldTimersUnused	AT (81 16 24 12) EDITABLE UNDERLINED SINGLELINE NUMERIC MAXCHARS 3
-	LABEL "s"			AUTOID AT (108 16) FONT 0
-	LABEL "After session:"	AUTOID AT (RIGHT@78 30) FONT 1
-	FIELD ID fldTimersAfter	AT (81 30 24 12) EDITABLE UNDERLINED SINGLELINE NUMERIC MAXCHARS 3
-	LABEL "s"			AUTOID AT (108 30) FONT 0
+	LABEL "Unused mode:"	AUTOID AT (RIGHT@78 17) FONT 1
+	FIELD ID fldTimersUnused	AT (81 17 24 12) EDITABLE UNDERLINED SINGLELINE NUMERIC MAXCHARS 3
+	LABEL "s"			AUTOID AT (108 17) FONT 0
+	LABEL "After session:"	AUTOID AT (RIGHT@78 31) FONT 1
+	FIELD ID fldTimersAfter	AT (81 31 24 12) EDITABLE UNDERLINED SINGLELINE NUMERIC MAXCHARS 3
+	LABEL "s"			AUTOID AT (108 31) FONT 0
 	/* SLIP Gateway: back to the main menu after this long with no traffic
 	 * either way. Hidden when WiRSa's firmware doesn't report it. */
-	LABEL "SLIP Timeout:"	ID lblTimersSlip AT (RIGHT@78 44) FONT 1
-	POPUPTRIGGER "5 min" ID popTimersSlip AT (81 44 44 12) LEFTANCHOR
-	LIST "1 min" "2 min" "3 min" "5 min" ID lstTimersSlip AT (81 44 44 44) VISIBLEITEMS 4 NONUSABLE
+	LABEL "SLIP Timeout:"	ID lblTimersSlip AT (RIGHT@78 45) FONT 1
+	POPUPTRIGGER "5 min" ID popTimersSlip AT (81 45 44 12) LEFTANCHOR
+	LIST "1 min" "2 min" "3 min" "5 min" ID lstTimersSlip AT (81 45 44 44) VISIBLEITEMS 4 NONUSABLE
 	POPUPLIST ID popTimersSlip lstTimersSlip
 
 	/* SASD: back to the main menu after this long with nothing heard from the Palm (the Palm's SASD driver holds the serial port, so
 	 * WiRSaCtl cannot end it). Hidden when WiRSa's firmware doesn't report it. */
-	LABEL "SASD Timeout:"	ID lblTimersSasd AT (RIGHT@78 58) FONT 1
-	POPUPTRIGGER "3 min" ID popTimersSasd AT (81 58 44 12) LEFTANCHOR
-	LIST "3 min" "5 min" "10 min" "15 min" ID lstTimersSasd AT (81 58 44 44) VISIBLEITEMS 4 NONUSABLE
+	LABEL "SASD Timeout:"	ID lblTimersSasd AT (RIGHT@78 59) FONT 1
+	POPUPTRIGGER "3 min" ID popTimersSasd AT (81 59 44 12) LEFTANCHOR
+	LIST "3 min" "5 min" "10 min" "15 min" ID lstTimersSasd AT (81 59 44 44) VISIBLEITEMS 4 NONUSABLE
 	POPUPLIST ID popTimersSasd lstTimersSasd
 
-	LABEL "Seconds, 0 = never." AUTOID AT (4 74) FONT 0
+	LABEL "Seconds, 0 = never." AUTOID AT (4 75) FONT 0
 
-	GRAFFITISTATEINDICATOR AT (140 97)
-	BUTTON "OK"			ID btnTimersOk		AT (4 94 40 14)
-	BUTTON "Cancel"		ID btnTimersCancel	AT (48 94 44 14)
+	GRAFFITISTATEINDICATOR AT (143 95)
+	BUTTON "OK"			ID btnTimersOk		AT (5 94 37 12)
+	BUTTON "Cancel"		ID btnTimersCancel	AT (48 94 37 12)
 END
 
 /* ---- frmPrefs: this app's own preferences, kept on this Palm. Colon at
  * 78, value at 81. Preferred Baud: after finding WiRSa's menu at 9600, ask
  * WiRSa to run its menu at this rate until WiRSa restarts. */
-FORM ID frmPrefs AT (2 80 156 78)
+FORM ID frmPrefs AT (2 77 156 81)
 FRAME
 MODAL
 SAVEBEHIND
 BEGIN
 	TITLE "Preferences"
 
-	LABEL "Pref Baud:"	AUTOID AT (RIGHT@78 16) FONT 1
-	POPUPTRIGGER "9600" ID popPrefsBaud AT (81 16 50 12) LEFTANCHOR
-	LIST "9600" "14400" "19200" "28800" "38400" "57600" "115200" ID lstPrefsBaud AT (81 16 50 77) VISIBLEITEMS 7 NONUSABLE
+	LABEL "Pref Baud:"	AUTOID AT (RIGHT@78 17) FONT 1
+	POPUPTRIGGER "9600" ID popPrefsBaud AT (81 17 50 12) LEFTANCHOR
+	LIST "9600" "14400" "19200" "28800" "38400" "57600" "115200" ID lstPrefsBaud AT (81 17 50 77) VISIBLEITEMS 7 NONUSABLE
 	POPUPLIST ID popPrefsBaud lstPrefsBaud
 
-	LABEL "The fastest rate this Palm can" AUTOID AT (4 32) FONT 0
-	LABEL "use. WiRSa's menu follows it." AUTOID AT (4 43) FONT 0
+	LABEL "The fastest rate this Palm can" AUTOID AT (4 33) FONT 0
+	LABEL "use. WiRSa's menu follows it." AUTOID AT (4 45) FONT 0
 
-	BUTTON "OK"			ID btnPrefsOk		AT (4 60 40 14)
-	BUTTON "Cancel"		ID btnPrefsCancel	AT (48 60 44 14)
+	BUTTON "OK"			ID btnPrefsOk		AT (5 64 37 12)
+	BUTTON "Cancel"		ID btnPrefsCancel	AT (48 64 37 12)
+END
+
+/* ---- frmFormat: Options > Format SD Card... Erases the SD card in WiRSa (FAT16 up to 2 GB, FAT32 above); the
+ * box copies the virtual card's SASD install set onto it afterwards. Text at x=4, 12 apart, as frmPrefs. */
+FORM ID frmFormat AT (2 67 156 91)
+FRAME
+MODAL
+SAVEBEHIND
+DEFAULTBTNID btnFormatCancel
+BEGIN
+	TITLE "Format SD Card"
+
+	LABEL "Erase everything on the SD card" AUTOID AT (4 17) FONT 0
+	LABEL "in WiRSa?" AUTOID AT (4 29) FONT 0
+	CHECKBOX "Copy the SASD install set" ID chkFormatCopy AT (4 43 140 12) FONT 0
+	LABEL "from the virtual card" AUTOID AT (21 55) FONT 0
+
+	BUTTON "Format"		ID btnFormatOk		AT (5 74 37 12)
+	BUTTON "Cancel"		ID btnFormatCancel	AT (48 74 37 12)
 END
 
 /* ---- alerts ------------------------------------------------------------- */
@@ -344,6 +366,22 @@ BEGIN
 	BUTTONS "Continue" "Cancel"
 END
 
+ALERT ID altReboot
+CONFIRMATION
+BEGIN
+	TITLE "Reboot WiRSa"
+	MESSAGE "Restart WiRSa now? A HotSync, SASD card or SLIP link in use is cut off."
+	BUTTONS "Reboot" "Cancel"
+END
+
+ALERT ID altLogClear
+CONFIRMATION
+BEGIN
+	TITLE "Clear Log"
+	MESSAGE "Erase WiRSa's session log?"
+	BUTTONS "Clear" "Cancel"
+END
+
 ALERT ID altFactory
 CONFIRMATION
 BEGIN
@@ -360,12 +398,12 @@ SAVEBEHIND
 BEGIN
 	TITLE "WiRSa Log"
 
-	FIELD ID fldLogText AT (4 16 142 118) NONEDITABLE MULTIPLELINES FONT 0
-	SCROLLBAR ID sclLog AT (148 16 7 118) VALUE 0 MIN 0 MAX 0 PAGESIZE 8
+	FIELD ID fldLogText AT (4 16 142 115) NONEDITABLE MULTIPLELINES FONT 0
+	SCROLLBAR ID sclLog AT (148 16 7 115) VALUE 0 MIN 0 MAX 0 PAGESIZE 8
 
-	BUTTON "Done"		ID btnLogDone		AT (4 138 40 14)
-	BUTTON "Refresh"	ID btnLogRefresh	AT (50 138 46 14)
-	BUTTON "Clear"		ID btnLogClear		AT (102 138 40 14)
+	BUTTON "Done"		ID btnLogDone		AT (5 139 37 12)
+	BUTTON "Refresh"	ID btnLogRefresh	AT (48 139 37 12)
+	BUTTON "Clear"		ID btnLogClear		AT (91 139 37 12)
 END
 
 ALERT ID altAbout

@@ -43,8 +43,11 @@
  * reached from a no-globals sublaunch: Find skips encrypted records, beam-receive stores
  * raw). Main is already at the 32KB cap, so nothing crypto goes in main. Division-free:
  * Datebook calls only EncGetKey/EncCrypt (AES has no libgcc division). */
-#define AES_SECTION		SEC003
-#define ENCCORE_SECTION	SEC003
+/* (2026-11) moved from sec003 to sec004 with the per-store keys: sec003 was
+ * full (3 bytes free) and sec004 nearly empty. Calls from sec001-sec003 are
+ * cross-segment (jump table), never the same-segment-across-files DISP16 case. */
+#define AES_SECTION		SEC004
+#define ENCCORE_SECTION	SEC004
 
 /* Shared apps/lib files (datelib/datepick/hackcheck/era/edate) tag their
  * functions with DATELIB_SECTION. They MUST live in the MAIN segment: datelib's

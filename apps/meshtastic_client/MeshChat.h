@@ -139,11 +139,11 @@ void	FmtDateTime(Stamp t, char *out);
 void	FmtStamp(Stamp t, char *out);
 void	FmtStampShort(Stamp t, char *out);
 void	FmtListTime(Stamp t, char *out);
-void	FmtAgo(Stamp t, char *out);
-void	ConvName(UInt16 c, char *out);
 void	ConvLabel(UInt16 c, char *out);
 void	SortConv(void);
 UInt16	TotalUnread(void);
+MC_UI Boolean	ChatWantsTick(void);			/* the open thread has unread messages: wake up to see whether they are read */
+MC_UI void	ChatDwell(void);				/* read what has stood on the screen for a second */
 UInt16	FindDm(UInt16 node, Boolean create);
 UInt16	FindChan(UInt8 index, Boolean create);
 MC_SEC UInt16	NodeByNum(UInt32 num, Boolean create);
@@ -200,7 +200,6 @@ MC_SEC void	LinkClose(void);
 MC_SEC Boolean	LinkSync(void);
 MC_SEC Boolean	LinkSyncStart(void);
 MC_SEC void	LinkHistSend(void);
-MC_SEC Boolean	LinkCfgStart(void);
 MC_SEC Boolean	LinkAsyncCheck(void);
 extern Boolean gSyncPending, gCfgPending, gNewsAgain;
 MC_SEC UInt16	LinkPump(void);
@@ -283,6 +282,8 @@ MC_UI Boolean	NodeHandleEvent(EventPtr e);
 MC_UI void	MainFindPoll(void);
 MC_UI Boolean	ChatHandleEvent(EventPtr e);
 MC_UI void	ChatKeyPoll(void);
+MC_UI void	FitTitle(FormPtr frm, UInt16 trigger, const char *src, char *dst, UInt16 size);	/* a title cut to fit the title bar, "..." for the rest */
+MC_UI void	RetitleForm(FormPtr frm, UInt16 trigger, const char *title);	/* a new title on a form that is showing, with no trace of the old one */
 MC_UI Boolean	MsgHandleEvent(EventPtr e);
 MC_UI Boolean	PosHandleEvent(EventPtr e);
 
@@ -293,6 +294,10 @@ MC_SEC Boolean	LoraHandleEvent(EventPtr e);
 MC_SEC Boolean	DeviceHandleEvent(EventPtr e);
 MC_SEC Boolean	ChListHandleEvent(EventPtr e);
 MC_SEC Boolean	ChEditHandleEvent(EventPtr e);
+/* Channel-key masking (Node.c): when a just-typed character is shown in clear, the tick at which it masks
+ * (0 = none); EventLoop wakes up for it and calls ChKeyRevealTick on frmChEdit. */
+extern UInt32 gChKeyRevealUntil;
+MC_SEC void	ChKeyRevealTick(void);
 MC_SEC Boolean	MqttHandleEvent(EventPtr e);
 MC_SEC Boolean	ActionsHandleEvent(EventPtr e);
 

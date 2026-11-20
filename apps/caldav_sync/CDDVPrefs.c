@@ -4,6 +4,7 @@
  * Sec35-encrypted secrets, nothing gained by exposing it to HotSync backup.
  */
 #include "CDDVPrefs.h"
+#include "enccore.h"
 
 #define cddvDBName "CalDAVRelayDB"
 #define cddvDBType 'DATA'
@@ -141,7 +142,9 @@ static LocalID CDDVFindOrCreateDB(void)
 	if (dbID != 0) return dbID;
 	if (DmCreateDatabase(0, cddvDBName, appCreator, cddvDBType, false) != errNone)
 		return 0;
-	return DmFindDatabase(0, cddvDBName);
+	dbID = DmFindDatabase(0, cddvDBName);
+	EncDbIdSetStoreKeys(dbID);			/* new: key scheme 2 from the start */
+	return dbID;
 }
 
 SEC002 void CDDVLoadPrefs(CDDVPrefsType *p)

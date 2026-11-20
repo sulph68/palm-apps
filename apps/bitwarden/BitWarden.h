@@ -73,6 +73,10 @@ typedef struct {
 
 /* ---- Store.c: local at-rest store (enccore AES-128-CTR) --------------- */
 void BwStoreInit(void);
+/* Key scheme 2 (Store.c): launch-gate check, and Sec35's kSecLaunchRekey handler. */
+Boolean BwStoreSchemeOk(void) SEC001;
+struct EncRekeyParamTag;
+void BwRekey(struct EncRekeyParamTag *p) SEC001;
 void BwStoreClose(void);
 
 /* True once a master password has ever been established locally (salt/
@@ -175,8 +179,6 @@ Boolean BwStoreGetOrgName(UInt16 index, char *out, UInt16 outLen);
 /* Fast, no decrypt - folderIndex/orgIndex/itemType are stored plaintext in
  * the record header specifically so filtering doesn't require decrypting
  * every record. */
-UInt16 BwStoreGetItemFolder(UInt16 recIndex);
-UInt16 BwStoreGetItemOrg(UInt16 recIndex);
 UInt8 BwStoreGetItemType(UInt16 recIndex);
 /* Decrypts just the name field - used for list-row drawing (lazy, one row
  * at a time). */

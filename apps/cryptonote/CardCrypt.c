@@ -8,6 +8,7 @@
 #include "CardCrypt.h"
 #include "AesCrypt.h"
 #include "Database.h"     /* globalPasswordP */
+#include "PwMask.h"       /* masked entry + "Show" */
 #include "MainRsc.h"      /* frmCardPassword, fldCardPassword, btn... */
 
 Boolean CardCryptIsEncrypted(const UInt8 *data, UInt32 size) AES_SECTION;
@@ -167,6 +168,26 @@ WinHandle CardBusyShow(const char *msg)
 	return saved;
 }
 
+/* Change the text of the box CardBusyShow put up (e.g. "Encrypting 3 of 5"). */
+void CardBusySetText(const char *msg) AES_SECTION;
+void CardBusySetText(const char *msg)
+{
+	RectangleType r;
+	WinHandle prevDraw = WinGetDrawWindow();
+	Int16 len = StrLen(msg), w;
+	FontID prevFont;
+
+	WinSetDrawWindow(WinGetDisplayWindow());
+	r.topLeft.x = cardBusyX; r.topLeft.y = cardBusyY;
+	r.extent.x = 110;        r.extent.y = 24;
+	WinEraseRectangle(&r, 3);
+	prevFont = FntSetFont(boldFont);
+	w = FntCharsWidth((Char *) msg, len);
+	WinDrawChars((Char *) msg, len, r.topLeft.x + (r.extent.x - w) / 2, r.topLeft.y + 7);
+	FntSetFont(prevFont);
+	WinSetDrawWindow(prevDraw);
+}
+
 void CardBusyHide(WinHandle saved) AES_SECTION;
 void CardBusyHide(WinHandle saved)
 {
@@ -209,21 +230,33 @@ Boolean CardPromptPassword(char *out, UInt16 outSize)
 
 	FrmSetActiveForm(frmP);
 	FrmDrawForm(frmP);
+	PwMaskBegin(fldCardPassword, chkCardPasswordShow);
 	FrmSetFocus(frmP, fieldIndex);
 	FldGrabFocus(fldP);
 
 	while (!done) {
-		EvtGetEvent(&event, evtWaitForever);
+		UInt32 timeout = evtWaitForever;
+		if (gPwRevealUntilTicks) {			/* mask the just-typed character on time */
+			UInt32 now = TimGetTicks();
+			timeout = (gPwRevealUntilTicks > now) ? (gPwRevealUntilTicks - now) : 0;
+		}
+		EvtGetEvent(&event, timeout);
+		if (event.eType == nilEvent && gPwRevealUntilTicks && TimGetTicks() >= gPwRevealUntilTicks)
+			PwMaskPendingReveal();
 		if (event.eType == appStopEvent) {
 			EvtAddEventToQueue(&event);	/* let the app-level loop quit too */
 			btn = btnCardPasswordCancel;
 			break;
 		}
+		if (PwMaskKeyboard(&event)) continue;	/* on-screen keyboard: before SysHandleEvent */
 		if (SysHandleEvent(&event)) continue;
 		if (MenuHandleEvent(0, &event, NULL)) continue;
+		if (event.eType == keyDownEvent && PwMaskKeyDown(&event)) continue;
 
 		if (event.eType == ctlSelectEvent) {
-			if (event.data.ctlSelect.controlID == btnCardPasswordOK) {
+			if (event.data.ctlSelect.controlID == chkCardPasswordShow)
+				PwMaskShow(event.data.ctlSelect.on);
+			else if (event.data.ctlSelect.controlID == btnCardPasswordOK) {
 				btn = btnCardPasswordOK;
 				done = true;
 			} else if (event.data.ctlSelect.controlID == btnCardPasswordCancel) {
@@ -236,9 +269,10 @@ Boolean CardPromptPassword(char *out, UInt16 outSize)
 	}
 
 	if (btn == btnCardPasswordOK) {
-		Char *txt = FldGetTextPtr(fldP);
-		if (txt) { StrNCopy(out, txt, outSize - 1); out[outSize - 1] = 0; }
+		StrNCopy(out, PwMaskText(), outSize - 1);
+		out[outSize - 1] = 0;
 	}
+	PwMaskEnd();			/* wipes the entry and the field's text */
 
 	/* frmCardPassword is FRAME MODAL and doesn't cover the whole screen, so
 	 * FrmDrawForm(frmP) above auto-saved the bits behind it (bitsBehindForm).

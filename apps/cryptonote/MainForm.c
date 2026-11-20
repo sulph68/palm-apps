@@ -9,7 +9,10 @@
 #include <SysEvtMgr.h>
 #include "CardIO.h"   /* includes PalmOS.h then VFSMgr.h in the right order */
 #include "EditForm.h" /* card-file edit bridge: gCardFileOpen, gCardEditPath, ... */
-#include "CardCrypt.h" /* .enc detection / decrypt + password prompt */
+#include "CardCrypt.h" /* .enc detection / decrypt + password prompt, busy box */
+#include "SecDb.h"     /* user databases (sources), read-only memos */
+#include "ViewList.h"  /* the list as one view over every database */
+#include "DbForms.h"
 
 /* Deliberately NOT AES_SECTION (lands in main, same as the rest of this
  * file's untagged code) -- a same-segment call from this file's sec001-
@@ -162,62 +165,13 @@ static void MainBuildCardFind(void)
  * path already funnels through them) transparently skip non-matching
  * records when gDbFindActive. Every existing caller keeps working unchanged
  * - it just never sees a non-matching record. */
-static MemHandle MainFormGetNextRecord(Int16*);	/* real decl (+ tag) later in the file */
 static void MainFormLoadRecords(void);			/* real decl (+ tag) later in the file */
-static Boolean  gDbFindActive = false;
+/* The filter itself is applied while the view is built (ViewList.c). */
+Boolean  gDbFindActive = false;
 static char     gDbFindTerm[40];
-static char     gDbFindLower[40];	/* lowercased once per keystroke, not per record */
-static UInt16   gDbFindLen = 0;
-static UInt16   gDbFindMatchCount = 0;	/* for the scrollbar only, see MainCountDbMatches */
-
-/* True if record recordNum (in dbCryptoPad when cryptoPad, else dbMemoPad)
- * contains gDbFindLower. Masked private records never match - a filter
- * shouldn't be a side-channel for finding what masking is hiding. */
-static Boolean DbRecordMatches(Boolean cryptoPad, UInt16 recordNum) AES_SECTION;
-static Boolean DbRecordMatches(Boolean cryptoPad, UInt16 recordNum)
-{
-	DmOpenRef dbRef = cryptoPad ? dbCryptoPadRef : dbMemoPadRef;
-	UInt16 recAttributes;
-
-	DmRecordInfo(dbRef, recordNum, &recAttributes, NULL, NULL);
-	if ((recAttributes & dmRecAttrSecret) && PrivateRecordVisualStatus == maskPrivateRecords)
-		return false;
-
-	if (cryptoPad) {
-		Char title[81];
-		Boolean encrypted;
-		if (!CryptoGetRecordTitleRelay(dbRef, recordNum, title, sizeof(title), &encrypted))
-			return false;
-		return CardNameHasTerm(title, gDbFindLower, gDbFindLen);
-	} else {
-		MemHandle h = DmQueryRecord(dbRef, recordNum);
-		char *textP;
-		Boolean m;
-		if (!h) return false;
-		textP = MemHandleLock(h);
-		m = textP ? CardNameHasTerm(textP, gDbFindLower, gDbFindLen) : false;
-		MemHandleUnlock(h);
-		return m;
-	}
-}
-
-/* Count matches for the scrollbar (MainFormUpdateScrollBar) - the traversal
- * skip above makes scrolling/loading correct with no further changes, but
- * the scrollbar's range still needs an accurate total. Walks once per
- * keystroke via the very same wrapped traversal, so it can't disagree with
- * what scrolling/loading actually see. */
-static void MainCountDbMatches(void) AES_SECTION;
-static void MainCountDbMatches(void)
-{
-	Boolean savedDB = currentDB;
-	Int16 recordNum = -1;
-
-	currentDB = memoPadDB;
-	gDbFindMatchCount = 0;
-	while (MainFormGetNextRecord(&recordNum) != 0)
-		gDbFindMatchCount++;
-	currentDB = savedDB;
-}
+char     gDbFindLower[40];	/* lowercased once per keystroke, not per record */
+UInt16   gDbFindLen = 0;
+UInt16   gDbFindMatchCount = 0;	/* matches in the view (ViewBuild) */
 
 /* Live filter callback (fldChangedEvent + the keyDownEvent relay below).
  * Card mode filters filenames; otherwise filters memo/note titles. */
@@ -276,13 +230,12 @@ static void MainFindFieldChanged(void)
 		}
 		gDbFindLower[gDbFindLen] = '\0';
 		gDbFindActive = true;
-		MainCountDbMatches();
 	} else {
 		gDbFindActive = false;
 		gDbFindTerm[0] = '\0';
 	}
+	ViewInvalidate();
 	topRecord = 0;
-	topDB = memoPadDB;
 	currentRecord = noRecordSelected;
 	MainFormLoadRecords();
 	TblRedrawTable((TablePtr) GetActiveFormObjectPtr(tblMainRecordList));
@@ -1151,7 +1104,6 @@ static void MainFormCardDrag(EventPtr eventP)
 	}
 }
 
-static Boolean MainFormSeekRecord (UInt16* , Int16, Int16);
 static WinHandle MainFormInvertMoveIndicator(RectanglePtr, WinHandle, Boolean);
 static void MainFormDragMemo(EventPtr);
 static void MainFormSelectTableItem (Boolean, TablePtr, Int16, Int16, RectangleType *r);
@@ -1162,7 +1114,7 @@ static void DrawInversionEffect (const RectangleType *rP, UInt16);
 static void MainFormInit(void);
 
 static void MainFormDrawTableItem(void *, Int16, Int16, RectanglePtr);
-static void DrawCryptoPadRecordText(UInt16, UInt16, RectanglePtr);
+static void DrawCryptoPadRecordText(UInt8, UInt16, UInt16, RectanglePtr);
 static void DrawMemoPadRecordText(UInt16, UInt16, RectanglePtr);
 static void MainFormDisplayMask (RectanglePtr);
 static Int16 MainFormNumberOfRows (TablePtr);
@@ -1170,15 +1122,11 @@ static Int16 MainFormNumberOfRows (TablePtr);
 static void MainFormLoadTable(void);
 static void MainFormLoadRecords(void);
 static void MainFormShowFullDisplay(void);
-static MemHandle MainFormGetNextRecord(Int16*);
-static MemHandle MainFormGetPreviousRecord(Int16*);
 
-static void EncryptCategory();
-static void DecryptCategory();
-static ProgressInfoPtr ProgressFormInitAndDraw (FormPtr frmP);
-static Boolean ProgressCallback (void* progressInfoP, ProgrType* progressP, Char* messageP);
-static void ProgressUpdateGauge (RectangleType*	gaugeRP, UInt32 gaugeLevel);
-static UInt32 ProgressHandleEvent (Int32 timeout);
+static void EncryptCategory() UI2_SECTION;
+static UInt16 CategoryUserDbs (UInt8 op) UI2_SECTION;
+static void DecryptCategory() UI2_SECTION;
+static void CategoryProgress (const char* verb, UInt16 n, UInt16 total) UI2_SECTION;
 
 static void MainFormSelectCategory(void);
 static UInt16 MainFormGetNextCategory(UInt16);
@@ -1189,52 +1137,7 @@ static Boolean MainFormUpdateDisplay(UInt16);
 static void MainFormScrollLines(Int16);
 static void MainFormScrollPage(WinDirectionType);
 
-static Boolean MainFormSeekRecord (UInt16* , Int16, Int16);
-static UInt16 MainFormGotFirstCryptoPadRow(TablePtr);
-static void MainFormDragMemo(EventPtr);
-
 static void MainFormHandleMenuEvent(UInt16);
-
-static UInt16 recordDB;
-
-/***************************************
- * MainFormSeekRecord:
- * utility routine for MainFormDragMemo
- ***************************************
- */
-
-static Boolean MainFormSeekRecord (UInt16* indexP, Int16 offset, Int16 direction)
-{
-	DmSeekRecordInCategory (selectedDBRef, indexP, offset, 
-		direction, currentCategory);
-
-	if (DmGetLastErr()) return (false);
-	
-	return (true);
-}
-
-
-/***************************************
- * MainFormGotFirstCryptoPadRow:
- * Search the number of the first
- * row with CryptoPad memos.
- ***************************************
- */
-
-static UInt16 MainFormGotFirstCryptoPadRow(TablePtr tableP)
-{
-UInt16 nRow;
-UInt16 numRows;
-
-	numRows = TblGetNumberOfRows(tableP);
-	
-	for (nRow = 0; nRow < numRows; nRow++) {
-		if (TblGetItemInt(tableP, nRow, kRecordColumn) == cryptoPadDB)
-			return (nRow);
-	}
-
-	return (- 1);
-}
 
 /***************************************
  * MainFormInvertMoveIndicator:
@@ -1347,22 +1250,20 @@ static void DrawInversionEffect (const RectangleType *rP, UInt16 cornerDiam)
 
 /*********************************
  * TableFindRowOfSelectedRecord:
- * Find the row which corresponds
- * to the selected record.
+ * Find the row showing view position
+ * `pos` (ViewList.c).
  *********************************/
 static Boolean TableFindRowOfSelectedRecord(TablePtr tableP, 
-			UInt16 selectedRecord, UInt16* selectedRow)
+			UInt16 pos, UInt16* selectedRow)
 
 {
 	UInt16 row;
 
 	for (row = 0; row < TblGetNumberOfRows (tableP); row++) {
-		if ((TblGetItemInt(tableP, row, kRecordColumn) == selectedDB) 
-				&& TblRowUsable (tableP, row)) {
-			if (TblGetRowID(tableP, row) == selectedRecord) {
-				*selectedRow = row;
-				return (true);
-			}
+		if (TblRowUsable (tableP, row)
+				&& (UInt16) TblGetRowData (tableP, row) == pos) {
+			*selectedRow = row;
+			return (true);
 		}
 	}
 	return (false);
@@ -1370,8 +1271,10 @@ static Boolean TableFindRowOfSelectedRecord(TablePtr tableP,
 
 /***************************************
  * MainFormDragMemo:
- * Performs the drag and drop operation
- * implementing Manual sorting.
+ * A tap opens the memo; in manual order a
+ * drag moves it, across all databases (the
+ * order table in ViewList.c, so memos in ROM
+ * move too).
  ***************************************
  */
 
@@ -1379,8 +1282,7 @@ static void MainFormDragMemo(EventPtr eventP)
 {
 	Int16 sortOrder;
 	UInt16 selectedRow;
-	UInt16 recordNum;
-	UInt16 selectedRecord;
+	UInt16 selPos, count;
 	UInt16 recAttributes;
 
 	Int16 x, y;
@@ -1392,7 +1294,7 @@ static void MainFormDragMemo(EventPtr eventP)
 	Int16 row;
 	UInt16 column;
 
-	WinHandle savedBits;
+	WinHandle savedBits = 0;
 	RectangleType rec;
 
 	sortOrder = currentSortOrder;
@@ -1403,21 +1305,14 @@ static void MainFormDragMemo(EventPtr eventP)
 
 	if (gCardMode) { MainFormCardDrag(eventP); return; }
 
-	/* Drag-reorder needs stable neighbor positions in the REAL (unfiltered)
-	 * list - treat every row as a plain tap (the soAlphabetic branch below)
-	 * while a filter is active, same precedent as the card browser. */
+	/* No reordering while the Find filter hides memos (same as the card
+	 * browser): every row is a plain tap. */
 	if (gDbFindActive) sortOrder = soAlphabetic;
 
-	/* Highlight the selected record */
-
-	selectedRecord = TblGetRowID(tableP, row);
-	selectedDB = TblGetItemInt(tableP, row, kRecordColumn);
+	selPos = (UInt16) TblGetRowData(tableP, row);
+	count = ViewCount();
 
 	MainFormSelectTableItem(selected, tableP, row, column, &rec);
-
-	/* Trace the pen until it moves enough to constitute
-	 * a move operation or until the pen it released.
-	 */
 
 	while (true) {
 
@@ -1425,76 +1320,57 @@ static void MainFormDragMemo(EventPtr eventP)
 		if (!penDown) break;
 		
 		if (!moving) {
-
 			if (sortOrder != soAlphabetic) {
-
-				/* Is the pen still within the bounds of the selected item?
-				 * if not, draw the move indicator.
-				 */
-
+				/* Out of the selected row: start moving, the indicator
+				 * under the row says "drop after this one". */
 				if (!RctPtInRectangle (x, y, &rec)) {
 					moving = true;
 					TblGetItemBounds (tableP, row, column, &rec);
 					savedBits = MainFormInvertMoveIndicator (&rec, 0, true);
 				}
-
 			} else selected = RctPtInRectangle(x, y, &rec);
 
 		} else if (!RctPtInRectangle (x, y, &rec)) {
 
-			/* Above the first item? */
+			/* The indicator is above the first row */
 			if (row < 0) {
-				if (y >= rec.topLeft.y) {
-					row++;
+				if (y >= rec.topLeft.y + rec.extent.y) {
 					MainFormInvertMoveIndicator(&rec, savedBits, false);
-					rec.topLeft.y -= rec.extent.y;
-					savedBits = MainFormInvertMoveIndicator (&rec, 0, true);
-				}					
-			}
-
-			/* Move up */
-			else if (y < rec.topLeft.y) {
-				recordNum = TblGetRowID(tableP, row);
-				recordDB = TblGetItemInt(tableP, row, kRecordColumn);
-
-				if (MainFormSeekRecord (&recordNum, 1, dmSeekBackward) 
-				&& (recordDB == selectedDB)) 
-					{
-					MainFormInvertMoveIndicator(&rec, savedBits, false);
-					if (row) row--;
-					else {				
-						MainFormScrollLines(-1);
-						if (TableFindRowOfSelectedRecord(tableP, selectedRecord, &selectedRow))
-							MainFormSelectTableItem(selected, tableP, selectedRow, column, &rec);
-					} 
+					row = 0;
 					TblGetItemBounds (tableP, row, column, &rec);
-					savedBits = MainFormInvertMoveIndicator (&rec, 0, true);
-
-				} else if (((row == 0) && (recordDB == selectedDB)) 
-					|| (MainFormGotFirstCryptoPadRow(tableP) == row)) {
-					row--;
-					MainFormInvertMoveIndicator (&rec, savedBits, false);
-					rec.topLeft.y -= rec.extent.y;
 					savedBits = MainFormInvertMoveIndicator (&rec, 0, true);
 				}
 			}
 
+			/* Move up */
+			else if (y < rec.topLeft.y) {
+				MainFormInvertMoveIndicator(&rec, savedBits, false);
+				if (row > 0) row--;
+				else if (topRecord > 0) {
+					MainFormScrollLines(-1);
+					if (TableFindRowOfSelectedRecord(tableP, selPos, &selectedRow))
+						MainFormSelectTableItem(selected, tableP, selectedRow, column, &rec);
+				} else row = -1;
+
+				if (row >= 0) TblGetItemBounds (tableP, row, column, &rec);
+				else {
+					TblGetItemBounds (tableP, 0, column, &rec);
+					rec.topLeft.y -= rec.extent.y;
+				}
+				savedBits = MainFormInvertMoveIndicator (&rec, 0, true);
+			}
+
 			/* Move down */
 			else {
-				recordNum = TblGetRowID(tableP, row);
-				recordDB = TblGetItemInt(tableP, row, kRecordColumn);
-
-				if (MainFormSeekRecord(&recordNum, 1, dmSeekForward)
-				|| ((recordDB == memoPadDB) && (selectedDB == cryptoPadDB))) 
-					{
-					MainFormInvertMoveIndicator (&rec, savedBits, false);				
-					if (row < TblGetLastUsableRow (tableP)) row++;
+				Int16 last = TblGetLastUsableRow (tableP);
+				if (row < last || (UInt16) (topRecord + last + 1) < count) {
+					MainFormInvertMoveIndicator (&rec, savedBits, false);
+					if (row < last) row++;
 					else {
 						MainFormScrollLines(1);
-						if (TableFindRowOfSelectedRecord(tableP, selectedRecord, &selectedRow))
+						if (TableFindRowOfSelectedRecord(tableP, selPos, &selectedRow))
 							MainFormSelectTableItem(selected, tableP, selectedRow, column, &rec);
 					}
-
 					TblGetItemBounds (tableP, row, column, &rec);
 					savedBits = MainFormInvertMoveIndicator (&rec, 0, true);
 				}
@@ -1503,34 +1379,20 @@ static void MainFormDragMemo(EventPtr eventP)
 	}
 
 	/* Turn off the move indicator, if it is on */
-
 	if (moving) savedBits = MainFormInvertMoveIndicator (&rec, savedBits, false);
 
 	/* If the highlighted item is visible, unhighlight it */
-		if (TableFindRowOfSelectedRecord(tableP, selectedRecord, &selectedRow))
-			MainFormSelectTableItem(false, tableP, selectedRow, column, &rec);
+	if (TableFindRowOfSelectedRecord(tableP, selPos, &selectedRow))
+		MainFormSelectTableItem(false, tableP, selectedRow, column, &rec);
 
 	if (moving) {
-		if (row >= 0) {
-			recordNum = TblGetRowID (tableP, row);
-			recordDB = TblGetItemInt(tableP, row, kRecordColumn);
-
-			if ((selectedRecord == recordNum) && (selectedDB == recordDB))
-				return;
-			
-			recordNum++;
-
-		} else recordNum = TblGetRowID(tableP, 0);
-
-		if (recordDB != selectedDB) {
-			if (selectedDB == cryptoPadDB) recordNum = 0;
-			else recordNum = DmNumRecordsInCategory (dbMemoPadRef, currentCategory);
+		/* drop after the row the indicator was under */
+		UInt16 dropBefore = (row < 0) ? topRecord : (UInt16) (topRecord + row + 1);
+		if (dropBefore != selPos && dropBefore != selPos + 1) {
+			ViewOrderMove (selPos, dropBefore);
+			MainFormLoadRecords();
+			TblRedrawTable (tableP);
 		}
-
-		DmMoveRecord (selectedDBRef, selectedRecord, recordNum);
-
-		MainFormLoadRecords();
-		TblRedrawTable (tableP);
 	}
 		
 	/* If we didn't move the item then it's been selected for editing,
@@ -1538,8 +1400,13 @@ static void MainFormDragMemo(EventPtr eventP)
 	 */
 
 	else if (sortOrder != soAlphabetic || selected) {
-		currentRecord = TblGetRowID(tableP, row);
-		currentDB = TblGetItemInt(tableP, row, kRecordColumn);
+		UInt8 src;
+		UInt16 idx;
+
+		if (! ViewGet (selPos, &src, &idx)) return;
+		currentRecord = idx;
+		currentDB = src;
+		SrcSelect (currentDB);
 
 		editScrollPosition = 0;
 
@@ -1574,7 +1441,7 @@ static void MainFormDragMemo(EventPtr eventP)
 static void MainFormEnterTableItem(void)
 
 {
-	if (currentDB == cryptoPadDB)  {
+	if (currentDB != memoPadDB)  {	/* main or a user database */
 		/* Db35-suite-style Sec35 lock gate: a Sec35-wrapped+locked record
 		 * shows "******" in the list (via the chokepoint's masking) and
 		 * isEncrypted() reads as false for it (can't tell if it ALSO has a
@@ -1657,6 +1524,11 @@ static void MainFormInit(void)
 	UInt16 category;
 
 	triggerP = GetActiveFormObjectPtr(popMainCategory);
+
+	/* Back on the list: the main database is current again, and the view is
+	 * rebuilt (the memo just viewed may have changed). */
+	SrcSelect(cryptoPadDB);
+	ViewInvalidate();
 
 	/* Returning to the list while browsing the card (e.g. after editing a file):
 	 * re-read the directory so new/changed files show, and keep the Card label.
@@ -1795,48 +1667,48 @@ static void DrawMemoPadRecordText(UInt16 recordNum, UInt16 x, RectanglePtr bound
  /*******************************************
  * DrawCryptoPadRecordText:
  * Draw each usable table cell
- * that contains a CryptoPad record.
+ * that contains a CryptoNote memo (main or
+ * user database), with its icons right-
+ * aligned, no gaps: key (password), then
+ * no-entry sign (read-only) or chip (in ROM),
+ * then database (user database).
  *******************************************
  */
 
- static void DrawCryptoPadRecordText(UInt16 recordNum, UInt16 x, RectanglePtr bounds)
+ static void DrawCryptoPadRecordText(UInt8 src, UInt16 recordNum, UInt16 x, RectanglePtr bounds)
 {
 	Char title[81];
 	Boolean encrypted;
-
-	UInt16 right;
+	DmOpenRef db = SrcRef(src);
+	UInt16 icons[3];
+	UInt16 n = 0, i;
+	Int16 right;
 	Int16 cellWidth;
 
-	/* Adjust spacing with magic values! */
-	right = 7;
-
 	/* List-row peek: title text + the layer-2 flag, WITHOUT decrypting a
-	 * wrapped record's whole body -- CryptoGetRecord (full decrypt) here
-	 * plus isEncrypted()'s own separate full-decrypt call used to cost two
-	 * whole-record AES passes PER VISIBLE ROW, which made the list appear
-	 * to hang after importing/viewing a large (tens-of-KB) memo. See
-	 * CryptoGetRecordTitle's own comment. */
-	if (! CryptoGetRecordTitle (dbCryptoPadRef, recordNum, title, sizeof (title), &encrypted))
+	 * wrapped record's whole body (see CryptoGetRecordTitle). */
+	if (! CryptoGetRecordTitle (db, recordNum, title, sizeof (title), &encrypted))
 		return;
 
-	// Determine the length of text that will fit within the bounds.
+	if (encrypted) icons[n++] = bmpMainKeyBitmap;
+	if (SrcIsRom(src)) icons[n++] = bmpRomChip;		/* ROM: read-only and a user database */
+	else {
+		if (SrcRecReadOnly(src, recordNum)) icons[n++] = bmpReadOnly;
+		if (src > cryptoPadDB) icons[n++] = bmpDbIcon;
+	}
+
+	/* 7 px per icon + 1 px between; 7 px kept free even without one. The key
+	 * art has a blank column on its left, so the icon next to it moves 1 px
+	 * closer and every gap reads the same (the key keeps its column). */
+	right = (n == 0) ? 7 : (Int16) (8 * n - 1);
+	if (encrypted && n > 1) right--;
 	cellWidth = bounds->extent.x - x - right;
 
 	DrawStringWithEllipsis (title, x, bounds->topLeft.y, cellWidth, justLeft);
 
-
-	/* Draw the little icon */
-
-	if (encrypted) {
-		BitmapPtr bitmapP;
-		MemHandle handle;
-
-		handle = DmGetResource('Tbmp', bmpMainKeyBitmap);
-		bitmapP = MemHandleLock(handle);
-		WinDrawBitmap(bitmapP, bounds->extent.x - right, bounds->topLeft.y);
-		MemHandleUnlock(handle);
-		DmReleaseResource(handle);
-	}
+	for (i = 0; i < n; i++)
+		CardDrawIcon(icons[i], (UInt16) (bounds->extent.x - 7 - 8 * i
+			+ ((encrypted && i > 0) ? 1 : 0)), bounds->topLeft.y);
 }
  
  /*******************************************
@@ -1850,29 +1722,19 @@ static void MainFormDrawTableItem(void * tableP,
 {
 	UInt16 recordNum;
 	UInt16 recordDB;
-	UInt16 posInCategory;
+	UInt16 posInView;
 
 	char posStr [6];
 	UInt16 length;
 	UInt16 x, y;
-	UInt16 category;
 	UInt16 recAttributes;
 
 	if (gCardMode) { MainFormDrawCardRow(tableP, row, bounds); return; }
 
-	/* Draw the record number */
+	/* Draw the record number: its place in the combined list */
 	recordNum = TblGetRowID(tableP, row);
 	recordDB  = TblGetItemInt(tableP, row, kRecordColumn);
-
-	if (showAllCategories) category = dmAllCategories;
-	else category = currentCategory;
-
-	if (recordDB == memoPadDB) {
-		posInCategory = DmPositionInCategory(dbMemoPadRef, recordNum, category);
-	} else {
-		posInCategory = DmNumRecordsInCategory(dbMemoPadRef, category);
-		posInCategory += DmPositionInCategory(dbCryptoPadRef, recordNum, category);
-	}
+	posInView = (UInt16) TblGetRowData(tableP, row);
 
 	x = bounds->topLeft.x + 1;
 	y = bounds->topLeft.y;
@@ -1881,10 +1743,7 @@ static void MainFormDrawTableItem(void * tableP,
 		FntSetFont(TblGetItemFont (tableP, row, kRecordColumn));
 	else FntSetFont(currentTableFont);
 
-	/* Format the memo's postion, within its category, 
-	* an draw it.
-	*/
-	StrIToA (posStr, posInCategory+1);
+	StrIToA (posStr, posInView+1);
 	length = StrLen(posStr);
 	ErrNonFatalDisplayIf(length > sizeof(posStr) - 2, "Too many records");
 	posStr[length++] = '.';
@@ -1896,7 +1755,7 @@ static void MainFormDrawTableItem(void * tableP,
 
 	// If we are here then we either we either mask the memo out or display the
 	// memo title.
-	DmRecordInfo (recordDBRef, recordNum, &recAttributes, NULL, NULL);
+	DmRecordInfo (SrcRef((UInt8) recordDB), recordNum, &recAttributes, NULL, NULL);
    	if (((recAttributes & dmRecAttrSecret) 
    	&& PrivateRecordVisualStatus == maskPrivateRecords)) {
 		RectangleType maskRectangle;
@@ -1908,7 +1767,7 @@ static void MainFormDrawTableItem(void * tableP,
 
 	} else {
 		/* Draw the record text */
-		if (recordDB == cryptoPadDB) DrawCryptoPadRecordText(recordNum, x, bounds);
+		if (recordDB != memoPadDB) DrawCryptoPadRecordText((UInt8) recordDB, recordNum, x, bounds);
 		else  DrawMemoPadRecordText(recordNum, x, bounds);
 	}
 }
@@ -1956,9 +1815,6 @@ static Int16 MainFormNumberOfRows (TablePtr tableP)
 {
 	Int16	rowsInTable;
 	Int16 nRows = 0;
-	UInt32 recordID;
-
-	UInt16 lineHeight;
 	UInt16 tableHeight;
 	RectangleType	r;
 
@@ -1975,37 +1831,26 @@ static Int16 MainFormNumberOfRows (TablePtr tableP)
 
 	if ((useSingleFont == separateFont)
 	&& (currentCategory == dmAllCategories)) {
-		UInt16	recordNum;
-		MemHandle nextRecord;
-		UInt16 dataHeight = 0;
+		/* every memo can have its own font: add up the rows from the top */
+		UInt16 pos = topRecord, count = ViewCount(), dataHeight = 0;
 
-		recordNum = topRecord;
-		currentDB = topDB;
-
-		nextRecord = DmQueryRecord(currentDBRef, recordNum);
-
-		if (nextRecord) {
-			DmRecordInfo (currentDBRef, recordNum, 0, &recordID, 0);
-			SetOrGetRecordFont(currentDBRef, recordID, getFont, fontTable);
+		while (pos < count) {
+			UInt8 s;
+			UInt16 idx;
+			UInt32 recordID = 0;
+			if (! ViewGet (pos, &s, &idx)) break;
+			DmRecordInfo (SrcRef(s), idx, 0, &recordID, 0);
+			SetOrGetRecordFont(SrcRef(s), recordID, getFont, fontTable);
 			FntSetFont (currentTableFont);
-			lineHeight = FntLineHeight ();
-			dataHeight += lineHeight;
+			if (dataHeight + FntLineHeight () > tableHeight) break;
+			dataHeight += FntLineHeight ();
 			nRows++;
+			pos++;
 		}
-
-		while (dataHeight <= tableHeight) {
-			nextRecord = MainFormGetNextRecord(&recordNum);
-			if (nextRecord == 0) break;
-				DmRecordInfo (currentDBRef, recordNum, 0, &recordID, 0);
-				SetOrGetRecordFont(currentDBRef, recordID, getFont, fontTable);
-				FntSetFont (currentTableFont);
-				lineHeight = FntLineHeight ();
-				dataHeight += lineHeight;
-				nRows++;
+		if (nRows == 0) {
+			FntSetFont (currentTableFont);
+			nRows = tableHeight / FntLineHeight ();
 		}
-
-		if (nextRecord)
-			nRows--;
 	} else {
 		if (useSingleFont == separateFont)
 			GetTableFontOfCategory(currentCategory);
@@ -2021,117 +1866,21 @@ static Int16 MainFormNumberOfRows (TablePtr tableP)
 
 
 /******************************************
- * MainFormGetNextRecord:
- * Get the record index of
- * the next record in the
- * current category.
- ******************************************
- */
-
-static MemHandle MainFormGetNextRecord(Int16* recordNum)
-{
-	MemHandle record;
-
-	/* Loop (not recursion) so a long run of non-matching records while
-	 * filtering can't grow the stack - see gDbFindActive's own comment. */
-	for (;;) {
-		(*recordNum)++;
-		record = 0;
-
-		/* Seek the item after the recordNum index in MemoPad database.*/
-		if (currentDB == memoPadDB) {
-			record = DmQueryNextInCategory(dbMemoPadRef, recordNum, currentCategory);
-
-			/* If record is null, set the currentDB to CryptoPadDB
-			* to continue the search in the CryptoPad database from
-			* the record 0.
-			*/
-			if (record == 0) {
-				currentDB = cryptoPadDB;
-				*recordNum = 0;
-			}
-		}
-
-		/* Seek the item after the recordNum index in CryptoPad database.*/
-		if (currentDB == cryptoPadDB) {
-			record = DmQueryNextInCategory(dbCryptoPadRef, recordNum, currentCategory);
-		}
-
-		if (!record || !gDbFindActive ||
-			DbRecordMatches((Boolean) (currentDB == cryptoPadDB), *recordNum))
-			return record;
-	}
-}
-
-
-/******************************************
- * MainFormGetPreviousRecord:
- * Get the record index of
- * the previous record in the
- * current category.
- ******************************************
- */
-
-static MemHandle MainFormGetPreviousRecord(Int16* recordNum)
-{
-	Int16 offset = 1;
-	Err err;
-	MemHandle record;
-
-	/* Loop (not recursion) so a long run of non-matching records while
-	 * filtering can't grow the stack - see gDbFindActive's own comment. */
-	for (;;) {
-		/* Seek the item befor the recordNum index in CryptoPad database.*/
-		if (currentDB == cryptoPadDB) {
-			if (*recordNum == dmMaxRecordIndex)
-				offset = 0;
-			err = DmSeekRecordInCategory (dbCryptoPadRef, recordNum,
-					offset, dmSeekBackward, currentCategory);
-
-			/* If record is null, set the currentDB to CryptoPadDB
-			* to continue the search in the CryptoPad database from
-			* the record 0.
-			*/
-			if ((err == dmErrSeekFailed) &&
-			(DmNumRecordsInCategory (dbMemoPadRef, currentCategory) != 0)) {
-				currentDB = memoPadDB;
-				*recordNum = dmMaxRecordIndex;
-				offset = 0;
-			}
-		}
-
-		/* Seek the item before the recordNum index in MemoPad database.*/
-		if (currentDB == memoPadDB) {
-			err = DmSeekRecordInCategory (dbMemoPadRef, recordNum,
-					offset, dmSeekBackward, currentCategory);
-		}
-
-		if (err) return 0;
-		record = DmQueryRecord (currentDBRef, *recordNum);
-		if (!record || !gDbFindActive ||
-			DbRecordMatches((Boolean) (currentDB == cryptoPadDB), *recordNum))
-			return record;
-		offset = 1;	/* every further step in this loop is a plain 1-back seek */
-	}
-}
-
-/******************************************
  * MainFormLoadTable:
- * Load the table with the records.
+ * Load the table with the memos of the
+ * view (ViewList.c) from topRecord on.
  ******************************************
  */
 
 static void MainFormLoadTable(void)
 {	
 	TablePtr tableP;
-	Int16 recordNum;
 	Int16 numRows;
-
-	MemHandle record;
 	Int16 nRow;
 	UInt16 lineHeight;
 	UInt16 dataHeight;
 	UInt16 tableHeight;
+	UInt16 count;
 	RectangleType	r;
 
 	tableP = GetActiveFormObjectPtr(tblMainRecordList);
@@ -2139,65 +1888,54 @@ static void MainFormLoadTable(void)
 
 	if (gCardMode) { MainFormLoadCardTable(tableP); return; }
 
-	/* Set the correct topRecord and topDB
-	 * according to the category.
-	 */
-	currentDB = topDB;
+	count = ViewCount();
+	if (topRecord >= count) topRecord = count ? count - 1 : 0;
 
-	topRecord--;
-	MainFormGetNextRecord(&topRecord);
-	
-	topDB = currentDB;
-	recordNum = topRecord;
-
+	if (useSingleFont == separateFont && currentCategory != dmAllCategories)
+		GetTableFontOfCategory(currentCategory);
+	FntSetFont (currentTableFont);
 
 	TblGetBounds (tableP, &r);
 	tableHeight = r.extent.y;
 	dataHeight = 0;
 
-	/* For each row in the table, store the 
-	* record number and database in the 
-	* table item that will display the record.
-	*/
 	for (nRow = 0; nRow < numRows; nRow++) {
+		UInt8 s = 0;
+		UInt16 idx = 0;
+		UInt16 pos = (UInt16) (topRecord + nRow);
+		Boolean have = (Boolean) (pos < count && ViewGet (pos, &s, &idx));
 
-		if  (!nRow) recordNum--;
-		record = MainFormGetNextRecord(&recordNum);
-
-		if (record && (useSingleFont == separateFont) 
+		if (have && (useSingleFont == separateFont) 
 		&& (currentCategory == dmAllCategories)) {
-			UInt32 recordID;
+			UInt32 recordID = 0;
 
-			DmRecordInfo (currentDBRef, recordNum, 0, &recordID, 0);
-			SetOrGetRecordFont(currentDBRef, recordID, getFont, fontTable);
+			DmRecordInfo (SrcRef(s), idx, 0, &recordID, 0);
+			SetOrGetRecordFont(SrcRef(s), recordID, getFont, fontTable);
 			FntSetFont (currentTableFont);
 		}
 
 		lineHeight = FntLineHeight ();
 
-		if (record && (tableHeight >= dataHeight + lineHeight)) {
+		if (have && (tableHeight >= dataHeight + lineHeight)) {
 			TblSetItemStyle(tableP, nRow, kRecordColumn, customTableItem);
 			TblSetItemFont (tableP, nRow, kRecordColumn, currentTableFont);
 			TblSetRowHeight (tableP, nRow, lineHeight);
-			TblSetRowID(tableP, nRow, recordNum);
-			TblSetItemInt(tableP, nRow, kRecordColumn, currentDB);
+			TblSetRowID(tableP, nRow, idx);
+			TblSetItemInt(tableP, nRow, kRecordColumn, s);
+			TblSetRowData(tableP, nRow, (UInt32) pos);
 			TblSetRowUsable(tableP, nRow, true);
 
-		/* Marks the row invalid so that is is redrawn */
-		TblMarkRowInvalid(tableP, nRow);
+			/* Marks the row invalid so that is is redrawn */
+			TblMarkRowInvalid(tableP, nRow);
 				
 		} else {
-
 			// Set the row height - when scrolling down, the heights of the last rows of
-			// the table are used to determine how far to scroll.  As rows are deleted
-			// from the top of the table, formerly unused rows scroll into view, and the
-			// height is used before the next call to ListViewLoadTable (which would set
-			// the height correctly).
+			// the table are used to determine how far to scroll.
 			TblSetRowHeight (tableP, nRow, lineHeight);
 			TblSetRowUsable(tableP, nRow, false);
 		}
 
-	dataHeight += lineHeight;
+		dataHeight += lineHeight;
 	}
 
 	MainFormUpdateScrollBar();
@@ -2214,21 +1952,13 @@ static void MainFormLoadRecords(void)
 {
 	TablePtr tableP;
 
-	MemHandle record;
-
 	if (showAllCategories) currentCategory = dmAllCategories;
 
 	tableP = GetActiveFormObjectPtr(tblMainRecordList);
 
-	/* Try to show a full display of records 
-	 *  and perform positioning on the table.
-	 */
+	/* Keep the current memo visible and the table full */
 	MainFormShowFullDisplay();
 
-	/* Load each row of the table with a record.
-	 * If no record could be found, mark the row
-	 * unusable.
-	 */
 	MainFormLoadTable();
 
 	/* Set the table's custom draw procedure */
@@ -2237,116 +1967,37 @@ static void MainFormLoadRecords(void)
 	/* Mark the columns as usable otherwise
 	 * the table won't be displayed by default.
 	 */
-
 	TblSetColumnUsable(tableP, kRecordColumn, true);
 
-	/* Updates the scrollbars */
 	MainFormUpdateScrollBar();
 }
 
 /******************************************
  * MainFormShowFullDisplay:
- * Show a full diplay in the main form.
+ * Keep the current memo visible and the
+ * table full (view positions).
  ******************************************
  */
 
 static void MainFormShowFullDisplay(void)
 {
-	UInt16 recordNum;
-	MemHandle previousRecord;
-	TablePtr tableP;
-	Int16 nRow, numRows = 0;
-	UInt32 recordID;
-
-	UInt16 lineHeight;
-	UInt16 dataHeight = 0;
-	UInt16 tableHeight;
-	RectangleType	r;
-
-	tableP = GetActiveFormObjectPtr(tblMainRecordList);
-
-	TblGetBounds (tableP, &r);
-	tableHeight = r.extent.y;
+	TablePtr tableP = GetActiveFormObjectPtr(tblMainRecordList);
+	UInt16 count = ViewCount();
+	UInt16 numRows, maxTop;
 
 	if (currentRecord != noRecordSelected) {
-	/* There is a current record. Make it visible.
-	 * If the current record index is smaller than the top index
-	 * of table, update the top index.
-	 * Otherwise, find the record displayed at the bottom of the table
-	 * If the record is before the current record then the 
-	 * current record isn't displayed.  In that case make
-	 * the current record the first record displayed in the table.
-	 */
-
-		if (currentDB == memoPadDB) {
-			if (topRecord > currentRecord)
-				topRecord = currentRecord;
-			else {
-				numRows = MainFormNumberOfRows (tableP);
-				recordNum = topRecord;
-
-				for (nRow = 1; nRow < numRows; nRow++)
-					MainFormGetNextRecord(&recordNum);
-
-				if ((currentDB == memoPadDB)
-						&& (recordNum < currentRecord))
-					topRecord = currentRecord;
-			}
-		}
-	}
-
-	/* Try to show a full display of records.  Starting at the last
-	 * record and working backwards, find the record displayed at the 
-	 * top of the table.  If the record is before the TopVisibleRecord
-	 * then TopVisibleRecord is set too far down the list of records.
-	 * Set TopVisibleRecord to the record one screen full from the end.
-	 */
-
-	if ((useSingleFont == separateFont)
-		&& (currentCategory == dmAllCategories)) {
-
-				recordNum = dmMaxRecordIndex;
-				currentDB = cryptoPadDB;
-
-				while (dataHeight <= tableHeight) {
-					previousRecord = MainFormGetPreviousRecord(&recordNum);
-
-					if (previousRecord == 0) break;
-
-					if (useSingleFont == separateFont) {
-						DmRecordInfo (currentDBRef, recordNum, 0, &recordID, 0);
-						SetOrGetRecordFont(currentDBRef, recordID, getFont, fontTable);
-					}
-					FntSetFont (currentTableFont);
-					lineHeight = FntLineHeight ();
-					dataHeight += lineHeight;
-				}
-
-			if (previousRecord)
-				MainFormGetNextRecord(&recordNum);
-		
-	} else {
-		recordNum = dmMaxRecordIndex;
-		currentDB = cryptoPadDB;
-
-		if (!numRows)
+		Int16 p = ViewFind((UInt8) currentDB, currentRecord);
+		if (p >= 0) {
 			numRows = MainFormNumberOfRows (tableP);
-		
-		previousRecord = MainFormGetPreviousRecord(&recordNum);
-
-		for (nRow = 1; nRow < numRows; nRow++) {
-			previousRecord = MainFormGetPreviousRecord(&recordNum);
-
-			if (previousRecord == 0) break;
+			if ((UInt16) p < topRecord) topRecord = (UInt16) p;
+			else if (numRows && (UInt16) p >= topRecord + numRows)
+				topRecord = (UInt16) (p - numRows + 1);
 		}
 	}
 
-	if (topDB == currentDB)
-		topRecord = min(topRecord, recordNum);
-	else if (topDB == cryptoPadDB) {
-		topRecord = recordNum;
-		topDB = currentDB;
-	}
+	numRows = MainFormNumberOfRows (tableP);
+	maxTop = (count > numRows) ? (UInt16) (count - numRows) : 0;
+	if (topRecord > maxTop) topRecord = maxTop;
 }
 
 /******************************************
@@ -2368,9 +2019,12 @@ void DecryptRecord(UInt16 recordNum, Char * passwordP)
 	 * locks). DmGetRecord is still needed for a WRITABLE handle for
 	 * PackRecord further down; CryptoSealRecord re-wraps its plain write
 	 * afterward, mirroring Datebook35's ApptChangeRecord->ApptEncryptOne. */
+	SrcKeyForRecord (SrcOfRef (dbCryptoPadRef), recordNum);
 	if (! CryptoGetRecord (dbCryptoPadRef, recordNum, &record))
 		return;
 
+	/* keep the read-only flag and dates across the rewrite */
+	MetaCapture (dbCryptoPadRef, recordNum);
 	handle = DmGetRecord(dbCryptoPadRef, recordNum);
 
 	/* Finds the offset to start decryption */
@@ -2444,63 +2098,75 @@ void DecryptRecord(UInt16 recordNum, Char * passwordP)
 	DmReleaseRecord(dbCryptoPadRef, recordNum, true);
 }
 
+/* Memos of the current category in the user databases that are not in ROM
+ * (read-only ones are skipped by CryptoEncryptLayer2/CryptoDecryptLayer2):
+ * count them, or encrypt/decrypt them with each database's own keying. */
+UI2_SECTION static UInt16 CategoryUserDbs (UInt8 op)
+{
+	UInt8 s;
+	UInt16 n = 0;
+	for (s = 2; s < gSrcCount; s++) {
+		UInt16 idx, total;
+		if (SrcIsRom(s)) continue;
+		SrcSelect(s);
+		total = DmNumRecords(dbCryptoPadRef);
+		for (idx = 0; idx < total; idx++) {
+			UInt16 attr;
+			if (DmRecordInfo(dbCryptoPadRef, idx, &attr, NULL, NULL)) continue;
+			if (attr & dmRecAttrDelete) continue;
+			if ((attr & dmRecAttrSecret) && PrivateRecordVisualStatus == hidePrivateRecords) continue;
+			if (currentCategory != dmAllCategories && SrcRecCategory(s, idx) != currentCategory) continue;
+			n++;
+			if (op == 1) CryptoEncryptLayer2(dbCryptoPadRef, idx, currentPasswordP);
+			else if (op == 2) CryptoDecryptLayer2(dbCryptoPadRef, idx, currentPasswordP);
+		}
+	}
+	SrcSelect(cryptoPadDB);
+	return n;
+}
+
 /******************************************
  * EncryptCategory:
  * Encrypt the current category.
  ******************************************
  */
 
-static void EncryptCategory()
+UI2_SECTION static void EncryptCategory()
 {
 	MemHandle memoPadHandle;
 
-	UInt16 recMemoAttributes, recCryptoAttributes;
+	UInt16 recMemoAttributes;
 	UInt16 i, numRecInCategory;
 
 	Char * textP;
 	UInt16 nOffset;
 
-	FormPtr formP;
-    ProgressInfoPtr progrInfoP;
-    ProgrType progr;
-	UInt16 progrinc;
-
-	Char * strProgressP;
-	MemHandle strProgressH;
+	WinHandle busy;
+	UInt16 total, done = 0, nCryptoBefore;
 
 
 	numRecInCategory = DmNumRecordsInCategory(dbMemoPadRef, currentCategory);
-	if (numRecInCategory == 0) {
+	/* The notes CryptoNote creates live in the CryptoNote database (sealed by
+	 * Sec35), not in the Memo Pad database this loop reads, so a category
+	 * with no Memo Pad records can still have notes to encrypt. */
+	if ((numRecInCategory == 0) && (DmNumRecordsInCategory(dbCryptoPadRef, currentCategory) == 0)
+			&& CategoryUserDbs(0) == 0) {
 		FrmAlert(altCategoryAlreadyEncryptedAlert);
 		RemoveCurrentPassword();
 		return;
 	}
 
-	formP = FrmInitForm(frmProgressForm);
-
-	// Display the title of the progress form.
-	strProgressH = DmGetResource('tSTR', strProgressEncryption);
-	strProgressP = MemHandleLock(strProgressH);
-		
-	FrmSetTitle (formP, strProgressP);
-
-	MemHandleUnlock(strProgressH);   
-	DmReleaseResource(strProgressH); 
-
-	FrmDrawForm(formP);
+	/* One count over both parts: the Memo Pad notes moved in below, then the
+	 * notes already in CryptoNote (counted before the move, so the moved ones,
+	 * which land at the end, aren't counted twice). */
+	nCryptoBefore = DmNumRecordsInCategory(dbCryptoPadRef, currentCategory);
+	total = numRecInCategory + nCryptoBefore;
+	busy = CardBusyShow("Encrypting...");
 
 	currentRecord = 0;
 
-
-	progrInfoP = ProgressFormInitAndDraw (formP);
-
 	for (i = 0; i < numRecInCategory; i++) {
-		progr.major.soFar = 0;
-		progr.major.total = numRecInCategory;
-		progr.minor.soFar = 0;
-		progr.minor.total = 0;
-		progrinc = i ;
-		progr.major.soFar = progrinc;
+		CategoryProgress("Encrypting", ++done, total);
 
 		/* Seek the item after the currentRecord index in MemoPad database.*/
 		memoPadHandle = DmQueryNextInCategory(dbMemoPadRef, &currentRecord, currentCategory);
@@ -2513,8 +2179,6 @@ static void EncryptCategory()
 		while (nOffset <= StrLen(textP)) {
 			if (textP[nOffset++] == '\n') break;
 		}
-
-		progrInfoP->statusFunc (progrInfoP, &progr, textP);
 
 		if (nOffset < StrLen(textP)) {
 			MemHandle cryptoPadHandle;
@@ -2582,9 +2246,22 @@ static void EncryptCategory()
 		}
 	}
 
-	progr.major.soFar = progr.major.total;
-	progrInfoP->statusFunc (progrInfoP,&progr,NULL);
+	/* Notes already in the CryptoNote database that have no password yet:
+	 * encrypt them in place. (Ones moved over from Memo Pad just above
+	 * already have one and are skipped.) */
+	{
+		UInt16 idx = 0, seen = 0;
+		while (DmSeekRecordInCategory(dbCryptoPadRef, &idx, 0, dmSeekForward, currentCategory) == errNone) {
+			if (CryptoLockedBounce(dbCryptoPadRef, idx)) break;
+			if (seen++ < nCryptoBefore)
+				CategoryProgress("Encrypting", ++done, total);
+			CryptoEncryptLayer2(dbCryptoPadRef, idx, currentPasswordP);
+			idx++;
+		}
+	}
+	CategoryUserDbs(1);
 
+	CardBusyHide(busy);
 	RemoveCurrentPassword();
 
 	if (currentSortOrder == soAlphabetic) {
@@ -2597,7 +2274,6 @@ static void EncryptCategory()
 	currentRecord = 0;
 	currentDB = cryptoPadDB;
 
-	FrmDeleteForm(formP);
 	FrmGotoForm(frmMainForm);
 }
 
@@ -2607,132 +2283,45 @@ static void EncryptCategory()
  ******************************************
  */
 
-static void DecryptCategory()
+UI2_SECTION static void DecryptCategory()
 {
 	UInt16 i, numRecInCategory;
 
-	FormPtr formP;
-    ProgressInfoPtr progrInfoP;
-    ProgrType progr;
-	UInt16 progrinc;
-
-	Char * strProgressP;
-	MemHandle strProgressH;
+	WinHandle busy;
 
 
 	numRecInCategory = DmNumRecordsInCategory(dbCryptoPadRef, currentCategory);
-	if (numRecInCategory == 0) {
+	if (numRecInCategory == 0 && CategoryUserDbs(0) == 0) {
 		FrmAlert(altCategoryAlreadyDecryptedAlert);
 		RemoveCurrentPassword();
 		return;
 	}
 
-	formP = FrmInitForm(frmProgressForm);
-
-	// Display the title of the progress form.
-	strProgressH = DmGetResource('tSTR', strProgressDecryption);
-	strProgressP = MemHandleLock(strProgressH);
-		
-	FrmSetTitle (formP, strProgressP);
-
-	MemHandleUnlock(strProgressH);   
-	DmReleaseResource(strProgressH); 
-
-
-	FrmDrawForm(formP);
-
+	busy = CardBusyShow("Decrypting...");
 
 	currentRecord = 0;
-
-	progrInfoP = ProgressFormInitAndDraw (formP);
+	currentDB = cryptoPadDB;		/* ValidatePassword reads the record from currentDBRef */
 
 	for (i = 0; i < numRecInCategory; i++) {
+		CategoryProgress("Decrypting", (UInt16) (i + 1), numRecInCategory);
 
-		progr.major.soFar = 0;
-		progr.major.total = numRecInCategory;
-		progr.minor.soFar = 0;
-		progr.minor.total = 0;
-		progrinc = i ;
-		progr.major.soFar = progrinc;
+		/* Seek the next note of the category in the CryptoNote database. */
+		if (DmSeekRecordInCategory (dbCryptoPadRef, &currentRecord, 0, dmSeekForward, currentCategory) != errNone)
+			break;
+		if (CryptoLockedBounce (dbCryptoPadRef, currentRecord))
+			break;
 
-		progrInfoP->statusFunc (progrInfoP,&progr,NULL);
-
-		/* Seek the item after the currentRecord index in MemoPad database.*/
-		DmSeekRecordInCategory (dbCryptoPadRef, &currentRecord, 0, dmSeekForward, currentCategory);
-
-		if (ValidatePassword(currentPasswordP)) {
-			UInt16 recMemoAttributes, recCryptoAttributes;
-			UInt32  cryptoRecordID;
-			UInt16 index;
-			UInt16 nLength;
-
-			MemHandle memoPadHandle;
-			RecordType record;
-			MemPtr		p;
-
-			if (isEncrypted(currentRecord))
-				DecryptRecord(currentRecord, currentPasswordP);
-
-			/* Db35-suite-style Sec35 wrap: DecryptRecord above only strips
-			 * the layer-2 "Encrypt Memo" password (and, via CryptoSealRecord,
-			 * re-wraps under Sec35 if a passcode is active) -- so this
-			 * record can still be Sec35-wrapped at this point. Route
-			 * through the chokepoint rather than reading raw bytes. */
-			if (! CryptoGetRecord (dbCryptoPadRef, currentRecord, &record))
-				continue;
-
-			progrInfoP->statusFunc (progrInfoP,&progr,record.textP);
-
-			/* Create a new record in the MemoPad database */
-			index = dmMaxRecordIndex;
-			/* SafeStrLen, not StrLen -- StrLen's Int16 return sign-extends
-			 * to a huge garbage value once passed to DmWrite's UInt32
-			 * `bytes` parameter below, for any record over ~32KB (now
-			 * reachable via a large SD-card import). */
-			nLength = (UInt16) SafeStrLen(record.textP);
-
-			memoPadHandle = DmNewRecord(dbMemoPadRef, &index, nLength + 1);
-			ErrFatalDisplayIf(memoPadHandle == 0, "Unable to add record to the database.");
-
-			/* Lock down the block containing the new record */
-			p = MemHandleLock(memoPadHandle);
-
-			/* Write the field's text to the database record */
-			DmWrite(p, 0, record.textP, SafeStrLen(record.textP) + 1);
-
-			/* Unlock the block of the new record */
-			MemPtrUnlock(p);
-			
-			DmReleaseRecord(dbMemoPadRef, index, true);
-			
-			/* Set the category of the record */
-			DmRecordInfo(dbCryptoPadRef, currentRecord, &recCryptoAttributes, &cryptoRecordID, 0);
-
-			DmSetRecordInfo(dbMemoPadRef, index, &recCryptoAttributes, 0);
-
-	if (useSingleFont == separateFont) {
-		UInt32 memoRecordID;
-
-		DmRecordInfo (dbMemoPadRef, index, 0, &memoRecordID, 0);
-		GetTableFontOfCategory(recCryptoAttributes & dmRecAttrCategoryMask);
-		CreateFontRecord(dbMemoPadRef, memoRecordID);
-		SetOrGetRecordFont(dbCryptoPadRef, cryptoRecordID, getFont, fontField);
-		SetOrGetRecordFont(dbMemoPadRef, memoRecordID, setFont, fontField);
-
-		// Delete the record in the Font database.
-		DeleteFontRecord(dbCryptoPadRef, cryptoRecordID);
+		/* The note stays in the CryptoNote database (sealed by Sec35), now
+		 * without its own password: moving it to Memo Pad, as the original
+		 * CryptoPad did, would only make the launch-time migration ask to
+		 * bring it back. Notes that have no password of their own, or
+		 * another one, are left alone. */
+		CryptoDecryptLayer2 (dbCryptoPadRef, currentRecord, currentPasswordP);
+		currentRecord++;
 	}
+	CategoryUserDbs(2);
 
-			/* Delete the record from CryptoPadDB */
-			DmRemoveRecord(dbCryptoPadRef, currentRecord);
-		} else {
-			currentRecord++;
-		}
-	}
-
-	progr.major.soFar = progr.major.total;
-	progrInfoP->statusFunc (progrInfoP,&progr,NULL);
-
+	CardBusyHide(busy);
 	RemoveCurrentPassword();
 
 	if (currentSortOrder == soAlphabetic) {
@@ -2745,170 +2334,29 @@ static void DecryptCategory()
 	currentRecord = noRecordSelected;
 	currentDB = memoPadDB;
 
-	FrmDeleteForm(formP);
 	FrmGotoForm(frmMainForm);
 }
 
 /*****************************************
- * ProgressFormInitAndDraw:
- * Init and draw the progress bar
- * for encryption/decryption of
- * the category. 
+ * CategoryProgress:
+ * "Encrypting 3 of 5" in the busy box,
+ * shown before each note is processed.
  *****************************************
  */
-static ProgressInfoPtr ProgressFormInitAndDraw (FormPtr frmP)
+UI2_SECTION static void CategoryProgress (const char* verb, UInt16 n, UInt16 total)
 {
-	ProgressInfoPtr infoP = NULL;
+	Char msg[32], num[8];
 
-	ErrNonFatalDisplayIf (!frmP, "nil form");
-
-
-	// Allocate and initialize the Progress Info structure
-	infoP = MemPtrNew (sizeof (ProgressInfoType));
-	ErrNonFatalDisplayIf (!infoP, "alloc failed");
-	if (!infoP)
-		return (NULL);
-
-	MemSet (infoP, sizeof (*infoP), 0);
-
-	// Get bounds of the progress message and gauge objects once
-	FrmGetObjectBounds (frmP, FrmGetObjectIndex (frmP, gadProgressMessage),
-			&infoP->messageR);
-
-	WinDrawGrayRectangleFrame(simpleFrame, &infoP->messageR);
-
-	FrmGetObjectBounds (frmP, FrmGetObjectIndex (frmP, gadProgressBar),
-					  &infoP->gaugeR);
-
-
-	// Init the rest of the progress info structure
-	infoP->progressForm = frmP;
-	infoP->gaugeWidth = infoP->gaugeR.extent.x;
-	infoP->gaugeLevel = 0;
-	infoP->statusFunc = ProgressCallback;
-
-	// Draw the form
-	FrmDrawForm (frmP);
-
-	// Initialize the gauge
-	ProgressUpdateGauge (&infoP->gaugeR, 0);
-
-	return (infoP);
+	EvtResetAutoOffTimer ();			/* don't sleep part-way through */
+	if (n > total) n = total;
+	StrCopy (msg, verb);
+	StrCat (msg, " ");
+	StrIToA (num, n);     StrCat (msg, num);
+	StrCat (msg, " of ");
+	StrIToA (num, total); StrCat (msg, num);
+	CardBusySetText (msg);
 }
 
-/***************************************
- * ProgressCallback:
- * callback function for
- * the progress bar.
- ***************************************
- */
-static Boolean ProgressCallback (void* progressInfoP, 
-		ProgrType* progressP, Char* messageP)
-{
-	UInt16		gaugeLevel = 0;
-	ProgressInfoPtr infoP = (ProgressInfoPtr) progressInfoP;
-	UInt16		itemWidth = 0;
-
-
-	// Process any pending events, such as those for our Stop button
- 
-	// Reset the auto-off timer to make sure we don't fall asleep in the
-	//  middle of the update
-	EvtResetAutoOffTimer ();
-
-	while (ProgressHandleEvent (0 /*timeout*/) != nilEvent)
-		{/*intentionally left blank*/}
-
-
-	// Update the progress gauge
-	if (progressP) {
-		// Update the progress gauge counts
-		ErrNonFatalDisplayIf (!progressP->major.total, "major denominator is zero");
-
-		if (progressP->major.total)
-			gaugeLevel = (UInt16) ((progressP->major.soFar * infoP->gaugeWidth)
-								  / progressP->major.total);
-
-		if (progressP->minor.soFar) {
-			ErrNonFatalDisplayIf (!progressP->minor.total, "minor denominator is zero");
-
-			if (progressP->major.total)
-				itemWidth = (UInt16)(infoP->gaugeWidth / progressP->major.total);
-			if (itemWidth && progressP->minor.total)
-				gaugeLevel += (UInt16) ((progressP->minor.soFar * itemWidth)
-									  / progressP->minor.total);
-		}
-
-		if (gaugeLevel != infoP->gaugeLevel) {
-			infoP->gaugeLevel = gaugeLevel;
-		  
-		ProgressUpdateGauge (&infoP->gaugeR, gaugeLevel);
-	}
-
-} 
-
-
-	// Update the progress message
-	if (messageP) {
-		FontID	currFont;
-
-		// Switch to bold, saving the current font
-		currFont = FntSetFont (stdFont);
-
-		WinEraseRectangle (&infoP->messageR, 0 /*cornerDiam*/);
-
-		DrawStringWithEllipsis (messageP, infoP->messageR.topLeft.x, 
-			infoP->messageR.topLeft.y, infoP->messageR.extent.x, justCenter);
-
-		// Restore font
-		FntSetFont (currFont);
-	}
-
-	return (false);
-
-} 
-
-/**************************************
- * ProgressUpdateGauge:
- * Update the progress indicator.
- **************************************
- */
-static void ProgressUpdateGauge (RectangleType*	gaugeRP, 
-										UInt32 gaugeLevel)
-{
-	RectangleType 	eraseR;
-	RectangleType 	completeR;
-
-  
-	ErrNonFatalDisplayIf (!gaugeRP, "null arg");
-
-
-	// Draw the frame of gadget
-	WinDrawRectangleFrame (simpleFrame, gaugeRP);
-  
-
-	// Fill in the gauge.
-	if (gaugeLevel > (UInt32)gaugeRP->extent.x) {
-		ErrDisplay ("gaugeLevel out of bounds");
-		gaugeLevel = gaugeRP->extent.x;
-	}
-
-	completeR.topLeft.x = gaugeRP->topLeft.x;
-	completeR.topLeft.y = gaugeRP->topLeft.y;
-	completeR.extent.x = (UInt16)gaugeLevel;
-	completeR.extent.y = gaugeRP->extent.y;
-	WinDrawRectangle (&completeR, 0);
-  
-
-	// Erase the empty portion of the gauge (not really necessary).
-	eraseR.topLeft.x = (UInt16)(gaugeRP->topLeft.x + gaugeLevel);
-	eraseR.topLeft.y = gaugeRP->topLeft.y;
-	eraseR.extent.x = (UInt16)(gaugeRP->extent.x - gaugeLevel);
-	eraseR.extent.y = gaugeRP->extent.y;
-	WinEraseRectangle (&eraseR, 0);
-
-	return;
-}
 
 /******************************************
  * MainFormGetNextCategory:
@@ -3096,9 +2544,9 @@ static Boolean MainFormUpdateDisplay(UInt16 updateCode)
 
 	if (updateCode & (updateTable | 
 			updateFontChanged | updateRedrawAll)) {
+		ViewInvalidate();
 		if (updateCode & updateTable) {
 			topRecord = 0;
-			topDB = memoPadDB;
 		} 
 
 		if (updateCode & updateFontChanged) {
@@ -3126,57 +2574,30 @@ static Boolean MainFormUpdateDisplay(UInt16 updateCode)
 
 static void MainFormUpdateScrollBar(void)
 {
-	FormPtr formP;
 	TablePtr tableP;
 	ScrollBarPtr scrollBarP;
 	Int16 nRows;
-	UInt16 nPosition, maxValue;
+	UInt16 nPosition, maxValue, count;
 
 	tableP = GetActiveFormObjectPtr(tblMainRecordList);
 	scrollBarP = GetActiveFormObjectPtr(sclMainScrollBar);
 
 	nRows = MainFormNumberOfRows(tableP);
 
-	/* SD card browse mode has its own display list (gCardEnt/gCardTop), not the
-	 * DB-note one (memosInCategory/topRecord/topDB) the rest of this function
-	 * assumes -- without this branch the scrollbar always reflected the (small
-	 * or empty) note count instead of the card file count, capping maxValue at
-	 * 0 and making a large card directory unscrollable past the first page.
-	 * Bulk logic lives in sec001 (MainFormCardUpdateScrollBar, AES_SECTION),
-	 * main is at its 32KB cap. */
+	/* SD card browse mode has its own display list (gCardEnt/gCardTop). */
 	if (gCardMode) {
 		MainFormCardUpdateScrollBar(scrollBarP, nRows);
 		return;
 	}
 
-	{
-		/* While filtering, the scrollbar's range must reflect the MATCH
-		 * count, not the true category count, or it reads as unscrollable
-		 * (too few matches) or overshoots into non-matches (too many).
-		 * gDbFindMatchCount is kept current by MainCountDbMatches, called
-		 * whenever the filter term changes - see its own comment. */
-		UInt16 total = gDbFindActive ? gDbFindMatchCount : memosInCategory;
-
-		if (total < nRows) {
-			maxValue = 0;
-			nPosition = 0;
-		}
-		else {
-			if (topDB == cryptoPadDB) {
-				nPosition = (DmNumRecordsInCategory(dbMemoPadRef, currentCategory)
-					+ DmPositionInCategory(dbCryptoPadRef, topRecord, currentCategory));
-			} else {
-				nPosition = DmPositionInCategory(dbMemoPadRef, topRecord, currentCategory);
-			}
-
-			maxValue = total - nRows;
-			/* Position above is the record's TRUE (unfiltered) rank, which
-			 * can exceed a filtered maxValue - clamp rather than track the
-			 * exact filtered rank (would need an O(n) rescan on every
-			 * scroll, too costly on real hardware for a cosmetic-only
-			 * thumb position). */
-			if (nPosition > maxValue) nPosition = maxValue;
-		}
+	/* the view already holds only what is shown (category + Find filter) */
+	count = ViewCount();
+	if (count <= (UInt16) nRows) {
+		maxValue = 0;
+		nPosition = 0;
+	} else {
+		maxValue = (UInt16) (count - nRows);
+		nPosition = (topRecord > maxValue) ? maxValue : topRecord;
 	}
 
 	SclSetScrollBar(scrollBarP, nPosition, 0, maxValue, nRows);
@@ -3192,47 +2613,27 @@ static void MainFormUpdateScrollBar(void)
 static void MainFormScrollLines(Int16 nLines)
 {
 	TablePtr tableP;
-	Int16 direction;
-	Int16 iLines;
+	Int16 newTop;
+	UInt16 count, nRows, maxTop;
 
-	UInt16 nRow;
-	Int16 recordNum;
-	MemHandle record;
-
-	/* SD card browse mode: gCardTop drives MainFormLoadCardTable, not the
-	 * DB-note topRecord/topDB state the rest of this function scrolls --
-	 * bulk logic lives in sec001 (MainFormCardScrollLines, AES_SECTION),
-	 * main is at its 32KB cap. Was previously entirely unhandled here
-	 * (gCardTop was set once on entering a directory and never touched
-	 * again), so hardware page up/down and scrollbar dragging silently
-	 * did nothing in card mode. */
+	/* SD card browse mode: gCardTop drives MainFormLoadCardTable. */
 	if (gCardMode) {
 		MainFormCardScrollLines(nLines);
 		return;
 	}
 
-	if (nLines < 0) {
-		nLines = -nLines;
-		direction = dmSeekBackward;
-	} else direction = dmSeekForward;
-	
-	recordNum = topRecord;
-	currentDB = topDB;
+	tableP = GetActiveFormObjectPtr(tblMainRecordList);
+	count = ViewCount();
+	nRows = (UInt16) MainFormNumberOfRows(tableP);
+	maxTop = (count > nRows) ? (UInt16) (count - nRows) : 0;
 
-	for (nRow = 0; nRow < nLines; nRow++) {
-		if (direction == dmSeekForward) 
-			record = MainFormGetNextRecord(&recordNum);
-		else record = MainFormGetPreviousRecord(&recordNum);
-
-		if (record == 0) break;
-	}
-
-	topRecord = recordNum;
-	topDB = currentDB;
+	newTop = (Int16) topRecord + nLines;
+	if (newTop < 0) newTop = 0;
+	if ((UInt16) newTop > maxTop) newTop = (Int16) maxTop;
+	topRecord = (UInt16) newTop;
 
 	currentRecord = noRecordSelected;
 
-	tableP = GetActiveFormObjectPtr(tblMainRecordList);
 	MainFormLoadRecords();
 
 	TblRedrawTable(tableP);
@@ -3268,15 +2669,8 @@ static void MainFormScrollPage(WinDirectionType direction)
 
 static void MainFormHandleMenuEvent(UInt16 itemID)
 {
-	UInt32 currentRecordID;
-	Boolean wasHiding;
-	UInt16 mode;
 	EventType event;
 	FormPtr formP;
-
-Int16 index = 0, i, recAttributes;
-USES_ALERT;
-Err err;
 
 	switch (itemID) {
 		case itemRecordEncryptCategory:
@@ -3321,7 +2715,7 @@ Err err;
 
 		case itemRecordBeamCategory:
 			if (gCardMode) { FrmAlert(altCardNoBeam); break; }
-			MemoSendCategory(dbMemoPadRef, currentCategory);
+			MemoSendCategory(currentCategory);
 			break;
 
 		case itemOptionsPrefs:
@@ -3329,31 +2723,12 @@ Err err;
 			break;
 
 		case itemOptionsSecurity:
-			wasHiding = (PrivateRecordVisualStatus == hidePrivateRecords);
-			 
-			PrivateRecordVisualStatus = SecSelectViewStatus();
-			
-			if (wasHiding ^ (PrivateRecordVisualStatus == hidePrivateRecords)) 
-			//xor on two logical values - mode to open DB has changed
-				{
-				// Close the application's data file.
-				SetApplicationPrefs(0);
-				DmCloseDatabase(dbMemoPadRef);
-				DmCloseDatabase(dbCryptoPadRef);
-			
-				mode = (PrivateRecordVisualStatus == hidePrivateRecords) ?
-					dmModeReadWrite : (dmModeReadWrite | dmModeShowSecret);
-				
-				dbCryptoPadRef = OpenOrCreateCryptoDatabase(mode);
-				dbMemoPadRef = OpenMemoDatabase(mode);
+			/* device ID status + the Palm's privacy choice in one form */
+			FrmPopupForm(frmSecurityForm);
+			break;
 
-				// Read the preferences.
-				GetApplicationPrefs(&currentRecordID);
-			}
-			
-			//For safety, simply reset the currentRecord
-			currentRecord = noRecordSelected;
-			MainFormUpdateDisplay(updateTable);
+		case itemOptionsManageDb:
+			FrmPopupForm(frmManageDbForm);
 			break;
 
 		case itemOptionsAbout:
@@ -3363,22 +2738,6 @@ Err err;
 			break;
 
 	}
-}
-
-/*************************************************
-* ProgressHandleEvent:
-* Get event from the progress
-* bar form.
-**************************************************
-*/
-static UInt32 ProgressHandleEvent (Int32 timeout)
-{
-	EventType event;
-	UInt16 error;
-
-	EvtGetEvent (&event, timeout);
-
-	return (event.eType);
 }
 
 Boolean MainFormHandleEvent(EventPtr eventP)
@@ -3402,9 +2761,13 @@ Boolean MainFormHandleEvent(EventPtr eventP)
 			{
 			WinHandle busy;
 			ErrFatalDisplayIf(currentPasswordP == 0, "Password shouldn't be NULL");
-			busy = CardBusyShow("Decrypting...");
-			DecryptRecord(currentRecord, currentPasswordP);
-			CardBusyHide(busy);
+			/* A read-only memo (or one in ROM) is not decrypted on disk: the
+			 * editor shows it decrypted in memory (EditViewOnlyRetrieve). */
+			if (! SrcRecReadOnly(currentDB, currentRecord)) {
+				busy = CardBusyShow("Decrypting...");
+				DecryptRecord(currentRecord, currentPasswordP);
+				CardBusyHide(busy);
+			}
 			FrmGotoForm(frmEditForm);
 			handled = true;
 			}

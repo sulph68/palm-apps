@@ -1,12 +1,13 @@
 // abouttd35.rcp - ToDo35 custom full-screen About form (replaces ROM AbtShowAbout).
-FORM ID 8800 AT (2 2 156 156) MODAL FRAME
+FORM ID 8800 AT (2 60 156 98) MODAL
 USABLE
 BEGIN
   TITLE "About ToDo35"
-  LABEL "ToDo35" ID 8801 AT (12 30) FONT 1
-  LABEL "v. 1.0" ID 8802 AT (12 46)
-  LABEL "Extended ToDo v3.5 (2026)\rfrom example source.\rSupport dates beyond 2031." ID 8803 AT (12 70) FONT 0
-  BUTTON "OK" ID 8806 AT (58 138 40 12)
+  LABEL "ToDo35 v1.0" ID 8801 AT (CENTER 20) FONT 1
+  LABEL "Extended ToDo v3.5 (2026)" ID 8802 AT (8 38) FONT 0
+  LABEL "from example source." ID 8803 AT (8 50) FONT 0
+  LABEL "Support dates beyond 2031." ID 8804 AT (8 62) FONT 0
+  BUTTON "OK" ID 8806 AT (CENTER 81 37 12)
 END
 
 ALERT ID 2003
@@ -26,10 +27,10 @@ END
 // between buttons, equal widths (45/45/46 to land exactly on a 5px right
 // margin). Message is hand-drawn bold + word-wrapped (dynamic text) by C,
 // not a LABEL.
-FORM ID 1260 AT (2 66 156 92) MODAL
+FORM ID 1260 AT (2 81 156 77) MODAL
 BEGIN
   TITLE "Duplicate Item"
-  BUTTON "This Only"	ID 1261	AT (5 74 45 12)
-  BUTTON "All"			ID 1262	AT (55 74 45 12)
-  BUTTON "Cancel"		ID 1263	AT (105 74 46 12)
+  BUTTON "This Only"	ID 1261	AT (5 60 45 12)
+  BUTTON "All"			ID 1262	AT (55 60 45 12)
+  BUTTON "Cancel"		ID 1263	AT (105 60 46 12)
 END

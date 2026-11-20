@@ -24,7 +24,6 @@ void ShowAboutDb35 (void);  /* Db35: custom About form */
 #include <CharAttr.h>
 
 #include "DateDB.h"
-#include "DateAlarm.h"
 #include "DateDisplay.h"
 #include "DatePref.h"
 #include "DateDay.h"
@@ -329,7 +328,7 @@ extern void DrawTime (
 	TimeFormatType					inFormat,
 	FontID							inFont,
 	JustificationType				inJustification,
-	RectangleType*					inBounds );
+	RectangleType*					inBounds ) SEC002;	/* Db35 seg: foreground drawing only (Day/Agenda) */
 
 extern void ShowInfo (void);
 

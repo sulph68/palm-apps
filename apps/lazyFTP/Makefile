@@ -9,7 +9,7 @@
       OBJS = LazyFTP.o MainForm.o BusyDialog.o FtpProtocol.o Listing.o \
              ConnectForm.o PrefsForm.o PromptForm.o PreviewForm.o FileActions.o \
              UploadForm.o LogForm.o \
-             LzTPSec35.o LzTPLog.o enccore.o aes.o \
+             LzTPSec35.o LzTPLog.o enccore.o encrekey.o aes.o \
              $(EXE)-sections.o
 
    DEFINES = -DPALMOS4
@@ -49,6 +49,9 @@ $(EXE)-sections.o: $(EXE)-sections.s
 
 $(EXE)-sections.s $(EXE)-sections.ld: $(EXE).def
 	$(MULTIGEN) $(EXE).def
+
+encrekey.o: ../lib/encrekey.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
 enccore.o: ../lib/enccore.c
 	$(CC) $(CFLAGS) -c $< -o $@

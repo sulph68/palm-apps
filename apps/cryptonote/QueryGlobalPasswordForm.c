@@ -2,13 +2,14 @@
 #include "Database.h"
 #include "Utils.h"
 #include "AesCrypt.h"
+#include "PwMask.h"
 
 static Int16 globalPasswordStatus;
 static Int16 encryptedStatus;
 
 
-static Boolean ValidateGlobalPassword(Char *);
-static void QueryGlobalPassword(Char *);
+static Boolean ValidateGlobalPassword(Char *) UI2_SECTION;
+static void QueryGlobalPassword(Char *) UI2_SECTION;
 
 /******************************************
  * ValidateGlobalPassword:
@@ -18,7 +19,7 @@ static void QueryGlobalPassword(Char *);
  ******************************************
  */
 
-static Boolean ValidateGlobalPassword(Char * textP)
+UI2_SECTION static Boolean ValidateGlobalPassword(Char * textP)
 {
 	Boolean bResult;
 	Char * decryptedGlobalPasswordP;
@@ -30,6 +31,7 @@ static Boolean ValidateGlobalPassword(Char * textP)
 		StrLen(prefsGlobalPasswordP), AES_DECRYPT);
 	
 	bResult = (StrCompare(decryptedGlobalPasswordP, textP) == 0);
+	PwFreeWiped(&decryptedGlobalPasswordP);		/* held the plaintext */
 
 	return bResult;
 }
@@ -44,21 +46,23 @@ static Boolean ValidateGlobalPassword(Char * textP)
  ******************************************
  */
 
-static void QueryGlobalPassword(Char * textP)
+UI2_SECTION static void QueryGlobalPassword(Char * textP)
 {
-	Char * passwordP;
 	EventType event;
 
 	if (!ValidateGlobalPassword(textP)) {
 		FrmAlert(altInvalidGlobalPasswordAlert);
+		PwMaskBegin(fldQueryGlobalPasswordText, chkQueryGlobalPasswordShow);	/* retry: start empty */
 		return;
 	}
 
 	/* Sets the globalPasswordP variable */
 	 
 
+	PwFreeWiped(&globalPasswordP);				/* any previous copy */
 	globalPasswordP = MemPtrNew(StrLen(textP) + 1);
 	StrCopy(globalPasswordP, textP);
+	PwMaskEnd();
 
 	if (globalPasswordStatus == queryGlobalPassword) {
 	/* Return to the calling form. Notify the
@@ -81,6 +85,7 @@ static void QueryGlobalPassword(Char * textP)
 }
 
 
+Boolean QueryGlobalPasswordFormHandleEvent(EventPtr eventP) UI2_SECTION;
 Boolean QueryGlobalPasswordFormHandleEvent(EventPtr eventP)
 {
 	Boolean handled = false;
@@ -103,11 +108,10 @@ Boolean QueryGlobalPasswordFormHandleEvent(EventPtr eventP)
 		case ctlSelectEvent:
 			switch (eventP->data.ctlSelect.controlID) {
 				Char * textP;
-				EventType event;
 
 				/* Apply changes to the password form */
 				case btnQueryGlobalPasswordOK:
-					textP = FldGetTextPtr(fieldP);
+					textP = PwMaskText();
 
 					if (textP != 0 && *textP != '\0')
 						QueryGlobalPassword(textP);
@@ -117,18 +121,33 @@ Boolean QueryGlobalPasswordFormHandleEvent(EventPtr eventP)
 					break;
 
 				/* Simply return to the calling form */
+				case chkQueryGlobalPasswordShow:
+					PwMaskShow(eventP->data.ctlSelect.on);
+					handled = true;
+					break;
+
 				case btnQueryGlobalPasswordCancel:
+					PwMaskEnd();
 					FrmReturnToForm(0);
 					handled = true;
 					break;
 			}
 			break;
 
+		case keyDownEvent:
+			handled = PwMaskKeyDown(eventP);
+			break;
+
 		case frmOpenEvent:
 			FrmDrawForm(FrmGetActiveForm());
+			PwMaskBegin(fldQueryGlobalPasswordText, chkQueryGlobalPasswordShow);
 			FrmSetFocus(formP, fieldIndex);
 			FldGrabFocus(fieldP);
 			handled = true;
+			break;
+
+		case frmCloseEvent:
+			PwMaskEnd();
 			break;
 	}
 

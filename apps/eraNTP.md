@@ -58,12 +58,17 @@ means driving a resumable state machine one small step per event-loop tick
   (no non-blocking form exists on this API), bounded to `dnsTimeoutTicks=5s` per attempt so
   a queued Stop tap is still picked up promptly once it returns.
 - **Sending**: builds a 48-byte SNTP client packet (`LI=0,VN=3,Mode=3` — first byte `0x1B`)
-  and `NetLibSend`s it.
+  with a fresh random transmit timestamp (`gOrigin`), and `NetLibSend`s it.
 - **Waiting**: `NetLibSelect(timeout=0)` polled once per tick (never a blocking receive) —
   this is the phase that used to dominate the wait before being made pollable, and is what
   actually keeps the Device/Era clock rows ticking live and the Stop button responsive
-  while a sync is in flight. A short/garbage read falls through to the same
-  timeout/retry-or-give-up logic as no reply at all.
+  while a sync is in flight. Each datagram is checked (`ReplyProblem`, since 2026-11-17):
+  at least 48 bytes, from the server's address, mode 4 (server), leap indicator not 3
+  (unsynchronized), stratum 1-15 (0 = kiss-o'-death), the originate timestamp equal to our
+  `gOrigin`, a non-zero transmit timestamp. A failing one is logged ("Ignored reply: <why>")
+  and the wait goes on; with no good reply the timeout/retry/give-up logic runs as before
+  and the last reason ends up in the FAILED line. Before that check any 48-byte datagram,
+  from anywhere, set the clock.
 
 `EventLoop` picks the `EvtGetEvent` timeout dynamically: `evtWaitForever` once the app has
 navigated away from `frmMain`, `syncPollTicks` (~200ms) while a sync is active, or
@@ -73,7 +78,20 @@ countdown label, reused here to drive both the live clock rows and `SyncTick`.
 ## 4. Reading the reply — real bugs found and fixed live
 
 `SyncFinish(true)` decodes the 48-byte reply and runs the exact rebase/log/set/publish tail
-described in §2. Two real, non-obvious bugs were found and fixed during this build:
+described in §2.
+
+**Eras and 64 bits (2026-11-17).** NTP's transmit seconds are 32 bits since 1900 and wrap
+every 136 years (first on 7 Feb 2036); the era is not sent. `EraOf` picks it: with the plugin
+active (`HC_OK`), the era that puts the time nearest the plugin's real date (good to the plugin's
+own limit, year 9999, as long as the Palm's real date is within ~68 years); without it, any time
+before 2026 counts as the next era (good until 2162 - past 2031 the device clock is re-based anyway
+and nothing on the Palm knows the true year). From there everything is 64-bit: time zone plus
+daylight saving added in minutes (what `TimUTCToTimeZone` adds) and `dl_secondsToDate`, so
+nothing goes through Palm's 32-bit time calls, which stop in Feb 2040. Host-tested (2026..9999,
+the Palm's date off by up to 40 days, with and without the plugin) and emulator-tested against
+a fake server sending a 2050 time and against pool.ntp.org.
+
+Two real, non-obvious bugs were found and fixed during this build:
 
 - **`DateTimeType.year` is already absolute** — unlike the *packed* 7-bit `DateType.year`
   (years-since-1904) used elsewhere in this suite's date pickers, `DateTimeType` (what
@@ -107,7 +125,8 @@ described in §2. Two real, non-obvious bugs were found and fixed during this bu
 
 ## 5. UI & resources
 
-`EraNTP.rcp` (pilrc), one `FORM ID 1000` (`frmMain`, full-screen, `MENUID 1600`). No
+`EraNTP.rcp` (pilrc), one `FORM ID 1000` (`frmMain`, full-screen, `MENUID 1600`: Network with
+Connect /N and Disconnect /D, and the standard Edit menu for the Server field). No
 separate resource header — IDs are `#define`d at the top of `EraNTP.c` (Sec35's
 convention). Server field + checkbox at the top; three padded comparison `LABEL`s (§4);
 a `HASSCROLLBAR` log `FIELD` + matching `SCROLLBAR` (dragging generates `sclRepeatEvent`,
@@ -163,7 +182,7 @@ apps/eraNTP/
   EraNTP.c              app core - single file, single segment: state machine, UI, network,
                          era-plugin publish, unsaved-prefs load/store
   EraNTP.def             application Entp + backup (no multiple-code segments)
-  EraNTP.rcp              single FORM 1000 + MENU 1600 (Network > Connect/Disconnect)
+  EraNTP.rcp              single FORM 1000 + MENU 1600 (Network > Connect/Disconnect, Edit)
   build_eraNTP.sh        build script (single-file build, no multigen/section glue needed)
   icons/ mkicon_eranTP.py  app icon assets + generator
 apps/lib/  (shared)      hackcheck.h (HcCheck/Hc_CurrentRealDate), y2k35.h (Y2K35_* feature/
@@ -173,3 +192,8 @@ apps/lib/  (shared)      hackcheck.h (HcCheck/Hc_CurrentRealDate), y2k35.h (Y2K3
 
 No database of its own — reads/writes only the era plugin's Feature Manager slots and its
 own unsaved app-prefs blob (`appCreator='Entp'`, id 0).
+
+## 10. UI round (2026-11-18)
+
+- **Main:** Done (1,147,36,12) and Sync Now (41,147,102,12) on the ROM bottom row (y=147 from x=1, 4 px apart); Sync Now takes the rest of the row up to the Graffiti indicator.
+- **Graffiti indicator:** its middle lines up with the buttons' middle (y = button y + 1 for 12 px buttons). Full-screen forms put it 4 px from the screen's right edge (x=148), dialogs 5 px from the frame like the buttons (x=143); it keeps 4 px clear of anything to its right and at least 4 px from the item on its left. The glyph is 8 px wide in every state.

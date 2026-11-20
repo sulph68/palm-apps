@@ -22,6 +22,12 @@
                                         current to prove the hack is ENABLED, with
                                         no dependence on X-Master's conventions.   */
 #define Y2K35_PREF_ID    0           /* the hack's saved preference id             */
+#define Y2K35_SETSEC_RESID 1001      /* code/TRAP #1001: guard on TimSetSeconds;
+                                        Feature (creator, 1001) = original trap   */
+#define Y2K35_FTR_BYPASS 3           /* Feature: set (1) by the hack's panel and
+                                        EraNTP around their own TimSetSeconds --
+                                        they pass the stand-in moment already     */
+#define Y2K35_ALERT_SETDATE 2500     /* "date is managed by X-Y2K35" OK/Cancel     */
 
 /* The hack's persisted preference (mirrors ctlpanel.c). */
 typedef struct { dl_i64 master; dl_i32 offset; } Y2k35Pref;

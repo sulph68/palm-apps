@@ -2,12 +2,13 @@
 #include "Database.h"
 #include "Utils.h"
 #include "AesCrypt.h"
+#include "PwMask.h"
 
-static void SetGlobalPassword(Char *);
-static void RemoveGlobalPassword(void);
-static void ConfirmGlobalPassword(void);
+static void SetGlobalPassword(Char *) UI2_SECTION;
+static void RemoveGlobalPassword(void) UI2_SECTION;
+static void ConfirmGlobalPassword(void) UI2_SECTION;
 
-static Char * passwordP;
+static Char * passwordP;		/* the new password between Set and Confirm (wiped) */
 
 /******************************************
  * SetGlobalPassword:
@@ -15,10 +16,12 @@ static Char * passwordP;
  ******************************************
  */
 
-static void SetGlobalPassword(Char * textP)
+UI2_SECTION static void SetGlobalPassword(Char * textP)
 {
+	PwFreeWiped(&passwordP);
 	passwordP = MemPtrNew(StrLen(textP) + 1);
 	StrCopy(passwordP, textP);
+	PwMaskEnd();
 
 	FrmGotoForm(frmConfirmGlobalPasswordForm);
 }
@@ -29,13 +32,12 @@ static void SetGlobalPassword(Char * textP)
  ******************************************
  */
 
-static void ConfirmGlobalPassword(void)
+UI2_SECTION static void ConfirmGlobalPassword(void)
 {
 	ControlPtr controlP;
 	FormPtr formP;
 	Char * strGlobalPassword;
 	MemHandle strGlobalPasswordH;
-	Char * decryptedGlobalPasswordP;
 
 	formP = FrmGetFormPtr(frmPrefsForm);
 
@@ -44,6 +46,7 @@ static void ConfirmGlobalPassword(void)
 	* to the chosen values.
 	 */
 
+	if (prefsGlobalPasswordP) MemPtrFree(prefsGlobalPasswordP);	/* old verifier */
 	prefsGlobalPasswordP = MemPtrNew(StrLen(passwordP) + 1);
 	
 	/* The global-password verifier is itself device-bound and stretched: its
@@ -57,8 +60,11 @@ static void ConfirmGlobalPassword(void)
 		prefsGlobalPasswordIV, prefsGlobalPasswordSalt, prefsGlobalPasswordRounds,
 		StrLen(passwordP), AES_ENCRYPT);
 
+	PwFreeWiped(&globalPasswordP);				/* the previous one, if changing */
 	globalPasswordP = MemPtrNew(StrLen(passwordP) + 1);
 	StrCopy(globalPasswordP, passwordP);
+	PwFreeWiped(&passwordP);
+	PwMaskEnd();
 
 	FrmReturnToForm(frmPrefsForm);
 
@@ -80,9 +86,8 @@ static void ConfirmGlobalPassword(void)
  ******************************************
  */
 
-static void RemoveGlobalPassword(void)
+UI2_SECTION static void RemoveGlobalPassword(void)
 {
-	Char * passwordP;
 	ControlPtr controlP;
 	FormPtr formP;
 	Char * strGlobalPassword;
@@ -95,8 +100,11 @@ static void RemoveGlobalPassword(void)
 	* to 0.
 	 */
 
+	if (prefsGlobalPasswordP) MemPtrFree(prefsGlobalPasswordP);	/* the verifier */
 	prefsGlobalPasswordP = 0;
-	globalPasswordP = 0;
+	PwFreeWiped(&globalPasswordP);				/* zeroed, not just forgotten */
+	PwFreeWiped(&passwordP);
+	PwMaskEnd();
 	MemSet(prefsGlobalPasswordIV, sizeof(prefsGlobalPasswordIV), 0);
 	MemSet(prefsGlobalPasswordSalt, sizeof(prefsGlobalPasswordSalt), 0);
 	prefsGlobalPasswordRounds = 0;
@@ -116,6 +124,7 @@ static void RemoveGlobalPassword(void)
 }
 
 
+Boolean SetAndChangeGlobalPasswordFormHandleEvent(EventPtr eventP) UI2_SECTION;
 Boolean SetAndChangeGlobalPasswordFormHandleEvent(EventPtr eventP)
 {
 	Boolean handled = false;
@@ -132,11 +141,10 @@ Boolean SetAndChangeGlobalPasswordFormHandleEvent(EventPtr eventP)
 		case ctlSelectEvent:
 			switch (eventP->data.ctlSelect.controlID) {
 				Char * textP;
-				EventType event;
 
 				/* Asks the global password */
 				case btnSetAndChangeGlobalPasswordOK:
-					textP = FldGetTextPtr(fieldP);
+					textP = PwMaskText();
 
 					if (textP != 0 && *textP != '\0')
 						SetGlobalPassword(textP);
@@ -147,7 +155,7 @@ Boolean SetAndChangeGlobalPasswordFormHandleEvent(EventPtr eventP)
 
 				/* Apply changes to the global password */
 				case btnConfirmGlobalPasswordOK:
-					textP = FldGetTextPtr(fieldP);
+					textP = PwMaskText();
 
 					if (textP != 0 && *textP != '\0')
 						if (StrCompare(textP, passwordP) == 0) {
@@ -156,12 +164,20 @@ Boolean SetAndChangeGlobalPasswordFormHandleEvent(EventPtr eventP)
 							break;
 						}
 					FrmAlert(altGlobalPasswordNotMatchAlert);
+					PwMaskBegin(fldSetAndChangeGlobalPasswordText, chkSetAndChangeGlobalPasswordShow);	/* retry: start empty */
 					
 					handled = true;
 					break;
 
 				/* Simply return to the calling form */
+				case chkSetAndChangeGlobalPasswordShow:
+					PwMaskShow(eventP->data.ctlSelect.on);
+					handled = true;
+					break;
+
 				case btnSetAndChangeGlobalPasswordCancel:
+					PwFreeWiped(&passwordP);
+					PwMaskEnd();
 					FrmReturnToForm(0);
 					handled = true;
 					break;
@@ -173,11 +189,20 @@ Boolean SetAndChangeGlobalPasswordFormHandleEvent(EventPtr eventP)
 			}
 			break;
 
+		case keyDownEvent:
+			handled = PwMaskKeyDown(eventP);
+			break;
+
 		case frmOpenEvent:
 			FrmDrawForm(FrmGetActiveForm());
+			PwMaskBegin(fldSetAndChangeGlobalPasswordText, chkSetAndChangeGlobalPasswordShow);
 			FrmSetFocus(formP, fieldIndex);
 			FldGrabFocus(fieldP);
 			handled = true;
+			break;
+
+		case frmCloseEvent:
+			PwMaskEnd();
 			break;
 	}
 

@@ -1,119 +1,26 @@
 #include "PasswordForm.h"
+#include "SecDb.h"
+#include "DbForms.h"
 #include "Database.h"
 #include "Utils.h"
 #include "AesCrypt.h"
 #include "CryptoSec35.h"
 #include "CardCrypt.h"	/* CardBusyShow/CardBusyHide -- shared busy-dialog style */
+#include "PwMask.h"		/* masked entry + "Show", shared by every password field */
 
 static void PasswordApplyChanges(Char *) AES_SECTION;
 
 static Boolean alreadyTriedWithGlobalPassword;
 static Int16 encryptedStatus;
 
-static Char * charP;
-
-/* ---- Password masking (mirrors Sec35's own reveal-then-mask UX, see
- * apps/sec35/sec35.c's RedrawMaskedField/PwFieldKeyDown/PwDone) -----------
- * fldPasswordText always DISPLAYS a masked ('*') representation; the real
- * typed password lives ONLY in gPwReal. The just-typed character stays in
- * clear for kRevealTicks (phone-keyboard style) before this too masks --
- * gPwRevealUntilTicks/PasswordMaskPendingReveal (declared in the header) let
- * Main.c's EventLoop wake up exactly when that window ends without polling,
- * same mechanism Sec35 uses. Sec35's PwDone comment documents WHY the timer
- * must always be cleared before the dialog closes: a dangling timer that
- * outlives its dialog fires against whatever form is active later, hit as a
- * real hardware crash once already in Sec35 -- ClearPasswordEntry (called
- * from every exit path below) is this file's equivalent safeguard. */
+/* Password masking: PwMask.c (shared by every CryptoNote password field).
+ * The keypad below still builds its digits in its own buffer. */
 #define kPwBufLen 33
-#define kPwRevealTicks 1
-static char   gPwReal[kPwBufLen];
-UInt32        gPwRevealUntilTicks;
-
-/* Redraw fldPasswordText from gPwReal, masked with '*' -- the last character
- * stays in clear if revealLast. Does not touch gPwReal itself. */
-static void PasswordRedrawMasked(Boolean revealLast) AES_SECTION;
-static void PasswordRedrawMasked(Boolean revealLast)
-{
-	UInt16	len = (UInt16) StrLen(gPwReal);
-	Char	disp[kPwBufLen];
-	UInt16	i;
-	FormPtr	frm = FrmGetActiveForm();
-	FieldPtr fld;
-
-	for (i = 0; i < len; i++)
-		disp[i] = (Char) ((revealLast && i == len - 1) ? gPwReal[i] : '*');
-	disp[len] = 0;
-
-	fld = (FieldPtr) FrmGetObjectPtr(frm, FrmGetObjectIndex(frm, fldPasswordText));
-	if (! fld) return;		/* dialog isn't the active form -- nothing to redraw */
-
-	/* Edit the field's own handle in place (FldDelete+FldInsert) rather than
-	 * swapping in a new one -- same fix Sec35's FldSetContent applies for a
-	 * documented rare "MemoryMgr.c: non-word-aligned handle" crash under
-	 * memory pressure from repeated alloc/free churn on every keystroke. */
-	{
-	UInt16 curLen = FldGetTextLength(fld);
-	if (curLen > 0) {
-		FldSetInsPtPosition(fld, curLen);
-		FldDelete(fld, 0, curLen);
-	}
-	FldInsert(fld, disp, (UInt16) StrLen(disp));
-	}
-	FldSetInsPtPosition(fld, len);
-	FldDrawField(fld);
-}
-
-/* Mask whatever's currently showing a revealed character -- called from
- * Main.c's EventLoop once its reveal window has elapsed (see PasswordForm.h). */
-void PasswordMaskPendingReveal(void)
-{
-	if (gPwRevealUntilTicks)
-		PasswordRedrawMasked(false);
-	gPwRevealUntilTicks = 0;
-}
-
-/* Text Entry keystroke handling for fldPasswordText: printable characters
- * append to gPwReal (masked display, last char briefly revealed) and
- * Backspace removes one -- append/remove only, no mid-string editing, same
- * simple model Sec35 uses. Returns true if consumed (the Field Manager's own
- * default handling, which would show the RAW typed text, must not also run). */
-static Boolean PasswordFieldKeyDown(EventType* e) AES_SECTION;
-static Boolean PasswordFieldKeyDown(EventType* e)
-{
-	UInt16	len = (UInt16) StrLen(gPwReal);
-	WChar	c = e->data.keyDown.chr;
-
-	if (c == chrBackspace) {
-		if (len > 0) gPwReal[len - 1] = 0;
-		gPwRevealUntilTicks = 0;
-		PasswordRedrawMasked(false);
-		return true;
-	}
-	if (TxtCharIsPrint(c) && len < kPwBufLen - 1) {
-		gPwReal[len] = (char) c;
-		gPwReal[len + 1] = 0;
-		PasswordRedrawMasked(true);
-		gPwRevealUntilTicks = TimGetTicks() + (SysTicksPerSecond() * kPwRevealTicks);
-		return true;
-	}
-	return false;
-}
-
-/* Reset masking state for a fresh password entry -- called both when the
- * dialog opens (start clean) and on every exit path (OK/Cancel/Forget), see
- * this section's header comment for why the reveal timer specifically must
- * never outlive the dialog. */
-static void ClearPasswordEntry(void) AES_SECTION;
-static void ClearPasswordEntry(void)
-{
-	MemSet(gPwReal, sizeof(gPwReal), 0);
-	gPwRevealUntilTicks = 0;
-}
 
 /* ---- Numeric keypad (mirrors Sec35's own frmKeypad -- see sec35.c's
  * KeypadDrawStars/KeypadDrawKey/KeypadHitTest/KeypadFormHandleEvent, ported
  * near-verbatim). Digits build up gKeypadBuf as a hand-drawn row of stars
- * (real-time feedback while typing); OK copies it into gPwReal (masked, same
+ * (real-time feedback while typing); OK hands it to PwMaskSet (masked, same
  * as Text Entry) and returns to the Password form -- no auto-submit unlike
  * Sec35's Unlock-only special case, since this app has just the one target
  * field and its own OK button is always the actual submit action. */
@@ -302,9 +209,8 @@ Boolean KeypadFormHandleEvent(EventPtr eventP)
 
 		case ctlSelectEvent:
 			if (eventP->data.ctlSelect.controlID == kpdOk) {
-				StrNCopy(gPwReal, gKeypadBuf, kPwBufLen);	/* size = TOTAL dst size (strlcat-style) */
 				FrmReturnToForm(0);			/* back to the Password dialog */
-				PasswordRedrawMasked(false);	/* masked, same as Text Entry */
+				PwMaskSet(gKeypadBuf);		/* masked, same as Text Entry */
 				KeypadClearBuf();
 				handled = true;
 			}
@@ -343,6 +249,8 @@ Boolean ValidatePassword(Char * textP)
 	 * records (MemoPad records have no password), which may now be
 	 * Sec35-wrapped -- route through the chokepoint instead of reading raw
 	 * bytes. */
+	/* user databases: the record's own keying (SecDb.c) */
+	SrcKeyForRecord ((UInt8) currentDB, currentRecord);
 	if (! CryptoGetRecord (currentDBRef, currentRecord, &record))
 		return false;
 
@@ -374,8 +282,6 @@ static void PasswordApplyChanges(Char * textP) AES_SECTION;
 static void PasswordApplyChanges(Char * textP)
 {
 	EventType event;
-	FormPtr formP;
-	UInt16 fieldIndex;
 
 	/* Db35-suite-style Sec35 wrap: THIS is where the real ~1.5s KDF stretch
 	 * for the single-record "enter password to view/remove" flow actually
@@ -474,21 +380,32 @@ Boolean PasswordFormHandleEvent(EventPtr eventP)
 			switch (eventP->data.ctlSelect.controlID) {
 				/* Apply changes to the password form */
 				case btnPasswordOK:
-					/* gPwReal, not FldGetTextPtr(fieldP) -- the field only ever
-					 * shows the masked display now (see gPwReal's comment). */
-					textP = gPwReal;
+					/* PwMaskText, not FldGetTextPtr(fieldP) -- the field only
+					 * ever shows the masked display (PwMask.c). */
+					textP = PwMaskText();
 
 					if (textP != 0 && *textP != '\0') {
 						PasswordApplyChanges(textP);
-						ClearPasswordEntry();
+						/* A wrong password leaves this dialog up for a retry:
+						 * start a fresh (empty, still masked) entry. Otherwise
+						 * the dialog has gone: just wipe. */
+						if (FrmGetActiveFormID() == frmPasswordForm)
+							PwMaskBegin(fldPasswordText, chkPasswordShow);
+						else
+							PwMaskEnd();
 					}
 					else FrmAlert(altInvalidPasswordAlert);
 					handled = true;
 					break;
 
 				/* Simply return to the calling form */
+				case chkPasswordShow:
+					PwMaskShow(eventP->data.ctlSelect.on);
+					handled = true;
+					break;
+
 				case btnPasswordCancel:
-					ClearPasswordEntry();
+					PwMaskEnd();
 					FrmReturnToForm(0);
 					handled = true;
 					break;
@@ -499,6 +416,8 @@ Boolean PasswordFormHandleEvent(EventPtr eventP)
 				 */
 
 				case btnPasswordForget:
+					/* forgetting deletes the memo: not for read-only ones */
+					if (EditViewOnlyRefuse ()) { handled = true; break; }
 					if (FrmAlert(altConfirmDeleteAlert) == 0 /* OK button */) {
 						if (useSingleFont == separateFont) {
 							UInt32 recordID;
@@ -507,7 +426,7 @@ Boolean PasswordFormHandleEvent(EventPtr eventP)
 							DeleteFontRecord(currentDBRef, recordID);
 						}
 						DmRemoveRecord(currentDBRef, currentRecord);
-						ClearPasswordEntry();
+						PwMaskEnd();
 						FrmReturnToForm(frmMainForm);
 						FrmUpdateForm(frmMainForm, updateTable);
 					}
@@ -518,14 +437,12 @@ Boolean PasswordFormHandleEvent(EventPtr eventP)
 
 		/* Text Entry mode: intercept keystrokes on the focused password field
 		 * so the real text never sits in the field itself (masked display
-		 * instead -- see PasswordFieldKeyDown/gPwReal). Numeric Keypad mode
+		 * instead -- see PwMask.c). Numeric Keypad mode
 		 * never gives this field focus to type into (fldEnterEvent pops the
 		 * keypad instead), so this never fires then. */
 		case keyDownEvent:
 			{
-			UInt16 focus = FrmGetFocus(formP);
-			if (focus != noFocus && FrmGetObjectId(formP, focus) == fldPasswordText)
-				handled = PasswordFieldKeyDown(eventP);
+			handled = PwMaskKeyDown(eventP);
 			}
 			break;
 
@@ -542,14 +459,14 @@ Boolean PasswordFormHandleEvent(EventPtr eventP)
 			break;
 
 		case frmOpenEvent:
-			ClearPasswordEntry();
 			FrmDrawForm(FrmGetActiveForm());
+			PwMaskBegin(fldPasswordText, chkPasswordShow);
 			if (EncGetPasswordEntryType() == kPwTypeNumeric) {
 				/* Numeric Keypad mode: pop the keypad immediately instead of
 				 * waiting for the user to tap the (masked, otherwise-idle)
 				 * field first -- that extra tap was pure friction, since this
 				 * dialog has no other reason to be open. The keypad's own OK
-				 * (KeypadFormHandleEvent) only fills gPwReal and returns here;
+				 * (KeypadFormHandleEvent) only fills the entry and returns here;
 				 * it deliberately does NOT auto-submit, so the user still gets
 				 * a real choice between this dialog's OK and Forget after
 				 * typing the password, same as Text Entry mode always has. */

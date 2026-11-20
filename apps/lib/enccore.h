@@ -12,6 +12,12 @@
 #include <PalmOS.h>
 #include "sects.h"		/* ENCCORE_SECTION: main by default; a segment in Address35 */
 
+/* Per-store key code: same section as the rest of enccore unless the host app
+ * says otherwise (Datebook35 puts it in sec004 -- its sec003 is full). */
+#ifndef ENCSTORE_SECTION
+#define ENCSTORE_SECTION ENCCORE_SECTION
+#endif
+
 #define ENC_KEY_BYTES   16
 #define ENC_SALT_BYTES  16
 
@@ -34,6 +40,10 @@ UInt16 EncDeviceSecret (UInt8* out, UInt16 maxLen) ENCCORE_SECTION;
 
 /* Best-effort random bytes (for salts / the fallback device key). */
 void EncRandomBytes (UInt8* buf, UInt16 len) ENCCORE_SECTION;
+
+/* Mix unpredictable input (e.g. keystroke timing and pen position) into the
+ * randomness pool EncRandomBytes draws from (unsaved prefs). */
+void EncAddEntropy (const void* data, UInt16 len) ENCCORE_SECTION;
 
 /* Derive a 16-byte key = stretch( passcode || deviceSecret || salt , rounds ).
  * Deterministic for the same inputs on the same device. */
@@ -81,6 +91,12 @@ Err EncCacheKey (const UInt8 key[ENC_KEY_BYTES]) ENCCORE_SECTION;
  * return false. */
 Boolean EncGetKey (UInt8 keyOut[ENC_KEY_BYTES], UInt32 ttlSeconds) ENCCORE_SECTION;
 
+/* Read-only peek at how many seconds are left before EncGetKey/EncKeyPresent
+ * would consider the cached key expired under ttlSeconds -- -1 if no key is
+ * cached or it's already expired. Never mutates/wipes anything, safe to call
+ * purely for UI display (a countdown) on every redraw. */
+Int32 EncSecondsRemaining (UInt32 ttlSeconds) ENCSTORE_SECTION;	/* Sec35 only; off a full main */
+
 /* True if a key is cached AND still within the current auto-lock TTL (see
  * EncGetTtlSeconds) -- self-wipes and returns false if it's actually expired,
  * same as EncGetKey. This is the check nearly every app uses to decide
@@ -114,6 +130,8 @@ void   EncSetTtlSeconds (UInt32 seconds) ENCCORE_SECTION;
  * to sleep/power off, rather than waiting for the TTL to elapse. Off by
  * default (0) -- matches pre-existing behavior (TTL-only) if never set. */
 #define ENC_LOCKONSLEEP_PREF	4	/* unsaved pref holding a single UInt8: 0/1 */
+#define ENC_PWSET_PREF		5	/* unsaved pref holding a single UInt8: a passcode is set (0/1) */
+#define ENC_POOL_PREF		6	/* unsaved pref: 16-byte randomness pool (EncRandomBytes) */
 
 Boolean EncGetLockOnSleep (void) ENCCORE_SECTION;
 void    EncSetLockOnSleep (Boolean on) ENCCORE_SECTION;
@@ -156,5 +174,108 @@ enum { kPwTypeText, kPwTypeNumeric };
 
 UInt8 EncGetPasswordEntryType (void) ENCCORE_SECTION;
 void  EncSetPasswordEntryType (UInt8 type) ENCCORE_SECTION;
+
+
+/* ======================================================================== *
+ * Per-store keys (key scheme 2)
+ *
+ * The Sec35 key (derived from the passcode) is never used to encrypt data
+ * directly any more. Each STORE -- one set of encrypted data, named for the
+ * data, not for the app reading it -- gets its own key:
+ *     storeKey = AES-128-ECB(SecKey, "S35K" || storeId || 00 02 || zero pad)
+ * so two stores can use the same nonce numbering without sharing a keystream
+ * (Address35 uid 5 and ToDo35 uid 5, lazyFTP slot 0 and CalDAV slot 0, the
+ * password check value). Every reader of a store asks for THAT store's key
+ * (Datebook35 reading ToDo35 records uses ENC_STORE_TD35).
+ *
+ * Scheme 1 (the old one) encrypted everything with the Sec35 key itself. A
+ * database still in scheme 1 is told apart by its header version field: the
+ * owner sets ENC_DBVER_STOREKEYS once it has converted it (EncDbSetStoreKeys).
+ * ======================================================================== */
+
+#define ENC_SCHEME			2
+
+#define ENC_STORE_SEC35V	'S35v'	/* Sec35's own password check value       */
+#define ENC_STORE_A35		'Ad35'	/* Address35DB records                    */
+#define ENC_STORE_TD35		'Td35'	/* ToDo35DB records                       */
+#define ENC_STORE_DB35		'Db35'	/* Datebook35DB records                   */
+#define ENC_STORE_DBLOC		'DbLk'	/* Datebook35 AppointmentLocationDB       */
+#define ENC_STORE_DBLHIST	'DbLh'	/* Datebook35 LocationsDB (Previous Loc)  */
+#define ENC_STORE_DAVEV		'CDev'	/* DateBook35DAV (CalDAV events)          */
+#define ENC_STORE_DAVCON	0x43446300UL	/* 'CDc' + slot (0..): Address35DAV_<slot+1> */
+#define ENC_STORE_CRNT		'CrNt'	/* CryptoNoteDB (Sec35 layer)             */
+#define ENC_STORE_LZTP		'LzTP'	/* lazyFTP saved passwords                */
+#define ENC_STORE_CDDV		'CDps'	/* CalDAVRelayDB secrets + settings       */
+#define ENC_STORE_BW		'BWrd'	/* BitWarden: vault outer layer, cached master
+								 * password, 2FA token (disjoint nonceHi ranges) */
+
+/* Header version bit meaning "this database is in key scheme 2". Only the top
+ * bit is set; the low bits are kept (CryptoNoteDB uses them: version 37, and
+ * CryptoNote only re-initialises when it is below 31, so 0x8025 is safe; the
+ * other suite databases had 0). Survives HotSync and Bkp1 backups (it is part
+ * of the PDB header). */
+#define ENC_DBVER_STOREKEYS	0x8000
+
+/* The key for one store, from the CACHED Sec35 key (false if locked or the
+ * auto-lock time has passed -- same rule as EncKeyPresent). Derived keys are
+ * cached beside the Sec35 key in the same feature block and wiped with it, so
+ * a per-record caller costs no more than EncGetKey did. Same argument shape
+ * as EncGetKey (key, UInt32) so swapping a call costs no code bytes. */
+Boolean EncGetStoreKey (UInt8 keyOut[ENC_KEY_BYTES], UInt32 storeId) ENCSTORE_SECTION;
+
+/* Derive a store key from an explicit Sec35 key (rekey handlers: they hold
+ * the old and the new Sec35 key, neither of which is the cached one). */
+void EncDeriveStoreKey (const UInt8 secKey[ENC_KEY_BYTES], UInt32 storeId,
+                        UInt8 keyOut[ENC_KEY_BYTES]) ENCSTORE_SECTION;
+
+/* Scheme marker of an open database (true = scheme 2). */
+Boolean EncDbHasStoreKeys (DmOpenRef db) ENCSTORE_SECTION;
+void    EncDbSetStoreKeys (DmOpenRef db) ENCSTORE_SECTION;
+
+/* The same marker by database ID (card 0), for code that has not opened it. */
+Boolean EncDbIdHasStoreKeys (LocalID id) ENCSTORE_SECTION;
+void    EncDbIdSetStoreKeys (LocalID id) ENCSTORE_SECTION;
+
+/* For a reader of ANOTHER app's database: the store key, but only if that
+ * database is already in scheme 2 (false = treat as locked; the owner app or
+ * Sec35 converts it). */
+Boolean EncGetStoreKeyDb (UInt8 keyOut[ENC_KEY_BYTES], UInt32 storeId,
+                          DmOpenRef db) ENCSTORE_SECTION;
+
+/* ---- rekey hand-off: Sec35 -> each app (sublaunch with new globals) ---- *
+ * Sec35 never opens another app's database. For a password set / change /
+ * removal / forget, and for the one-time scheme 1 -> 2 conversion, it
+ * sublaunches every installed suite app with kSecLaunchRekey and this block;
+ * the app re-encrypts its OWN stores with its own code and writes `result`.
+ * Keys are Sec35 keys (not store keys); the app derives its store keys. */
+#define kSecLaunchRekey		0x9001
+
+enum {
+	kRekeySet = 1,		/* no password before: encrypt plaintext with newKey     */
+	kRekeyChange,		/* oldKey -> newKey                                     */
+	kRekeyRemove,		/* oldKey -> plaintext (stored passwords are cleared)   */
+	kRekeyWipe,			/* forgotten: delete what is encrypted, no key          */
+	kRekeyConvert		/* scheme 1 -> 2 under the same key (oldKey == newKey)  */
+};
+
+enum {
+	kRekeyResultNone = 0,	/* app did not answer (not a suite app / old version) */
+	kRekeyResultDone,
+	kRekeyResultLowMem,		/* stopped cleanly; ask again after freeing memory    */
+	kRekeyResultFailed
+};
+
+typedef struct EncRekeyParamTag {
+	UInt16	op;						/* kRekeyXxx                                 */
+	UInt16	result;					/* written by the app                        */
+	UInt32	opSerial;				/* same value when Sec35 resumes the SAME op */
+	UInt8	oldKey[ENC_KEY_BYTES];	/* zero when unused                          */
+	UInt8	newKey[ENC_KEY_BYTES];
+	RectangleType progress;			/* screen rect the app may fill as a bar     */
+} EncRekeyParam;
+
+/* Set by an app before it bounces to Sec35 because one of its databases is
+ * still in scheme 1: Sec35 then runs the conversion before returning. */
+#define kSecConvertFtr		1003
 
 #endif /* ENCCORE_H */

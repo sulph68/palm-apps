@@ -43,9 +43,9 @@ extern ECApptDBValidate (DmOpenRef dbP);
  * an untagged hop turns it into two ordinary cross-segment indirect
  * calls instead of one unsafe same-segment direct one - same fix as
  * DateDay.c's own DayBuildLocSuffixHop. */
-static Boolean EncGetKeyHop (UInt8 *keyOut, UInt32 ttlSeconds)
+static Boolean EncGetKeyHop (UInt8 *keyOut, DmOpenRef todoDB)
 {
-	return EncGetKey (keyOut, ttlSeconds);
+	return EncGetStoreKeyDb (keyOut, ENC_STORE_TD35, todoDB);	/* ToDo35's store */
 }
 
 /* Same fix, same reason, hit by the SAME sec003 growth (this time from
@@ -324,15 +324,8 @@ static void			AgendaViewSetScrollThumb (
 								UInt16							inValue ) SEC003;
 static void			AgendaViewRefreshLayoutTasks (
 								FormType*						inFormP ) SEC003;
-static void			AgendaViewFillTitle (
-								FormPtr							frm ) SEC003;
-static void			AgendaViewFillAppointmentsTitle (
-								FormType*						frmP ) SEC003;
 static void			AgendaViewFillAppointments (
 								FormType*						inFormP ) SEC003;
-static void			AgendaViewFillTasksTitle (
-								FormType*						inFormP,
-								RectangleType*					ioBoundsP );
 static void			AgendaViewFillTasks (
 								FormType*						inFormP ) SEC003;
 static void			AgendaDayViewScroll (
@@ -363,11 +356,6 @@ static Boolean		AgendaDividerDraw (
 								FormGadgetType*				inGadgetP,
 								UInt16							inCommand,
 								void*								inParamP ) SEC003;
-static void			AgendaTitleDraw (
-								void*								inTableP,
-								Int16								inRow,
-								Int16								inColumn,
-								RectangleType*					inBoundsP ) SEC003;
 static void			AgendaApptDrawTime (
 								void*								inTableP,
 								Int16								inRow,
@@ -454,10 +442,6 @@ static UInt16		TopVisibleRecord = 0;
 
 
 static UInt16 ListViewGetColumnWidth (UInt16 column) SEC003;
-static Err ListViewGetDescription (void* table, UInt16 row, UInt16 column,
-	Boolean editable, MemHandle* textH, UInt16* textOffset, UInt16* textAllocSize,
-	FieldPtr fld) SEC003;
-static Boolean ListViewSaveDescription (void* table, UInt16 row, UInt16 column) SEC003;
 static void ListViewDrawDueDate (void* table, Int16 row, Int16 column, 
 	RectanglePtr bounds) SEC003;
 static void ListViewDrawCategory (void* table, Int16 row, Int16 column, 
@@ -474,8 +458,6 @@ static void ChangeCategory (UInt16 category) SEC003;
 
 Err	ToDoAppInfoInit(DmOpenRef dbP) SEC003;
 
-static UInt16 CountMemoryChunks(UInt16 ownerID);
-static void WatchMemoryChunkCount(void);
 
 Char* GetToDoNotePtr (ToDoDBRecordPtr recordP) SEC003;
 static void ListViewCrossOutItem (Int16 row) SEC003;
@@ -485,20 +467,9 @@ extern void ECToDoDBValidate(DmOpenRef dbP);
 
 extern void GoToItem (GoToParamsPtr goToParams, Boolean launchingApp);
 
-static void			CheckDBLeaks (
-								DmOpenRef						inDB ) SEC003;
 static void ToDoLoadPrefs () SEC003;
 
 
-// Checking for leaks takes a long time with large databases,
-// so turn it off, by default. At some point, there may be a better
-// mechanism for toggling settings like this from the build environment,
-// but, for now, just unlock the file and comment out the unwanted setting.
-// (Note: This used to be keyed of off ERROR_CHECK_LEVEL, but this is still
-// set to ERROR_CHECK_FULL during alpha testing.)
-
-//#define CHECK_DB_LEAKS(db)		CheckDBLeaks (db)
-#define CHECK_DB_LEAKS(db)
 
 
 /***********************************************************************
@@ -781,7 +752,6 @@ SEC003 static void AgendaViewChangeDate (
 	FormType*						inFormP,
 	DateType							inDate )
 {
-	CHECK_DB_LEAKS (Agenda.todoDB);
 
 	// Keep the new date for future reference
 	Date = inDate;
@@ -819,7 +789,6 @@ SEC003 static void AgendaViewChangeDate (
 	FrmSetControlGroupSelection (inFormP, AgendaViewGroup, AgendaAgendaViewButton);
 	FrmDrawForm (inFormP);
 	
-	CHECK_DB_LEAKS (Agenda.todoDB);
 }
 
 
@@ -1493,64 +1462,6 @@ AgendaDividerDraw (
 
 /***********************************************************************
  *
- * FUNCTION:    AgendaTitleDraw
- *
- * DESCRIPTION: Draw the current date and time
- *
- * PARAMETERS:  frm - pointer to the agenda view form.
- *
- * RETURNED:    nothing
- *
- * REVISION HISTORY:
- *			Name	Date		Description
- *			----	----		-----------
- *			rbb	6/4/99	Initial Revision
- *
- ***********************************************************************/
-SEC003 static void
-AgendaTitleDraw (
-	void*								inTableP,
-	Int16								inRow,
-	Int16								inColumn,
-	RectangleType*					inBoundsP )
-{
-	DateTimeType					now;
-	char								timeStr[timeStringLength];
-	char								dateStr[longDateStrLength];
-	FontID							origFont;
-	UInt16							x;
-	UInt16							len;
-
-	TimSecondsToDateTime (TimGetSeconds (), &now);
-	
-	WinInvertRectangle (inBoundsP, 0);
-	origFont = FntSetFont (TblGetItemFont (inTableP, inRow, inColumn));
-	
-	switch (inColumn)
-		{
-		case agendaTitleDateColumn:
-			DateToAscii (now.month, now.day, now.year, Agenda.longDateFormat, dateStr);
-
-			x = inBoundsP->topLeft.x + agendaTitleInset;
-			WinInvertChars (dateStr, StrLen (dateStr), x, inBoundsP->topLeft.y);
-			break;
-		
-		case agendaTitleTimeColumn:
-			TimeToAscii (now.hour, now.minute, Agenda.timeFormat, timeStr);
-			
-			len = StrLen (timeStr);
-			x = inBoundsP->topLeft.x + ( inBoundsP->extent.x - FntCharsWidth (timeStr, len) );
-			x -= agendaTitleInset;
-			WinInvertChars (timeStr,  len, x, inBoundsP->topLeft.y);
-			break;
-		}
-	
-	FntSetFont (origFont);
-}
-
-
-/***********************************************************************
- *
  * FUNCTION:    AgendaViewDrawDate
  *
  * DESCRIPTION: Draw the current date
@@ -1575,7 +1486,6 @@ AgendaViewDrawDate (
 	// string length and trim offsets.
 	static Char						titleP [dowLongDateStrLength];
 	ControlType*					controlP;
-	Int8							trimOffset = 0;
 
 	AgendaDateToDOWDM (Date, Agenda.longDateFormat, titleP);
 	
@@ -1940,8 +1850,6 @@ AgendaViewInitToDo (
 
 	// Set the callback routines that will load and save the 
 	// description field.
-//	TblSetLoadDataProcedure (table, descColumn, (TableLoadDataFuncPtr)ListViewGetDescription);
-//	TblSetSaveDataProcedure (table, descColumn, (TableSaveDataFuncPtr)ListViewSaveDescription);
 
 	// Set the callback routines that draws the various fields
 	TblSetCustomDrawProcedure (table, dueDateColumn, ListViewDrawDueDate);
@@ -1954,56 +1862,6 @@ AgendaViewInitToDo (
 	CategoryGetName (Agenda.todoDB, CurrentCategory, CategoryName);
 	CategorySetTriggerLabel (ctl, CategoryName);
 	AgendaRightAlignCategory (FrmGetActiveForm ());
-}
-
-
-/***********************************************************************
- *
- * FUNCTION:    AgendaViewFillTitle
- *
- * DESCRIPTION: 
- *
- * PARAMETERS:  nothing
- *
- * RETURNED:    nothing
- *
- * REVISION HISTORY:
- *			Name	Date		Description
- *			----	----		-----------
- *			rbb	5/28/99	Initial Revision
- *
- ***********************************************************************/
-SEC003 static void
-AgendaViewFillTitle (
-	FormPtr							frm )
-{
-#pragma unused (frm)
-
-}
-
-
-/***********************************************************************
- *
- * FUNCTION:    AgendaViewFillAppointmentsTitle
- *
- * DESCRIPTION: 
- *
- * PARAMETERS:  nothing
- *
- * RETURNED:    nothing
- *
- * REVISION HISTORY:
- *			Name	Date		Description
- *			----	----		-----------
- *			rbb	5/28/99	Initial Revision
- *
- ***********************************************************************/
-SEC003 static void
-AgendaViewFillAppointmentsTitle (
-	FormPtr							frm )
-{
-#pragma unused (frm)
-
 }
 
 
@@ -2038,7 +1896,6 @@ AgendaViewFillAppointments (
 	UInt16							apptCount;
 	UInt16							rowHeight = 0;
 	UInt16							displayableHeight = 0;
-	UInt16							virtualHeight = 0;
 	UInt16 							attr;
 	Boolean 							masked;
 	UInt16							maxIndex;
@@ -3024,7 +2881,6 @@ AgendaViewFillTasks (
 	UInt16 							attr;
 	Boolean 							masked;
 	
-	CHECK_DB_LEAKS (Agenda.todoDB);
 	// Get the height of the table and the width of the description
 	// column.
 	tableP = GetObjectPtr (AgendaToDoTable);
@@ -3083,7 +2939,6 @@ AgendaViewFillTasks (
 		recordNum++;
 		}
 	
-	CHECK_DB_LEAKS (Agenda.todoDB);
 }
 
 
@@ -3177,7 +3032,6 @@ SeekRecord (
 			}
 		}
 
-	CHECK_DB_LEAKS (Agenda.todoDB);
 	return (found);
 }
 
@@ -3239,7 +3093,6 @@ SEC003 static void ListInitTableRow (TablePtr table, UInt16 row, UInt16 recordNu
 	UInt16 							attr;
 	Boolean 						masked;
 
-	CHECK_DB_LEAKS (Agenda.todoDB);
 	// Get a pointer to the ToDo record.
 	recordH = DmQueryRecord( Agenda.todoDB, recordNum);
 	toDoRec = (ToDoDBRecordType*) MemHandleLock (recordH);
@@ -3278,7 +3131,6 @@ SEC003 static void ListInitTableRow (TablePtr table, UInt16 row, UInt16 recordNu
 	TblMarkRowInvalid (table, row);
 	
 	MemHandleUnlock (recordH);
-	CHECK_DB_LEAKS (Agenda.todoDB);
 }
 
 
@@ -3349,145 +3201,6 @@ SEC003 static UInt16 ListViewGetColumnWidth (UInt16 column)
 	FntSetFont (curFont);
 
 	return (width);
-}
-
-
-/***********************************************************************
- *
- * FUNCTION:    ListViewGetDescription
- *
- * DESCRIPTION: This routine returns a pointer to the description field
- *              of a ToDo record.  This routine is called by the table 
- *              object as a callback routine when it wants to display or
- *              edit a ToDo description.
- *
- * PARAMETERS:  table  - pointer to the ToDo list table (TablePtr)
- *              row    - row of the table
- *              column - column of the table
- *
- * RETURNED:    nothing
- *
- * REVISION HISTORY:
- *			Name	Date		Description
- *			----	----		-----------
- *			art	2/21/95		Initial Revision
- *
- ***********************************************************************/
-SEC003 static Err ListViewGetDescription (void* table, UInt16 row, UInt16 column,
-	Boolean editable, MemHandle* textH, UInt16* textOffset, UInt16* textAllocSize,
-	FieldPtr fld)
-{
-#pragma unused (column, editable)
-
-	UInt16 recordNum;
-	MemHandle recordH;
-	FieldAttrType attr;
-	ToDoDBRecordPtr toDoRec;
-	
-	// Get the record number that corresponds to the table item.
-	// The record number is stored as the row id.
-	recordNum = TblGetRowID (table, row);
-	recordH = DmQueryRecord( Agenda.todoDB, recordNum);
-	ErrFatalDisplayIf ((! recordH), "Record not found");
-	
-	toDoRec = (ToDoDBRecordPtr) MemHandleLock (recordH);
-
-	*textOffset = &toDoRec->description - ((Char *) toDoRec);
-	*textAllocSize = StrLen (&toDoRec->description) + 1;  // one for null terminator
-	*textH = recordH;
-	
-	MemHandleUnlock (recordH);
-
-	// Set the field to support auto-shift.
-	if (fld)
-		{
-		FldGetAttributes (fld, &attr);
-		attr.underlined = false;
-		attr.editable = false;
-		attr.singleLine = true;
-		FldSetAttributes (fld, &attr);
-		}
-
-
-	return (0);
-}
-
-
-/***********************************************************************
- *
- * FUNCTION:    ListViewSaveDescription
- *
- * DESCRIPTION: This routine is called by the table object, as a callback  
- *              routine, when it wants to save a ToDo description.
- *              The description is edit in place (directly in the database 
- *              record),  so we don't need to save it here,  we do however
- *              want to capture the current edit state.
- *
- * PARAMETERS:  table  - pointer to the memo list table (TablePtr)
- *              row    - row of the table to draw
- *              column - column of the table to draw 
- *
- * RETURNED:    true if the table needs to be redrawn
- *
- * REVISION HISTORY:
- *			Name	Date		Description
- *			----	----		-----------
- *			art	2/21/95		Initial Revision
- *
- ***********************************************************************/
-static Boolean		RecordDirty = false;			// true if a record has been modified
-static UInt16		ListEditPosition = 0;		// position of the insertion point in the desc field
-static UInt16		ListEditSelectionLength;	// length of the current selection.
-
-SEC003 static Boolean ListViewSaveDescription (void* table, UInt16 row, UInt16 column)
-{
-#pragma unused (column)
-
-	UInt16 recordNum;
-	UInt16 selectStart;
-	UInt16 selectEnd;
-	Boolean dirty;
-	FieldPtr fld;
-	
-	
-	// Get the record number that corresponds to the table item to save.
-	recordNum = TblGetRowID (table, row);
-
-	// If the description has been modified mark the record dirty, any 
-	// change make to the ToDo's description were written directly
-	// to the ToDo record.
-	fld = TblGetCurrentField (table);
-	dirty = FldDirty (fld);
-	if (dirty)
-		DirtyRecord (Agenda.todoDB, recordNum);
-
-	// Save the dirty state, we're need it if we auto-delete an empty record.
-	RecordDirty = dirty;
-
-	// Check if the top of the description is scroll off the top of the 
-	// field, if it is then redraw the field.
-	if (FldGetScrollPosition (fld))
-		{
-		FldSetSelection (fld, 0, 0);
-		FldSetScrollPosition (fld, 0);
-		ListEditPosition = 0;
-		ListEditSelectionLength = 0;
-		}
-
-	// Save the insertion point position, and length of the selection.  
-	// We'll need the insertion point position an selection length
-	// if we put the table back into edit mode. 
-	else
-		{
-		ListEditPosition = FldGetInsPtPosition (fld);
-		
-		FldGetSelection (fld, &selectStart, &selectEnd);
-		ListEditSelectionLength = selectEnd - selectStart;
-		if (ListEditSelectionLength)
-			ListEditPosition = selectStart;
-		}
-
-	return (false);
 }
 
 
@@ -3623,12 +3336,9 @@ SEC003 static void ListViewDrawCategory (void* table, Int16 row, Int16 column,
 {
 #pragma unused (column)
 
-	Int16 width;
-	Int16 length;
 	UInt16 attr;
 	UInt16 category;
 	UInt16 recordNum;
-	Boolean fits;
 	Char categoryName [dmCategoryLength];
 	FontID curFont;
 
@@ -3711,7 +3421,7 @@ ListViewDrawDesc (
 			UInt8			key[ENC_KEY_BYTES];
 			if (descLen > 63) descLen = 63;
 			DmRecordInfo (Agenda.todoDB, recordNum, NULL, &uid, NULL);
-			if (EncGetKeyHop (key, 1000000000UL))
+			if (EncGetKeyHop (key, Agenda.todoDB))
 				{
 				MemMove (descBuf, b + 4, descLen);
 				if (descLen) EncCryptHop (key, (UInt8*) descBuf, descLen, uid, 0);
@@ -4332,16 +4042,4 @@ SEC003 Err	ToDoAppInfoInit(DmOpenRef dbP)
 
 
 
-SEC003 static void
-CheckDBLeaks (
-	DmOpenRef						inDB )
-{
-	UInt8								highest;
-	UInt32							count;
-	UInt32							busy;
-
-	DmGetDatabaseLockState (inDB, &highest, &count, &busy);
-	ErrNonFatalDisplayIf (highest > 0, "Records left locked");
-	ErrNonFatalDisplayIf (busy > 0, "Records left busy");
-}
 

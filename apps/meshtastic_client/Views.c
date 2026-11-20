@@ -327,6 +327,54 @@ MC_UI void MainConnSync(void)
 	FrmShowObject(frm, ix);
 }
 
+/* The title as it is shown: src (dst may be src) cut to what fits in the title bar - left of the pop-up trigger `trigger` (0 for none), the title's
+ * own padding kept free - with "..." in place of the rest. A longer title would run under the trigger and lose the rounded corner of its box.
+ * FrmSetTitle keeps the pointer it is given, so dst must stay as it is for as long as the form lives. */
+MC_UI void FitTitle(FormPtr frm, UInt16 trigger, const char *src, char *dst, UInt16 size)
+{
+	RectangleType r;
+	Coord maxW = 152;
+	FontID old = FntSetFont(boldFont);
+	UInt16 len;
+	Int16 dots;
+
+	if (trigger) {
+		FrmGetObjectBounds(frm, FrmGetObjectIndex(frm, trigger), &r);
+		maxW = (Coord) (r.topLeft.x - 12);
+	}
+	if (dst != src) StrNCopy(dst, src, size - 1);
+	dst[size - 1] = '\0';
+	len = StrLen(dst);
+	if (FntCharsWidth(dst, len) > maxW) {
+		dots = FntCharsWidth("...", 3);
+		while (len > 0 && (len + 3 >= size || FntCharsWidth(dst, len) + dots > maxW || dst[len - 1] == ' ')) len--;
+		StrCopy(dst + len, "...");
+	}
+	FntSetFont(old);
+}
+
+/* A new title on a form that is on the screen. FrmSetTitle swaps the text but draws neither the title's rounded shape nor clears the old
+ * title, so a shorter title left the end of the longer one showing, in a square box. So the form is drawn again with the drawing clipped to
+ * the title bar (all of it left of the pop-up trigger `trigger`, 0 for none): the system draws its own title, and nothing else changes. */
+MC_UI void RetitleForm(FormPtr frm, UInt16 trigger, const char *title)
+{
+	RectangleType r, oldClip;
+	Coord right = 160;
+
+	FrmSetTitle(frm, (char *) title);
+	if (! FrmVisible(frm)) return;
+	if (trigger) {
+		FrmGetObjectBounds(frm, FrmGetObjectIndex(frm, trigger), &r);
+		right = r.topLeft.x;
+	}
+	RctSetRectangle(&r, 0, 0, right, 14);
+	WinGetClip(&oldClip);
+	WinSetClip(&r);
+	WinEraseRectangle(&r, 0);
+	FrmDrawForm(frm);
+	WinSetClip(&oldClip);
+}
+
 /* Everything the form shows, from the data. */
 static MC_UI void MainFill(void)
 {
@@ -335,8 +383,8 @@ static MC_UI void MainFill(void)
 
 	StatusLine(gInfo, STATUS_PX);
 	ConnLabel(frm);
-	StrCopy(gTitle, gRelay.node[0] ? gRelay.node : "Meshtastic");
-	FrmSetTitle(frm, gTitle);
+	FitTitle(frm, popMainCat, gRelay.node[0] ? gRelay.node : "Meshtastic", gTitle, sizeof(gTitle));
+	RetitleForm(frm, popMainCat, gTitle);
 	SetPopup(popMainCat, lstMainCat, gCat, gCatLabel, sizeof(gCatLabel));
 	SetFieldPtr(fldMainInfo, gInfo);
 	BuildView();
@@ -695,6 +743,7 @@ MC_UI Boolean NodeHandleEvent(EventPtr e)
 		NodeInfoFill();
 		StrCopy(gNodeTitle, gCard.longName);
 		FlatName(gNodeTitle);
+		FitTitle(frm, 0, gNodeTitle, gNodeTitle, sizeof(gNodeTitle));
 		FrmSetTitle(frm, gNodeTitle);
 		FrmSetGadgetHandler(frm, FrmGetObjectIndex(frm, gadNodeLine), LineGadget);
 		gNiTop = 0;

@@ -20,13 +20,13 @@ BEGIN
 							COLUMNWIDTHS 152
 	SCROLLBAR				ID sclMainScroll	AT (153 16 7 128)
 							VALUE 0 MIN 0 MAX 0 PAGESIZE 11
-	BUTTON "New"			ID btnMainNew		AT (1 146 26 12)
+	BUTTON "New"			ID btnMainNew		AT (1 147 26 12)
 	/* Find bar: [New] __field__ [Cancel].  Filters live as every keystroke fires
 	 * fldChangedEvent (MainFormHandleEvent) -- no separate Find button needed, same
 	 * idiom as Datebook35's location pickers. No graffiti indicator on this field, so
 	 * Cancel sits flush right (1px margin); the field fills the freed Find space. */
 	FIELD	ID fldMainFind	AT (32 146 90 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 38
-	BUTTON "Clear"			ID btnMainCancel	AT (126 146 33 12)
+	BUTTON "Clear"			ID btnMainCancel	AT (126 147 33 12)
 END
 
 MENU ID mnuMain
@@ -116,9 +116,9 @@ BEGIN
 							VALUE 0 MIN 0 MAX 0 PAGESIZE 8
 	BUTTON "Done"		ID btnEditDone		AT (1 147 26 12)
 	BUTTON "Delete"		ID btnEditDelete	AT (PrevRight+4 147 30 12)
-	BUTTON "+ Field"	ID btnEditAddField	AT (PrevRight+4 147 40 12)
-	BUTTON "- Field"	ID btnEditDelField	AT (PrevRight+4 147 40 12)
-	GRAFFITISTATEINDICATOR					AT (151 149)
+	BUTTON "+ Field"	ID btnEditAddField	AT (PrevRight+4 147 37 12)
+	BUTTON "- Field"	ID btnEditDelField	AT (PrevRight+4 147 37 12)
+	GRAFFITISTATEINDICATOR					AT (148 148)
 END
 
 MENU ID mnuEdit
@@ -157,8 +157,8 @@ BEGIN
 							COLUMNWIDTHS 152
 	SCROLLBAR				ID sclRecord	AT (153 16 7 128)
 							VALUE 0 MIN 0 MAX 0 PAGESIZE 11
-	BUTTON "Done"		ID btnRecordDone	AT (1 146 28 12)
-	BUTTON "Edit"		ID btnRecordEdit	AT (PrevRight+4 146 28 12)
+	BUTTON "Done"		ID btnRecordDone	AT (1 147 28 12)
+	BUTTON "Edit"		ID btnRecordEdit	AT (PrevRight+4 147 28 12)
 END
 
 MENU ID mnuRecord
@@ -167,7 +167,7 @@ BEGIN
 	BEGIN
 		MENUITEM "Set as me..."			ID mniRecordSetMe	"M"
 		MENUITEM "Edit Contact"			ID mniRecordEdit	"E"
-		MENUITEM "Duplicate Contact"	ID mniRecordDuplicate	"P"
+		MENUITEM "Duplicate Contact"	ID mniRecordDuplicate
 		MENUITEM "Delete Contact..."	ID mniRecordDelete	"D"
 		MENUITEM "Beam Contact"			ID mniRecordBeam	"B"
 	END
@@ -184,10 +184,10 @@ FORM ID frmRecField AT (0 0 160 160)
 	MENUID mnuRecField
 BEGIN
 	TITLE "Field"
-	FIELD ID fldRecField AT (4 17 142 118) NONEDITABLE MULTIPLELINES
-	SCROLLBAR ID sclRecField AT (149 17 7 118) VALUE 0 MIN 0 MAX 0 PAGESIZE 8
-	BUTTON "Done" ID btnRecFieldDone AT (4 143 36 12)
-	BUTTON "Copy" ID btnRecFieldCopy AT (46 143 40 12)
+	FIELD ID fldRecField AT (4 17 142 122) NONEDITABLE MULTIPLELINES
+	SCROLLBAR ID sclRecField AT (149 17 7 122) VALUE 0 MIN 0 MAX 0 PAGESIZE 8
+	BUTTON "Done" ID btnRecFieldDone AT (1 147 36 12)
+	BUTTON "Copy" ID btnRecFieldCopy AT (41 147 40 12)
 END
 
 MENU ID mnuRecField
@@ -220,20 +220,20 @@ END
 FORM ID frmDelField AT (0 0 160 160) MODAL
 BEGIN
 	TITLE "Remove Fields"
-	CHECKBOX ""		ID 1610		AT (4 16 148 12)
+	CHECKBOX ""		ID 1610		AT (4 17 148 12)
 	CHECKBOX ""		ID 1611		AT (4 29 148 12)
-	CHECKBOX ""		ID 1612		AT (4 42 148 12)
-	CHECKBOX ""		ID 1613		AT (4 55 148 12)
-	CHECKBOX ""		ID 1614		AT (4 68 148 12)
-	CHECKBOX ""		ID 1615		AT (4 81 148 12)
-	CHECKBOX ""		ID 1616		AT (4 94 148 12)
-	CHECKBOX ""		ID 1617		AT (4 107 148 12)
-	CHECKBOX ""		ID 1618		AT (4 120 148 12)
-	CHECKBOX ""		ID 1619		AT (4 133 148 12)
+	CHECKBOX ""		ID 1612		AT (4 41 148 12)
+	CHECKBOX ""		ID 1613		AT (4 53 148 12)
+	CHECKBOX ""		ID 1614		AT (4 65 148 12)
+	CHECKBOX ""		ID 1615		AT (4 77 148 12)
+	CHECKBOX ""		ID 1616		AT (4 89 148 12)
+	CHECKBOX ""		ID 1617		AT (4 101 148 12)
+	CHECKBOX ""		ID 1618		AT (4 113 148 12)
+	CHECKBOX ""		ID 1619		AT (4 125 148 12)
 	SCROLLBAR		ID sclDelField	AT (153 16 7 130)
 					VALUE 0 MIN 0 MAX 0 PAGESIZE 10
-	BUTTON "OK"			ID btnDelFieldOK	AT (4 146 40 12)
-	BUTTON "Cancel"		ID btnDelFieldCancel AT (48 146 44 12)
+	BUTTON "OK"			ID btnDelFieldOK	AT (1 147 37 12)
+	BUTTON "Cancel"		ID btnDelFieldCancel AT (42 147 37 12)
 END
 
 /* ---- shared searchable list picker ------------------------------------- *
@@ -244,10 +244,9 @@ FORM ID frmPick AT (2 2 156 156) MODAL
 BEGIN
 	TITLE "Select"
 	LIST ""				ID lstPick			AT (2 16 152 121) VISIBLEITEMS 11
-	LABEL "Find:"		ID lblPickFind		AT (2 144) FONT 1
-	FIELD	ID fldPickFind		AT (26 143 84 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 40
-	BUTTON "Cancel"		ID btnPickCancel	AT (113 141 30 12)
-	GRAFFITISTATEINDICATOR					AT (146 142)
+	LABEL "Find:"		ID lblPickFind		AT (2 141) FONT 1
+	FIELD	ID fldPickFind		AT (26 141 88 11) EDITABLE UNDERLINED SINGLELINE MAXCHARS 40
+	BUTTON "Cancel"		ID btnPickCancel	AT (117 141 37 12)
 END
 
 /* ---- Phone Lookup (Lookup.c): small picker over the calling app ------- *
@@ -267,10 +266,10 @@ BEGIN
 	LIST ""				ID lstLookup		AT (4 15 150 110) VISIBLEITEMS 10
 	LABEL "Find:"		ID lblLookupFind	AT (5 128) FONT 1
 	FIELD	ID fldLookupFind	AT (31 127 84 12) NONEDITABLE UNDERLINED SINGLELINE MAXCHARS 24
-	BUTTON "Paste"		ID btnLookupPaste	AT (5 143 36 12)
-	BUTTON "Cancel"		ID btnLookupCancel	AT (45 143 38 12)
+	BUTTON "Paste"		ID btnLookupPaste	AT (1 147 37 12)
+	BUTTON "Cancel"		ID btnLookupCancel	AT (42 147 37 12)
 	/* which address book: Local or one CardDAV / iCloud book (same row and height as Cancel) */
-	POPUPTRIGGER ""		ID popLookupSrc		AT (87 143 69 12) LEFTANCHOR
+	POPUPTRIGGER ""		ID popLookupSrc		AT (90 147 69 12) LEFTANCHOR
 	LIST "1" "2" "3" "4" "5" "6" "7" "8" "9" ID lstLookupSrc AT (87 143 69 99) VISIBLEITEMS 9 NONUSABLE
 	POPUPLIST ID popLookupSrc lstLookupSrc
 	/* step 2: the picked contact's phones/emails/social handles (LstPopupList) */
@@ -292,80 +291,80 @@ END
  * Vertical layout: buttons sit 4px above the form bottom (kept a bit more
  * generous than the literal 2px spec, in case some border/shadow eats into
  * the declared height - flag if it still doesn't look bottom-aligned). */
-FORM ID frmEmailDlg AT (2 58 156 100) MODAL
+FORM ID frmEmailDlg AT (2 53 156 105) MODAL
 	MENUID mnuDlgEdit
 BEGIN
 	TITLE "Email Address"
 
-	LABEL "Label:"				ID lblEmailLabel	AT (6 16)
-	POPUPTRIGGER "Home"			ID popEmailLabel	AT (36 16 60 12) LEFTANCHOR
+	LABEL "Label:"				ID lblEmailLabel	AT (6 21)
+	POPUPTRIGGER "Home"			ID popEmailLabel	AT (36 20 60 12) LEFTANCHOR
 	LIST "Home" "Work" "iCloud" "Other" ID lstEmailLabel AT (36 16 60 48) VISIBLEITEMS 4 NONUSABLE
 	POPUPLIST					ID popEmailLabel lstEmailLabel
 
-	FIELD	ID fldEmailUser		AT (6 30 112 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 80
-	LABEL "@"					ID lblEmailAt		AT (122 30)
+	FIELD	ID fldEmailUser		AT (6 36 112 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 80
+	LABEL "@"					ID lblEmailAt		AT (122 36)
 
-	POPUPTRIGGER "gmail.com"	ID popEmailDomain	AT (20 45 124 12) LEFTANCHOR
+	POPUPTRIGGER "gmail.com"	ID popEmailDomain	AT (20 52 124 12) LEFTANCHOR
 	LIST "gmail.com" "mac.com" "icloud.com" "outlook.com" "yahoo.com" "hotmail.com" "proton.me" "protonmail.com" "fastmail.com" ID lstEmailDomain AT (20 45 124 90) VISIBLEITEMS 9 NONUSABLE
 	POPUPLIST					ID popEmailDomain lstEmailDomain
 
-	CHECKBOX ""					ID cbEmailOther		AT (21 59 12 12)
-	LABEL "Other"				ID lblEmailOther	AT (36 59)
-	FIELD	ID fldEmailCustom	AT (36 59 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 60 NONUSABLE
+	CHECKBOX ""					ID cbEmailOther		AT (21 68 12 12)
+	LABEL "Other"				ID lblEmailOther	AT (36 68)
+	FIELD	ID fldEmailCustom	AT (36 68 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 60 NONUSABLE
 
-	BUTTON "OK"			ID btnEmailOK		AT (6 84 40 12)
-	BUTTON "Cancel"		ID btnEmailCancel	AT (52 84 44 12)
-	GRAFFITISTATEINDICATOR					AT (138 84)
+	BUTTON "OK"			ID btnEmailOK		AT (5 88 37 12)
+	BUTTON "Cancel"		ID btnEmailCancel	AT (48 88 37 12)
+	GRAFFITISTATEINDICATOR					AT (143 89)
 END
 
 
 /* ---- Address value dialog (structured; Country = searchable picker) ---- */
-FORM ID frmAddrDlg AT (2 2 156 156) MODAL
+FORM ID frmAddrDlg AT (2 6 156 152) MODAL
 	MENUID mnuDlgEdit
 BEGIN
 	TITLE "Edit Address"
-	LABEL "Line 1:"		ID 1550	AT (4 18) FONT 1
-	FIELD	ID fldAddrLine1	AT (44 18 108 22) EDITABLE UNDERLINED MULTIPLELINES MAXCHARS 60
-	LABEL "Line 2:"		ID 1551	AT (4 42) FONT 1
-	FIELD	ID fldAddrLine2	AT (44 42 108 22) EDITABLE UNDERLINED MULTIPLELINES MAXCHARS 60
-	LABEL "Apt:"			ID 1552	AT (4 68) FONT 1
-	FIELD	ID fldAddrApt	AT (44 68 50 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 20
-	LABEL "City:"		ID 1553	AT (4 84) FONT 1
-	FIELD	ID fldAddrCity	AT (44 84 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 40
+	LABEL "Line 1:"		ID 1550	AT (4 20) FONT 1
+	FIELD	ID fldAddrLine1	AT (44 20 108 22) EDITABLE UNDERLINED MULTIPLELINES MAXCHARS 60
+	LABEL "Line 2:"		ID 1551	AT (4 45) FONT 1
+	FIELD	ID fldAddrLine2	AT (44 45 108 22) EDITABLE UNDERLINED MULTIPLELINES MAXCHARS 60
+	LABEL "Apt:"			ID 1552	AT (4 70) FONT 1
+	FIELD	ID fldAddrApt	AT (44 70 50 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 20
+	LABEL "City:"		ID 1553	AT (4 85) FONT 1
+	FIELD	ID fldAddrCity	AT (44 85 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 40
 	LABEL "State:"		ID 1554	AT (4 100) FONT 1
 	FIELD	ID fldAddrState	AT (44 100 42 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 20
 	LABEL "Zip:"			ID 1555	AT (90 100) FONT 1
 	FIELD	ID fldAddrZip	AT (114 100 38 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 16
-	LABEL "Country:"		ID 1556	AT (4 116) FONT 1
-	POPUPTRIGGER "(None)"	ID popAddrCountry	AT (50 116 108 12) LEFTANCHOR
-	BUTTON "OK"			ID btnAddrOK		AT (4 136 40 13)
-	BUTTON "Cancel"		ID btnAddrCancel	AT (48 136 44 13)
-	GRAFFITISTATEINDICATOR					AT (144 138)
+	LABEL "Country:"		ID 1556	AT (4 115) FONT 1
+	POPUPTRIGGER "(None)"	ID popAddrCountry	AT (50 115 102 12) LEFTANCHOR
+	BUTTON "OK"			ID btnAddrOK		AT (5 135 37 12)
+	BUTTON "Cancel"		ID btnAddrCancel	AT (48 135 37 12)
+	GRAFFITISTATEINDICATOR					AT (143 136)
 END
 
 FORM ID frmNoteDlg AT (0 0 160 160) MODAL
 	MENUID mnuDlgEdit
 BEGIN
 	TITLE "Note"
-	FIELD	ID fldNoteText	AT (2 17 150 124) EDITABLE UNDERLINED MULTIPLELINES
+	FIELD	ID fldNoteText	AT (2 17 150 122) EDITABLE UNDERLINED MULTIPLELINES
 			MAXCHARS 2000 HASSCROLLBAR
-	SCROLLBAR				ID sclNote	AT (154 17 7 124) VALUE 0 MIN 0 MAX 0 PAGESIZE 10
-	BUTTON "Done"		ID btnNoteDone		AT (2 145 40 12)
-	BUTTON "Cancel"		ID btnNoteCancel	AT (46 145 44 12)
-	GRAFFITISTATEINDICATOR					AT (150 147)
+	SCROLLBAR				ID sclNote	AT (154 17 7 122) VALUE 0 MIN 0 MAX 0 PAGESIZE 10
+	BUTTON "Done"		ID btnNoteDone		AT (1 147 37 12)
+	BUTTON "Cancel"		ID btnNoteCancel	AT (42 147 37 12)
+	GRAFFITISTATEINDICATOR					AT (148 148)
 END
 
-FORM ID frmPhoneDlg AT (2 76 156 82) MODAL
+FORM ID frmPhoneDlg AT (2 85 156 73) MODAL
 	MENUID mnuDlgEdit
 BEGIN
 	TITLE "Phone Number"
-	LABEL "Country:"		ID lblPhoneCountry	AT (6 22) FONT 1
-	SELECTORTRIGGER "Select Dial Code"	ID selPhoneDial	AT (54 23 90 12)
-	LABEL "Number:"			ID lblPhoneNumber	AT (6 40) FONT 1
-	FIELD	ID fldPhoneNumber	AT (54 40 90 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 40
-	BUTTON "OK"			ID btnPhoneOK		AT (6 65 40 12)
-	BUTTON "Cancel"		ID btnPhoneCancel	AT (52 65 44 12)
-	GRAFFITISTATEINDICATOR					AT (138 67)
+	LABEL "Country:"		ID lblPhoneCountry	AT (6 20) FONT 1
+	SELECTORTRIGGER "Select Dial Code"	ID selPhoneDial	AT (54 20 90 12)
+	LABEL "Number:"			ID lblPhoneNumber	AT (6 36) FONT 1
+	FIELD	ID fldPhoneNumber	AT (54 36 90 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 40
+	BUTTON "OK"			ID btnPhoneOK		AT (5 56 37 12)
+	BUTTON "Cancel"		ID btnPhoneCancel	AT (48 56 37 12)
+	GRAFFITISTATEINDICATOR					AT (143 57)
 END
 
 /* Progress dialog with a real bar ("Processing vCard...", "Importing...") -
@@ -385,33 +384,33 @@ END
  * the 160px screen bottom, not vertically centered) - AT's y = 158 - h.
  * Buttons sit 4px above the form's own base (h=80, buttons at y=64,
  * 64+12=76, 80-76=4); checkbox row 4px above the buttons. */
-FORM ID frmDupFile AT (2 78 156 80) MODAL
+FORM ID frmDupFile AT (2 73 156 85) MODAL
 BEGIN
 	TITLE "Duplicate File"
-	LABEL "Same filename already"		ID lblDupMsg1		AT (6 18) FONT 1
-	LABEL "exists. What should I do?"	ID lblDupMsg2		AT (6 30) FONT 1
+	LABEL "Same filename already"		ID lblDupMsg1		AT (6 20) FONT 1
+	LABEL "exists. What should I do?"	ID lblDupMsg2		AT (6 32) FONT 1
 	CHECKBOX ""				ID cbDupApplyAll	AT (6 48 12 12)
 	LABEL "Apply to all"			ID lblDupApplyAll	AT (22 48) FONT 1
-	BUTTON "Replace"	ID btnDupReplace	AT (4 64 46 12)
-	BUTTON "Keep Both"	ID btnDupKeepBoth	AT (54 64 50 12)
-	BUTTON "Cancel"		ID btnDupCancel		AT (108 64 44 12)
+	BUTTON "Replace"	ID btnDupReplace	AT (5 68 46 12)
+	BUTTON "Keep Both"	ID btnDupKeepBoth	AT (57 68 50 12)
+	BUTTON "Cancel"		ID btnDupCancel		AT (113 68 38 12)
 END
 
 /* ---- Social value dialog (handle + platform popup + Other) ------------- */
-FORM ID frmSocialDlg AT (2 66 156 92) MODAL
+FORM ID frmSocialDlg AT (2 69 156 89) MODAL
 	MENUID mnuDlgEdit
 BEGIN
 	TITLE "Social Profile"
-	FIELD	ID fldSocialHandle	AT (6 22 138 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 80
-	POPUPTRIGGER "Instagram"	ID popSocialNet		AT (20 40 124 12) LEFTANCHOR
+	FIELD	ID fldSocialHandle	AT (6 20 138 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 80
+	POPUPTRIGGER "Instagram"	ID popSocialNet		AT (20 36 124 12) LEFTANCHOR
 	LIST "Instagram" "Facebook" "WhatsApp" "X" "Telegram" "Signal" ID lstSocialNet AT (20 40 124 80) VISIBLEITEMS 6 NONUSABLE
 	POPUPLIST					ID popSocialNet lstSocialNet
-	CHECKBOX ""					ID cbSocialOther	AT (21 56 12 12)
-	LABEL "Other"				ID lblSocialOther	AT (36 56)
-	FIELD	ID fldSocialCustom	AT (36 56 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 40 NONUSABLE
-	BUTTON "OK"			ID btnSocialOK		AT (6 74 40 12)
-	BUTTON "Cancel"		ID btnSocialCancel	AT (52 74 44 12)
-	GRAFFITISTATEINDICATOR					AT (138 77)
+	CHECKBOX ""					ID cbSocialOther	AT (21 52 12 12)
+	LABEL "Other"				ID lblSocialOther	AT (36 52)
+	FIELD	ID fldSocialCustom	AT (36 52 108 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 40 NONUSABLE
+	BUTTON "OK"			ID btnSocialOK		AT (5 72 37 12)
+	BUTTON "Cancel"		ID btnSocialCancel	AT (48 72 37 12)
+	GRAFFITISTATEINDICATOR					AT (143 73)
 END
 
 /* ---- Date value dialog (Birthday / Anniversary): any-year entry -------- *
@@ -451,24 +450,24 @@ BEGIN
 	/* Unknown-year checkbox on its own row (box + label). */
 	CHECKBOX ""			ID cbDateNoYear	AT (44 93 12 12)
 	LABEL "Unknown"			ID lblDateUnknown	AT (58 94)
-	BUTTON "OK"			ID btnDateOK		AT (6 110 40 12)
-	BUTTON "Cancel"		ID btnDateCancel	AT (52 110 44 12)
-	GRAFFITISTATEINDICATOR					AT (142 112)
+	BUTTON "OK"			ID btnDateOK		AT (5 110 37 12)
+	BUTTON "Cancel"		ID btnDateCancel	AT (48 110 37 12)
+	GRAFFITISTATEINDICATOR					AT (143 112)
 END
 
 /* ---- Relation dialog: link this record to another contact -------------- */
-FORM ID frmRelDlg AT (2 66 156 92) MODAL
+FORM ID frmRelDlg AT (2 69 156 89) MODAL
 	MENUID mnuDlgEdit
 BEGIN
 	TITLE "Relationship"
 	LABEL "Type:"			ID lblRelType	AT (6 21) FONT 1
-	POPUPTRIGGER "Spouse"	ID popRelType	AT (40 20 100 13) LEFTANCHOR
+	POPUPTRIGGER "Spouse"	ID popRelType	AT (40 20 100 12) LEFTANCHOR
 	LIST "Spouse" "Partner" "Child" "Parent" "Sibling" "Assistant" "Manager" "Friend" "Other" ID lstRelType AT (40 20 100 117) VISIBLEITEMS 9 NONUSABLE
 	POPUPLIST				ID popRelType lstRelType
-	LABEL "Contact:"		ID lblRelContact	AT (6 34) FONT 1
-	BUTTON "Pick a contact\205"	ID btnRelPick	AT (6 49 144 13)
-	BUTTON "OK"			ID btnRelOK		AT (6 76 40 12)
-	BUTTON "Cancel"		ID btnRelCancel	AT (52 76 44 12)
+	LABEL "Contact:"		ID lblRelContact	AT (6 36) FONT 1
+	BUTTON "Pick a contact\205"	ID btnRelPick	AT (5 52 146 12)
+	BUTTON "OK"			ID btnRelOK		AT (5 72 37 12)
+	BUTTON "Cancel"		ID btnRelCancel	AT (48 72 37 12)
 END
 
 /* ---- Contact picker: searchable contact list for relationships --------- *
@@ -478,50 +477,49 @@ FORM ID frmContactPick AT (2 2 156 156) MODAL
 BEGIN
 	TITLE "Pick a Contact"
 	LIST ""				ID lstContactPick	AT (2 16 152 121) VISIBLEITEMS 11
-	LABEL "Find:"		ID lblContactFind	AT (2 144) FONT 1
-	FIELD	ID fldContactFind	AT (26 143 86 12) EDITABLE UNDERLINED SINGLELINE MAXCHARS 30
-	BUTTON "Cancel"		ID btnContactCancel	AT (117 141 30 12)
-	GRAFFITISTATEINDICATOR					AT (148 145)
+	LABEL "Find:"		ID lblContactFind	AT (2 141) FONT 1
+	FIELD	ID fldContactFind	AT (26 141 88 11) EDITABLE UNDERLINED SINGLELINE MAXCHARS 30
+	BUTTON "Cancel"		ID btnContactCancel	AT (117 141 37 12)
 END
 
 /* ---- Preferences form -------------------------------------------------- */
-FORM ID frmPrefs AT (2 20 156 138) MODAL
+FORM ID frmPrefs AT (2 21 156 137) MODAL
 BEGIN
 	TITLE "Preferences"
-	LABEL "Name Label:"	ID 1310 AT (9 18) FONT 1
-	POPUPTRIGGER "Surname"		ID popPrefsSurname	AT (72 17 62 13) LEFTANCHOR
+	LABEL "Name Label:"	ID 1310 AT (9 21) FONT 1
+	POPUPTRIGGER "Surname"		ID popPrefsSurname	AT (72 20 62 13) LEFTANCHOR
 	LIST "Surname" "Last Name" "Family Name" ID lstPrefsSurname
 								AT (72 17 62 40) VISIBLEITEMS 3 NONUSABLE
 	POPUPLIST					ID popPrefsSurname lstPrefsSurname
 
-	LABEL "Sort Order By:"		ID 1311 AT (9 36) FONT 1
-	LABEL "Primary:"			ID 1312 AT (20 50)
-	POPUPTRIGGER "Last Name"	ID popPrefsPrimary	AT (72 49 70 13) LEFTANCHOR
+	LABEL "Sort Order By:"		ID 1311 AT (9 38) FONT 1
+	LABEL "Primary:"			ID 1312 AT (20 53)
+	POPUPTRIGGER "Last Name"	ID popPrefsPrimary	AT (72 52 70 13) LEFTANCHOR
 	LIST "Last Name" "First Name" "Company" ID lstPrefsPrimary
 								AT (72 49 70 40) VISIBLEITEMS 3 NONUSABLE
 	POPUPLIST					ID popPrefsPrimary lstPrefsPrimary
-	LABEL "Secondary:"			ID 1313 AT (20 66)
-	POPUPTRIGGER "First Name"	ID popPrefsSecondary AT (72 65 70 13) LEFTANCHOR
+	LABEL "Secondary:"			ID 1313 AT (20 69)
+	POPUPTRIGGER "First Name"	ID popPrefsSecondary AT (72 68 70 13) LEFTANCHOR
 	LIST "Last Name" "First Name" "Company" ID lstPrefsSecondary
 								AT (72 65 70 40) VISIBLEITEMS 3 NONUSABLE
 	POPUPLIST					ID popPrefsSecondary lstPrefsSecondary
 
-	LABEL "Display:"			ID lblPrefsDisplay AT (9 84) FONT 1
+	LABEL "Display:"			ID lblPrefsDisplay AT (9 86) FONT 1
 	CHECKBOX "Show Hidden"		ID cbPrefsShowHidden AT (20 100 90 12)
 
-	BUTTON "OK"			ID btnPrefsOK		AT (10 118 40 12)
-	BUTTON "Cancel"		ID btnPrefsCancel	AT (PrevRight+6 118 40 12)
+	BUTTON "OK"			ID btnPrefsOK		AT (5 120 37 12)
+	BUTTON "Cancel"		ID btnPrefsCancel	AT (48 120 37 12)
 END
 
 /* ---- About form -------------------------------------------------------- */
-FORM ID frmAbout AT (2 50 156 108) MODAL
+FORM ID frmAbout AT (2 60 156 98) MODAL
 BEGIN
 	TITLE "About Address35"
-	LABEL "Address35 v1.0"						ID 1410 AT (CENTER 22) FONT 1
-	LABEL "Modern era-aware address book."		ID 1411 AT (8 40) FONT 0
-	LABEL "Multiple fields, tags, relations,"	ID 1412 AT (8 54) FONT 0
-	LABEL "birthdays, vCard 3.0/4.0."			ID 1413 AT (8 66) FONT 0
-	BUTTON "OK"				ID btnAboutOK		AT (CENTER 88 40 12)
+	LABEL "Address35 v1.0"						ID 1410 AT (CENTER 20) FONT 1
+	LABEL "Modern era-aware address book."		ID 1411 AT (8 38) FONT 0
+	LABEL "Multiple fields, tags, relations,"	ID 1412 AT (8 50) FONT 0
+	LABEL "birthdays, vCard 3.0/4.0."			ID 1413 AT (8 62) FONT 0
+	BUTTON "OK"				ID btnAboutOK		AT (CENTER 81 37 12)
 END
 
 /* ---- alerts ------------------------------------------------------------ */
@@ -539,14 +537,6 @@ BEGIN
 	TITLE "Era plugin not active"
 	MESSAGE "The HackMaster Y2K35 plugin is not enabled. Address35 still works, " \
 		"but birthday ages and Datebook35 Agenda integration need it."
-	BUTTONS "OK"
-END
-
-ALERT ID altNotYet
-INFORMATION
-BEGIN
-	TITLE "Coming soon"
-	MESSAGE "This feature isn't implemented in this build yet."
 	BUTTONS "OK"
 END
 
@@ -616,7 +606,7 @@ END
 
 /* Options > CardDAV...: which book the list shows, and a way to CalDAV Sync.
  * The list gets "Local" and each contacts slot's "iCloud - Alias" at run time. */
-FORM ID frmDav AT (2 62 156 96)
+FORM ID frmDav AT (2 60 156 98)
 FRAME MODAL SAVEBEHIND
 BEGIN
 	TITLE "CardDAV"
@@ -626,20 +616,13 @@ BEGIN
 	LIST "1" "2" "3" "4" "5" "6" "7" "8" "9" ID lstDavShow AT (42 16 110 99) VISIBLEITEMS 9 NONUSABLE
 	POPUPLIST ID popDavShow lstDavShow
 
-	LABEL "Synced contacts are read-only here." AUTOID AT (4 42) FONT 0
-	LABEL "Use Import to copy one to Address35." AUTOID AT (4 53) FONT 0
+	LABEL "Synced contacts are read-only" AUTOID AT (6 38) FONT 0
+	LABEL "here. Use Import to copy one to" AUTOID AT (6 50) FONT 0
+	LABEL "Address35." AUTOID AT (6 62) FONT 0
 
-	BUTTON "OK"		ID btnDavOK		AT (4 78 36 14)
-	BUTTON "Cancel"	ID btnDavCancel	AT (44 78 44 14)
-	BUTTON "Sync..."	ID btnDavSync	AT (116 78 36 14)
-END
-
-ALERT ID altCardEmpty
-INFORMATION
-BEGIN
-	TITLE "Browse Card"
-	MESSAGE "No vCards found under /Address/. Put .vcf files there to browse them."
-	BUTTONS "OK"
+	BUTTON "OK"		ID btnDavOK		AT (5 81 37 12)
+	BUTTON "Cancel"	ID btnDavCancel	AT (48 81 37 12)
+	BUTTON "Sync..."	ID btnDavSync	AT (114 81 37 12)
 END
 
 ALERT ID altSetMe

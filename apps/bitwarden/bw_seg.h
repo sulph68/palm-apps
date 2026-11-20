@@ -44,4 +44,16 @@
  * store hot paths, and enccore.h's own sects.h default (empty) already
  * matches that with zero extra plumbing - no override needed here. */
 
+/* (2026-11) enccore.c itself moved to sec001 too: main overflowed by a few
+ * bytes once the per-store key changes landed. Main's EncCrypt/EncCryptFast
+ * calls become jump-table calls (cheap); AES (aes.c) stays in main. */
+#define ENCCORE_SECTION SEC001
+
+/* Per-store keys (enccore.c's EncGetStoreKey & co.) and the rekey record loop
+ * (encrekey.c), added 2026-11: main has no room, and they are only reached
+ * from foreground code with globals (never a no-globals sublaunch). No 32-bit
+ * multiply/divide in them (libgcc rule above). */
+#define ENCSTORE_SECTION SEC001
+#define ENCREKEY_SECTION SEC001
+
 #endif

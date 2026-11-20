@@ -518,3 +518,10 @@ small "Phone Number Lookup" picker (contact, then that contact's phones / emails
 handles) and pastes "Name - value"; full design and gotchas in
 `Address35.md` §10. The helper lives in sec002 here (`A35LK_SECTION` in `Src/td35_seg.h`);
 main grew 8 bytes.
+
+## 13. UI round (2026-11-18)
+
+- **Duplicate Item:** 8 px clear above and below the question (the message stays at y=18 in code), buttons moved up, dialog 15 px shorter, bottom-anchored.
+- **About:** Address35's About layout (short dialog, name centred, 37 px OK).
+- Everything else already matched the ROM To Do; Details is left as it was.
+- **Graffiti indicator:** its middle lines up with the buttons' middle (y = button y + 1 for 12 px buttons). Full-screen forms put it 4 px from the screen's right edge (x=148), dialogs 5 px from the frame like the buttons (x=143); it keeps 4 px clear of anything to its right and at least 4 px from the item on its left. The glyph is 8 px wide in every state. On the list it sits at x=136, 4 px clear of the scroll arrows.

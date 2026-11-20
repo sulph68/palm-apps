@@ -116,4 +116,18 @@ void    LocSummary (const DlxLocation* loc, char* out, UInt16 outLen) LOC_SEC;
 /* True iff every field of 'loc' is empty (used to detect "location cleared"). */
 Boolean LocIsBlank (const DlxLocation* loc) LOC_SEC;
 
+/* ---- Sec35 encryption (see locdb.c's header comment) ---- */
+/* Encrypt 'loc' in place with the store's key; false (unchanged) if locked. */
+Boolean LocEncrypt (DmOpenRef db, UInt32 storeId, DlxLocation* loc,
+                    UInt32 nonceHi, UInt32 nonceLo) LOC_SEC;
+/* Decrypt in place, or mask (name "******") when Sec35 is locked. */
+void    LocDecryptOrMask (DmOpenRef db, UInt32 storeId, DlxLocation* loc,
+                          UInt32 nonceHi, UInt32 nonceLo) LOC_SEC;
+/* Encrypt every plaintext record of both databases (no-op when locked);
+ * called with the appointments' seal at launch and on close. */
+void    LocSealAll (void) LOC_SEC;
+/* kSecLaunchRekey for both databases (ordinals 1 and 2 after the appointments). */
+struct EncRekeyParamTag;
+UInt16  LocRekey (const struct EncRekeyParamTag* p, UInt32 ckptCreator) LOC_SEC;
+
 #endif /* LOCDB_H */

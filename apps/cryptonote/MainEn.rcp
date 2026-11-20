@@ -31,13 +31,6 @@ BEGIN
 	BUTTON "Clear"			ID btnMainClear		AT (126 147 33 12)
 END
 
-FORM ID frmProgressForm AT (2 78 156 80)
-FRAME MODAL
-BEGIN
-	TITLE "Progress"
-	GADGET 					ID gadProgressMessage AT (10 25 140 15)
-	GADGET 					ID gadProgressBar AT (10 52 140 7)
-END
 
 FORM ID frmEditForm AT (0 0 160 160)
 NOFRAME
@@ -64,32 +57,97 @@ BEGIN
 	FIELD					ID fldEditText       AT (0 16 153 125)
 							MULTIPLELINES UNDERLINED HASSCROLLBAR
 							AUTOSHIFT MAXCHARS 65000
-	LABEL ">4k"				ID lblEditMaxSize	AT (145 148 ) FONT 0 NONUSABLE
+	LABEL ">4k"				ID lblEditMaxSize	AT (128 147) FONT 0 NONUSABLE
 	SCROLLBAR				ID sclEditScrollBar  AT (153 18 7 122)
 							VALUE 0 MIN 0 MAX 10 PAGESIZE 10
 	BUTTON "Done"			ID btnEditTerminate  AT (1 147 30 12)
-	BUTTON "Details"		ID btnEditDetails    AT (PrevRight+6 PrevTop 34 12)
-	GRAFFITISTATEINDICATOR	                     AT (135 PrevTop)
+	BUTTON "Details"		ID btnEditDetails    AT (35 147 34 12)
+	GRAFFITISTATEINDICATOR	                     AT (148 148)
 END
 
 STRING ID	strEditTitleMemo "Memo # of "
 
-FORM ID frmDetailsForm AT (2 86 156 72)
+FORM ID frmDetailsForm AT (2 2 156 156)
 FRAME MODAL
 HELPID strDetailsHelpString
 BEGIN
 	TITLE "Memo Details"
-	LABEL "Category:"		AUTOID				AT (5 18) FONT 1
-	POPUPTRIGGER ""			ID popDetailsCategory AT (57 PrevTop 70 13)
+	/* Full-screen layout approved 2026-11-19 (apps/cryptonote_secondary_db.md):
+	 * six rows on a 17 px pitch, one blank row above the buttons; bold labels
+	 * end at x 64, values start at x 67. */
+	LABEL "Category:"		AUTOID				AT (15 19) FONT 1
+	POPUPTRIGGER ""			ID popDetailsCategory AT (67 19 70 13)
 							LEFTANCHOR
-	LIST ""					ID lstDetailsCategory   AT (57 18 76 1)
+	LIST ""					ID lstDetailsCategory   AT (67 17 76 1)
 							VISIBLEITEMS 5 NONUSABLE
 	POPUPLIST				ID popDetailsCategory lstDetailsCategory
-	LABEL "Private:"		AUTOID              AT (13 32) FONT 1
-	CHECKBOX ""				ID chkDetailsPrivate AT (58 PrevTop AUTO AUTO)
-	BUTTON "OK"				ID btnDetailsOK		AT (6 54 38 AUTO)
-	BUTTON "Cancel"			ID btnDetailsCancel	AT (PrevRight+6 PrevTop 38 AUTO)
-	BUTTON "Delete..."		ID btnDetailsDelete	AT (PrevRight+6 PrevTop 40 AUTO)
+	LABEL "Database:"		AUTOID				AT (16 36) FONT 1
+	POPUPTRIGGER ""			ID popDetailsDb		AT (67 36 84 13)
+							LEFTANCHOR
+	LIST ""					ID lstDetailsDb		AT (67 34 84 1)
+							VISIBLEITEMS 8 NONUSABLE
+	LABEL "Private:"		AUTOID              AT (23 53) FONT 1
+	CHECKBOX ""				ID chkDetailsPrivate AT (68 53 AUTO AUTO)
+	LABEL "Read-only:"		AUTOID              AT (84 53) FONT 1
+	CHECKBOX ""				ID chkDetailsReadOnly AT (141 53 AUTO AUTO)
+	LABEL "Protection:"		AUTOID              AT (5 70) FONT 1
+	LABEL "                        " ID lblDetailsProt AT (67 70)
+	LABEL "Created:"		AUTOID              AT (20 87) FONT 1
+	LABEL "                        " ID lblDetailsCreated AT (67 87)
+	LABEL "Modified:"		AUTOID              AT (16 104) FONT 1
+	LABEL "                        " ID lblDetailsModified AT (67 104)
+	BUTTON "OK"				ID btnDetailsOK		AT (5 139 37 12)
+	BUTTON "Cancel"			ID btnDetailsCancel	AT (48 139 37 12)
+	BUTTON "Delete..."		ID btnDetailsDelete	AT (111 139 40 12)
+END
+
+/* Options > Manage Databases (approved mock-up 2026-11-19) */
+FORM ID frmManageDbForm AT (2 2 156 156)
+FRAME MODAL
+BEGIN
+	TITLE "Manage Databases"
+	LIST ""					ID lstManageDb		AT (5 17 146 66) VISIBLEITEMS 6
+	LABEL "Memos:"			AUTOID				AT (25 93) FONT 1
+	LABEL "                    " ID lblManageMemos AT (67 93)
+	LABEL "Size:"			AUTOID				AT (41 105) FONT 1
+	LABEL "                    " ID lblManageSize AT (67 105)
+	LABEL "Location:"		AUTOID				AT (17 117) FONT 1
+	LABEL "                    " ID lblManageLoc AT (67 117)
+	BUTTON "Done"			ID btnManageDone	AT (5 139 30 12)
+	BUTTON "New"			ID btnManageNew		AT (39 139 26 12)
+	BUTTON "Rename"			ID btnManageRename	AT (69 139 38 12)
+	BUTTON "Delete..."		ID btnManageDelete	AT (111 139 40 12)
+END
+
+/* New / Rename Database: a child dialog over its parent form */
+FORM ID frmDbNameForm AT (2 101 156 57)
+FRAME MODAL
+DEFAULTBTNID btnDbNameCancel
+BEGIN
+	TITLE "New Database"
+	LABEL "New Suffix:"		AUTOID				AT (5 20) FONT 1
+	FIELD					ID fldDbName		AT (65 20 86 12) UNDERLINED SINGLELINE
+							MAXCHARS 18 EDITABLE
+	BUTTON "OK"				ID btnDbNameOK		AT (5 40 37 12)
+	BUTTON "Cancel"			ID btnDbNameCancel	AT (48 40 37 12)
+	GRAFFITISTATEINDICATOR						AT (143 41)
+END
+
+/* Options > Security: device ID status + the Palm's own privacy choice */
+FORM ID frmSecurityForm AT (2 84 156 74)
+FRAME MODAL
+DEFAULTBTNID btnSecCancel
+BEGIN
+	TITLE "Security"
+	LABEL "Device ID:"		AUTOID				AT (9 20) FONT 1
+	LABEL "Not available"	ID lblSecDevice		AT (62 20)
+	LABEL "Privacy:"		AUTOID				AT (16 36) FONT 1
+	POPUPTRIGGER "Show Records" ID popSecPrivacy AT (59 36 80 13) LEFTANCHOR
+	LIST "Show Records" "Mask Records" "Hide Records" ID lstSecPrivacy AT (70 34 62 1)
+							VISIBLEITEMS 3 NONUSABLE
+	POPUPLIST				ID popSecPrivacy lstSecPrivacy
+	BUTTON "OK"				ID btnSecOK			AT (5 57 37 12)
+	BUTTON "Cancel"			ID btnSecCancel		AT (48 57 37 12)
 END
 
 STRING ID strDetailsHelpString "� The category displayed in\n" \
@@ -107,20 +165,21 @@ STRING ID strDetailsHelpString "� The category displayed in\n" \
 					"choose a new category from\n" \
 					"the pick list."
 
-FORM ID frmPasswordForm AT (2 75 156 83)
+FORM ID frmPasswordForm AT (2 78 156 80)
 FRAME MODAL
 HELPID strPasswordHelpString
 BEGIN
 	TITLE "Password"
 	FORMBITMAP 	AT (5 20) BITMAP 10005
 	LABEL "Enter a password:"		AUTOID			AT (30 PrevTop) FONT 1
-	FIELD					ID fldPasswordText		 AT (5 42 146 13)
+	FIELD					ID fldPasswordText		 AT (5 42 106 13)
 							SINGLELINE UNDERLINED
 							MAXCHARS 56
-	BUTTON "OK"				ID btnPasswordOK		 AT (6 65 38 AUTO)
-	BUTTON "Cancel"			ID btnPasswordCancel	 AT (PrevRight+6 PrevTop 38 AUTO)
-	BUTTON "Forget..."		ID btnPasswordForget	 AT (PrevRight+6 PrevTop 40 AUTO)
-	GRAFFITISTATEINDICATOR	                         AT (144 PrevTop)
+	BUTTON "OK"				ID btnPasswordOK		 AT (5 63 37 12)
+	BUTTON "Cancel"			ID btnPasswordCancel	 AT (48 63 37 12)
+	BUTTON "Forget..."		ID btnPasswordForget	 AT (91 63 40 12)
+	GRAFFITISTATEINDICATOR	                         AT (143 64)
+	CHECKBOX "Show"			ID chkPasswordShow	AT (114 42 38 12) FONT 0
 END
 
 STRING ID strPasswordHelpString "� Enter a password to encrypt " \
@@ -154,57 +213,60 @@ BEGIN
 	BUTTON "Cancel"			ID kpdCancel	AT (80 134 71 16)
 END
 
-FORM ID frmQueryGlobalPasswordForm AT (2 67 156 91)
+FORM ID frmQueryGlobalPasswordForm AT (2 70 156 88)
 FRAME MODAL
 BEGIN
 	TITLE "Global password"
 	FORMBITMAP 	AT (5 20) BITMAP 10005
 	LABEL "Enter your current"		AUTOID			AT (30 PrevTop) FONT 1
 	LABEL "global password:"		AUTOID			AT (PrevLeft 32) FONT 1
-	FIELD					ID fldQueryGlobalPasswordText		 AT (5 50 146 13)
+	FIELD					ID fldQueryGlobalPasswordText		 AT (5 50 106 13)
 							SINGLELINE UNDERLINED
 							MAXCHARS 56
-	BUTTON "OK"				ID btnQueryGlobalPasswordOK		 AT (6 73 38 AUTO)
-	BUTTON "Cancel"			ID btnQueryGlobalPasswordCancel	 AT (PrevRight+6 PrevTop 38 AUTO)
-	GRAFFITISTATEINDICATOR	                         AT (144 PrevTop)
+	BUTTON "OK"				ID btnQueryGlobalPasswordOK		 AT (5 71 37 12)
+	BUTTON "Cancel"			ID btnQueryGlobalPasswordCancel	 AT (48 71 37 12)
+	GRAFFITISTATEINDICATOR	                         AT (143 72)
+	CHECKBOX "Show"			ID chkQueryGlobalPasswordShow	AT (114 50 38 12) FONT 0
 END
 
-FORM ID frmConfirmGlobalPasswordForm AT (2 7 156 151)
+FORM ID frmConfirmGlobalPasswordForm AT (2 6 156 152)
 FRAME MODAL
 BEGIN
 	TITLE "Global password"
-	LABEL "Verify your new password:"		AUTOID		AT (5 16) FONT 1
-	FIELD					ID fldSetAndChangeGlobalPasswordText		 AT (PrevLeft 32 146 13)
+	LABEL "Verify your new password:"		AUTOID		AT (5 20) FONT 1
+	FIELD					ID fldSetAndChangeGlobalPasswordText		 AT (5 36 106 13)
 							SINGLELINE UNDERLINED
 							MAXCHARS 56
-	LABEL "If you forget this password"		AUTOID		AT (PrevLeft 52) FONT 1
-	LABEL "you can tap \"Forgotten"			AUTOID		AT (PrevLeft 64) FONT 1
- 	LABEL "Password...\" to delete it,"		AUTOID		AT (PrevLeft 76) FONT 1
-  	LABEL "but any records crypted"			AUTOID		AT (PrevLeft 88) FONT 1
-  	LABEL "with the global password"		AUTOID		AT (PrevLeft 100) FONT 1
-  	LABEL "will be deleted."			AUTOID			AT (PrevLeft 112) FONT 1
-	BUTTON "OK"				ID btnConfirmGlobalPasswordOK		 AT (6 133 38 AUTO)
-	BUTTON "Cancel"			ID btnSetAndChangeGlobalPasswordCancel	 AT (PrevRight+6 PrevTop 38 AUTO)
-	GRAFFITISTATEINDICATOR	                         AT (144 PrevTop)
+	LABEL "If you forget this password"		AUTOID		AT (5 56) FONT 1
+	LABEL "you can tap \"Forgotten"			AUTOID		AT (5 68) FONT 1
+ 	LABEL "Password...\" to delete it,"		AUTOID		AT (5 80) FONT 1
+  	LABEL "but any records crypted"			AUTOID		AT (5 92) FONT 1
+  	LABEL "with the global password"		AUTOID		AT (5 104) FONT 1
+  	LABEL "will be deleted."			AUTOID			AT (5 116) FONT 1
+	BUTTON "OK"				ID btnConfirmGlobalPasswordOK		 AT (5 135 37 12)
+	BUTTON "Cancel"			ID btnSetAndChangeGlobalPasswordCancel	 AT (48 135 37 12)
+	GRAFFITISTATEINDICATOR	                         AT (143 136)
+	CHECKBOX "Show"			ID chkSetAndChangeGlobalPasswordShow	AT (114 36 38 12) FONT 0
 END
 
-FORM ID frmSetGlobalPasswordForm AT (2 19 156 139)
+FORM ID frmSetGlobalPasswordForm AT (2 18 156 140)
 FRAME MODAL
 HELPID strSetGlobalPasswordHelpString
 BEGIN
 	TITLE "Global password"
-	LABEL "Enter a password:"		AUTOID			AT (5 16) FONT 1
-	FIELD					ID fldSetAndChangeGlobalPasswordText		 AT (PrevLeft 32 146 13)
+	LABEL "Enter a password:"		AUTOID			AT (5 20) FONT 1
+	FIELD					ID fldSetAndChangeGlobalPasswordText		 AT (5 36 106 13)
 							SINGLELINE UNDERLINED
 							MAXCHARS 56
-	LABEL "If you assign a password, you"		AUTOID		AT (PrevLeft 52) FONT 1
-	LABEL "must enter it to show"				AUTOID		AT (PrevLeft 64) FONT 1
- 	LABEL "crypted records."					AUTOID		AT (PrevLeft 76) FONT 1
-  	LABEL "Now, the crypted records will"		AUTOID		AT (PrevLeft 88) FONT 1
-  	LABEL "use the global password."			AUTOID		AT (PrevLeft 100) FONT 1
-	BUTTON "OK"				ID btnSetAndChangeGlobalPasswordOK		 AT (6 121 38 AUTO)
-	BUTTON "Cancel"			ID btnSetAndChangeGlobalPasswordCancel	 AT (PrevRight+6 PrevTop 38 AUTO)
-	GRAFFITISTATEINDICATOR	                         AT (144 PrevTop)
+	LABEL "If you assign a password, you"		AUTOID		AT (5 56) FONT 1
+	LABEL "must enter it to show"				AUTOID		AT (5 68) FONT 1
+ 	LABEL "crypted records."					AUTOID		AT (5 80) FONT 1
+  	LABEL "Now, the crypted records will"		AUTOID		AT (5 92) FONT 1
+  	LABEL "use the global password."			AUTOID		AT (5 104) FONT 1
+	BUTTON "OK"				ID btnSetAndChangeGlobalPasswordOK		 AT (5 123 37 12)
+	BUTTON "Cancel"			ID btnSetAndChangeGlobalPasswordCancel	 AT (48 123 37 12)
+	GRAFFITISTATEINDICATOR	                         AT (143 124)
+	CHECKBOX "Show"			ID chkSetAndChangeGlobalPasswordShow	AT (114 36 38 12) FONT 0
 END
 
 
@@ -217,56 +279,57 @@ STRING ID strSetGlobalPasswordHelpString "� Enter a password to set " \
 					"it will be impossible to restore the contents " \
 					"of the memo crypted with this password."
 
-FORM ID frmChangeGlobalPasswordForm AT (2 61 156 97)
+FORM ID frmChangeGlobalPasswordForm AT (2 60 156 98)
 FRAME MODAL
 HELPID strSetGlobalPasswordHelpString
 BEGIN
 	TITLE "Change global password"
-	LABEL "Enter new password or tap"		AUTOID		AT (5 16) FONT 1
-	LABEL "the Delete button to remove"		AUTOID		AT (PrevLeft 28) FONT 1
- 	LABEL "your current password."		AUTOID			AT (PrevLeft 40) FONT 1
-	FIELD					ID fldSetAndChangeGlobalPasswordText		 AT (PrevLeft 56 146 13)
+	LABEL "Enter new password or tap"		AUTOID		AT (5 20) FONT 1
+	LABEL "the Delete button to remove"		AUTOID		AT (5 32) FONT 1
+ 	LABEL "your current password."		AUTOID			AT (5 44) FONT 1
+	FIELD					ID fldSetAndChangeGlobalPasswordText		 AT (5 60 106 13)
 							SINGLELINE UNDERLINED
 							MAXCHARS 56
-	BUTTON "OK"				ID btnSetAndChangeGlobalPasswordOK		 AT (6 79 38 AUTO)
-	BUTTON "Cancel"			ID btnSetAndChangeGlobalPasswordCancel	 AT (PrevRight+6 PrevTop 38 AUTO)
-	BUTTON "Delete"			ID btnChangeGlobalPasswordDelete	 AT (PrevRight+6 PrevTop 40 AUTO)
-	GRAFFITISTATEINDICATOR	                         AT (144 PrevTop)
+	BUTTON "OK"				ID btnSetAndChangeGlobalPasswordOK		 AT (5 81 37 12)
+	BUTTON "Cancel"			ID btnSetAndChangeGlobalPasswordCancel	 AT (48 81 37 12)
+	BUTTON "Delete"			ID btnChangeGlobalPasswordDelete	 AT (91 81 40 12)
+	GRAFFITISTATEINDICATOR	                         AT (143 82)
+	CHECKBOX "Show"			ID chkSetAndChangeGlobalPasswordShow	AT (114 60 38 12) FONT 0
 END
 
-FORM ID frmPrefsForm AT (2 3 156 155)
+FORM ID frmPrefsForm AT (2 2 156 156)
 FRAME MODAL
 HELPID strPrefsHelpString
 BEGIN
 	TITLE "Preferences memos"
-	LABEL "Sort by:"		AUTOID				AT (8 16) FONT 0
+	LABEL "Sort by:"		AUTOID				AT (8 18) FONT 0
 	POPUPTRIGGER ""			ID popPrefsSortOrder AT (44 PrevTop 70 13)
 							LEFTANCHOR
 	LIST "Manual" "Alphabetic"
 							ID lstPrefsSortOrder   AT (44 PrevTop 70 1)
 							VISIBLEITEMS 2 NONUSABLE
 	POPUPLIST				popPrefsSortOrder lstPrefsSortOrder
-	LABEL "Move records on top"		AUTOID				AT (24 30) FONT 0
+	LABEL "Move records on top"		AUTOID				AT (24 32) FONT 0
 	CHECKBOX ""				ID chkPrefsMoveRecordOnTop AT (5  PrevTop AUTO AUTO)
-	LABEL "Show lines"		AUTOID				AT (24 41) FONT 0
+	LABEL "Show lines"		AUTOID				AT (24 43) FONT 0
 	CHECKBOX ""				ID chkPrefsShowLines AT (5  PrevTop AUTO AUTO)
-	LABEL "Show Hidden"		AUTOID				AT (24 52) FONT 0
+	LABEL "Show Hidden"		AUTOID				AT (24 54) FONT 0
 	CHECKBOX ""				ID chkPrefsShowHidden AT (5  PrevTop AUTO AUTO)
-	LABEL "Use single font"		AUTOID				AT (24 63) FONT 0
+	LABEL "Use single font"		AUTOID				AT (24 65) FONT 0
 	CHECKBOX ""				ID chkPrefsUseSingleFont AT (5 PrevTop AUTO AUTO)
-	LABEL "Rotate between:"		AUTOID				AT (8 74) FONT 0
+	LABEL "Rotate between:"		AUTOID				AT (8 76) FONT 0
 	POPUPTRIGGER ""			ID popPrefsRotateOrder AT (78 PrevTop 70 13)
 							LEFTANCHOR
 	LIST "All" "All-Unfiled" "Categ.-Unfiled"
 							ID lstPrefsRotateOrder   AT (78 PrevTop PrevWidth 1)
 							VISIBLEITEMS 3  NONUSABLE
-	LABEL "Global Password Features:"		AUTOID				AT (7 89) FONT 1
-	LABEL "Global password:"		AUTOID				AT (7 103) FONT 0
+	LABEL "Global Password Features:"		AUTOID				AT (7 91) FONT 1
+	LABEL "Global password:"		AUTOID				AT (7 105) FONT 0
 	SELECTORTRIGGER "-Unassigned-"		ID selPrefsGlobalPassword AT (80 PrevTop AUTO AUTO)
 							LEFTANCHOR
-	BUTTON "Forgotten Password..."				ID btnPrefsForgotten		AT (20 119 112 AUTO)
-	BUTTON "OK"				ID btnPrefsOK		AT (6 137 38 AUTO)
-	BUTTON "Cancel"			ID btnPrefsCancel	AT (50 PrevTop 38 AUTO)
+	BUTTON "Forgotten Password..."				ID btnPrefsForgotten		AT (CENTER 121 112 AUTO)
+	BUTTON "OK"				ID btnPrefsOK		AT (5 139 37 12)
+	BUTTON "Cancel"			ID btnPrefsCancel	AT (48 139 37 12)
 END
 
 STRING ID strPrefsHelpString 	"� Sort by Manual allows " \
@@ -309,17 +372,16 @@ STRING ID strPrefsHelpString 	"� Sort by Manual allows " \
 							"password for all new crypted " \
 							"memos."
 
-FORM ID frmDeleteForm AT (2 72 156 86)
+FORM ID frmDeleteForm AT (2 61 156 97)
 FRAME MODAL
 HELPID strDeleteHelpString
 BEGIN
 	TITLE "Delete Memo"
-	FORMBITMAP 	AT (5 20) BITMAP 10005
-	LABEL "Delete current memo ?"		AUTOID		AT (30 20) FONT 1
-	CHECKBOX ""				ID chkDeleteBackup AT (8 45 AUTO AUTO)
-	LABEL "Save archive copy on PC"		AUTOID		AT (28 45) FONT 1
-	BUTTON "OK"				ID btnDeleteOK		AT (6 68 38 AUTO)
-	BUTTON "Cancel"			ID btnDeleteCancel	AT (50 68 38 AUTO)
+	FORMBITMAP 	AT (8 19) BITMAP 10005
+	LABEL "Delete current memo ?"		AUTOID		AT (32 19) FONT 1
+	CHECKBOX "Save archive copy on PC"	ID chkDeleteBackup AT (12 54 136 14) FONT 1
+	BUTTON "OK"				ID btnDeleteOK		AT (5 80 37 12)
+	BUTTON "Cancel"			ID btnDeleteCancel	AT (48 80 37 12)
 END
 
 STRING ID strDeleteHelpString	"The Save Archive Copy " \
@@ -331,20 +393,20 @@ STRING ID strDeleteHelpString	"The Save Archive Copy " \
 								"not deleted until then."
 
 
-FORM ID frmAboutForm AT (2 36 156 122)
+FORM ID frmAboutForm AT (2 30 156 128)
 FRAME MODAL
 HELPID strAboutHelpString
 BEGIN
 	TITLE "About CryptoNote"
-	FORMBITMAP AT (5 17) BITMAP bmpCryptoPadIcon
-	LABEL "CryptoNote 3.65"					AUTOID AT (32 16) FONT 1
-	LABEL "Adds SD-card notes to"			AUTOID AT (32 27) FONT 1
-	LABEL "CryptoPad by Maxime & JB Labelle"	AUTOID AT (5 38)
-	LABEL "http://cryptopad.sourceforge.net/"	AUTOID AT (5 50)
-	LABEL "Contains cryptographic software"		AUTOID AT (5 61)
-	LABEL "by Eric Young. AES-128-CTR added"			AUTOID AT (5 72)
-	LABEL "by Benjamin Khoo via Claude"			AUTOID AT (5 83)
-	BUTTON "OK" AUTOID AT (60 106 38 AUTO)
+	FORMBITMAP AT (5 21) BITMAP bmpCryptoPadIcon
+	LABEL "CryptoNote 3.65"					AUTOID AT (32 20) FONT 1
+	LABEL "Adds SD-card notes to"			AUTOID AT (32 32) FONT 1
+	LABEL "CryptoPad by Maxime & JB Labelle"	AUTOID AT (5 44)
+	LABEL "http://cryptopad.sourceforge.net/"	AUTOID AT (5 56)
+	LABEL "Contains cryptographic software"		AUTOID AT (5 68)
+	LABEL "by Eric Young. AES-128-CTR added"			AUTOID AT (5 80)
+	LABEL "by Benjamin Khoo via Claude"			AUTOID AT (5 92)
+	BUTTON "OK" AUTOID AT (CENTER 111 37 12)
 END
 
 STRING ID strAboutHelpString	"CryptoNote extends CryptoPad " \
@@ -365,17 +427,18 @@ FORM ID frmCardPassword AT (2 84 156 74)
 FRAME MODAL
 BEGIN
 	TITLE "Password"
-	LABEL "Enter password:"		AUTOID	AT (5 18) FONT 1
-	FIELD					ID fldCardPassword AT (5 34 146 13)
+	LABEL "Enter password:"		AUTOID	AT (5 20) FONT 1
+	FIELD					ID fldCardPassword AT (5 36 106 13)
 						SINGLELINE UNDERLINED
 						MAXCHARS 56
-	BUTTON "OK"				ID btnCardPasswordOK		AT (6 54 38 AUTO)
-	BUTTON "Cancel"			ID btnCardPasswordCancel	AT (PrevRight+6 PrevTop 40 AUTO)
-	GRAFFITISTATEINDICATOR	                    AT (144 PrevTop)
+	BUTTON "OK"				ID btnCardPasswordOK		AT (5 57 37 12)
+	BUTTON "Cancel"			ID btnCardPasswordCancel	AT (48 57 37 12)
+	GRAFFITISTATEINDICATOR	                    AT (143 58)
+	CHECKBOX "Show"			ID chkCardPasswordShow	AT (114 36 38 12) FONT 0
 END
 
 
-FORM ID frmCardNewNote AT (2 84 156 74)
+FORM ID frmCardNewNote AT (2 100 156 58)
 FRAME MODAL
 BEGIN
 	TITLE "New Note"
@@ -383,9 +446,9 @@ BEGIN
 	FIELD					ID fldCardNewName AT (42 20 108 13)
 						SINGLELINE UNDERLINED
 						MAXCHARS 40
-	BUTTON "OK"				ID btnCardNewOK		AT (6 50 38 AUTO)
-	BUTTON "Cancel"			ID btnCardNewCancel	AT (PrevRight+6 PrevTop 40 AUTO)
-	GRAFFITISTATEINDICATOR	                    AT (144 PrevTop)
+	BUTTON "OK"				ID btnCardNewOK		AT (5 41 37 12)
+	BUTTON "Cancel"			ID btnCardNewCancel	AT (48 41 37 12)
+	GRAFFITISTATEINDICATOR	                    AT (143 42)
 END
 
 
@@ -403,6 +466,7 @@ BEGIN
 	BEGIN
 		MENUITEM "Font..."			ID itemOptionsFont "F"
 		MENUITEM "Preferences..."	ID itemOptionsPrefs "R"
+		MENUITEM "Manage Databases..."	ID itemOptionsManageDb
 		MENUITEM "About CryptoNote" 	ID itemOptionsAbout
 	END
 END
@@ -428,7 +492,7 @@ BEGIN
 		MENUITEM "Select All"			ID 10004 "S"
 		MENUITEM SEPARATOR
 		MENUITEM "Keyboard"				ID 10006 "K"
-		MENUITEM "Graffiti"				ID 10007 "G"
+		MENUITEM "Graffiti Help"			ID 10007 "G"
 	END
 
 	PULLDOWN "Options"
@@ -461,7 +525,7 @@ BEGIN
 		MENUITEM "Select All"			ID 10004 "S"
 		MENUITEM SEPARATOR
 		MENUITEM "Keyboard"				ID 10006 "K"
-		MENUITEM "Graffiti"				ID 10007 "G"
+		MENUITEM "Graffiti Help"			ID 10007 "G"
 	END
 
 	PULLDOWN "Options"
@@ -475,6 +539,9 @@ END
 
 BITMAP ID bmpCryptoPadIcon "icon.bmp"
 BITMAP ID bmpMainKeyBitmap "key.bmp"
+BITMAP ID bmpReadOnly "readonly.bmp"
+BITMAP ID bmpRomChip "romchip.bmp"
+BITMAP ID bmpDbIcon "dbicon.bmp"
 BITMAP ID bmpBarFontBitmap "font.bmp"
 
 STRING strMenuSecurityItem "Security..."
@@ -487,8 +554,6 @@ STRING strBeamFilename "memo.TXT"
 STRING strGlobalPasswordUnassigned "-Unassigned-"
 STRING strGlobalPasswordAssigned "-Assigned-"
 
-STRING strProgressEncryption "Category Encryption"
-STRING strProgressDecryption "Category Decryption"
 
 
 ALERT ID altConfirmDeleteAlert
@@ -545,15 +610,6 @@ BEGIN
 	BUTTONS "OK"
 END
 
-ALERT ID altUseNoGlobalPasswordAlert
-INFORMATION
-BEGIN
-	TITLE "Password"
-	MESSAGE "This record was not crypted with the global password.\n" \
-			"Please retry with another password."
-	BUTTONS "OK"
-END
-
 ALERT ID altEncryptRecordWithGlobalPasswordAlert
 INFORMATION
 BEGIN
@@ -606,8 +662,8 @@ ALERT ID altAlphabeticSortAlert
 INFORMATION
 BEGIN
 	TITLE "Alphabetic Sort"
-	MESSAGE "The current sort order will be lost if the memos are sorted " \
-			"alphabetically. Are you sure you wish to sort the memos ?"
+	MESSAGE "Memos will be listed alphabetically. Your manual order is " \
+			"kept and comes back if you choose Manual again."
 	BUTTONS "OK" "Cancel"
 END
 
@@ -656,18 +712,28 @@ BEGIN
 	BUTTONS "OK"
 END
 
-ALERT ID altBeamCryptoDataAlert
+ALERT ID altBeamPlainWarn
+DEFAULTBUTTON 1
+CONFIRMATION
+BEGIN
+	TITLE "Beam Memo"
+	MESSAGE "This memo has its own password, but it will be beamed as plain text. Anyone who receives it can read it. Beam it anyway?"
+	BUTTONS "Beam" "Cancel"
+END
+
+ALERT ID altBeamCategorySkipped
 INFORMATION
 BEGIN
-	TITLE "Beam"
-	MESSAGE "You can't beam crypted record."
+	TITLE "Beam Category"
+	MESSAGE "^1 note(s) with their own password were not beamed. Beam them one at a time from the memo."
 	BUTTONS "OK"
 END
 
-ALERT ID altDebugAlert
+ALERT ID altBeamCategoryAllPassword
+INFORMATION
 BEGIN
-	TITLE "Debug Alert"
-	MESSAGE "^1"
+	TITLE "Beam Category"
+	MESSAGE "Nothing to beam: every note in this category has its own password. Beam them one at a time from the memo."
 	BUTTONS "OK"
 END
 
@@ -694,22 +760,6 @@ BEGIN
 	TITLE "Password"
 	MESSAGE "Incorrect password. \nPlease retry."
 	BUTTONS "OK"
-END
-
-ALERT ID altCardReencrypt
-CONFIRMATION
-BEGIN
-	TITLE "Encrypted File"
-	MESSAGE "File was originally encrypted. Save file back as an encrypted file?"
-	BUTTONS "Yes" "New Password" "No"
-END
-
-ALERT ID altCardDeletePlain
-CONFIRMATION
-BEGIN
-	TITLE "Encrypt File"
-	MESSAGE "Delete the original plaintext file?"
-	BUTTONS "Delete" "Keep"
 END
 
 ALERT ID altCardTooLarge
@@ -777,5 +827,112 @@ BEGIN
 	TITLE "Memo Too Large"
 	MESSAGE "This memo is too large to edit safely. Please create a new " \
 			"memo for any further changes instead."
+	BUTTONS "OK"
+END
+
+
+/* Databases and read-only memos (2026-11-19) */
+ALERT ID altMemoReadOnly
+INFORMATION
+BEGIN
+	TITLE "Read-only Memo"
+	MESSAGE "This memo is read-only. Untick Read-only in Details to change it."
+	BUTTONS "OK"
+END
+
+ALERT ID altMemoInRom
+INFORMATION
+BEGIN
+	TITLE "Memo in ROM"
+	MESSAGE "This memo is in ROM and cannot be changed."
+	BUTTONS "OK"
+END
+
+ALERT ID altDbNameEmpty
+INFORMATION
+BEGIN
+	TITLE "Database Name"
+	MESSAGE "Enter a suffix for the database name."
+	BUTTONS "OK"
+END
+
+ALERT ID altDbNameBad
+INFORMATION
+BEGIN
+	TITLE "Database Name"
+	MESSAGE "That suffix cannot be used in a database name."
+	BUTTONS "OK"
+END
+
+ALERT ID altDbNameUsed
+INFORMATION
+BEGIN
+	TITLE "Database Name"
+	MESSAGE "A database with that name already exists, in RAM or in ROM. Choose another suffix."
+	BUTTONS "OK"
+END
+
+ALERT ID altDbTooMany
+INFORMATION
+BEGIN
+	TITLE "Databases"
+	MESSAGE "CryptoNote can use up to 12 databases besides Main."
+	BUTTONS "OK"
+END
+
+ALERT ID altDbCreateFailed
+ERROR
+BEGIN
+	TITLE "Databases"
+	MESSAGE "The database could not be changed. The Palm may be out of memory."
+	BUTTONS "OK"
+END
+
+ALERT ID altDbMainFixed
+INFORMATION
+BEGIN
+	TITLE "Databases"
+	MESSAGE "Main cannot be renamed or deleted."
+	BUTTONS "OK"
+END
+
+ALERT ID altDbInRom
+INFORMATION
+BEGIN
+	TITLE "Databases"
+	MESSAGE "This database is in ROM. Move it back to RAM to rename or delete it."
+	BUTTONS "OK"
+END
+
+ALERT ID altDeleteDbConfirm
+CONFIRMATION
+DEFAULTBUTTON 1
+BEGIN
+	TITLE "Delete Database"
+	MESSAGE "Delete ^1 and its memos (^2)? This cannot be undone."
+	BUTTONS "Confirm" "Cancel"
+END
+
+ALERT ID altMoveFailed
+ERROR
+BEGIN
+	TITLE "Move Memo"
+	MESSAGE "The memo could not be moved. It is still in its database."
+	BUTTONS "OK"
+END
+
+ALERT ID altMoveIntoRom
+INFORMATION
+BEGIN
+	TITLE "Move Memo"
+	MESSAGE "A database in ROM cannot take new memos."
+	BUTTONS "OK"
+END
+
+ALERT ID altMoveNeedGlobal
+INFORMATION
+BEGIN
+	TITLE "Move Memo"
+	MESSAGE "Enter the global password first (open any memo with a password), then move this memo to Main."
 	BUTTONS "OK"
 END

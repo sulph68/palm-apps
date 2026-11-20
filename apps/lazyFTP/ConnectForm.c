@@ -135,6 +135,7 @@ static void RedrawMaskedPass(Boolean revealLast)
 		disp[i] = (char) ((revealLast && i == len - 1) ? gPassPlain[i] : '*');
 	disp[len] = '\0';
 	LzTPFldSetContent((FieldType *) GetObj(fldConnPass), disp);
+	MemSet(disp, sizeof(disp), 0);
 }
 
 /* Masks whatever character is currently showing in clear - called once the
@@ -179,6 +180,40 @@ static Boolean PassFieldKeyDown(EventType *e)
 		return true;
 	}
 	return false;
+}
+
+/* The on-screen keyboard ("abc"/"123" in the Graffiti area) edits the field's
+ * text directly, without key events, so PassFieldKeyDown never saw it and
+ * gPassPlain kept its old value. Called from ConnectFormRun before
+ * SysHandleEvent: with the password field focused, open the keyboard on the
+ * real text ourselves (shown in clear while the keyboard is up) and take the
+ * result back, masked again. */
+static Boolean PassKeyboard(EventType *e)
+{
+	FieldType *fld;
+	WChar c;
+	Char *t;
+
+	if (e->eType != keyDownEvent || !(e->data.keyDown.modifiers & commandKeyMask)) return false;
+	c = e->data.keyDown.chr;
+	if (c != vchrKeyboard && c != vchrKeyboardAlpha && c != vchrKeyboardNumeric) return false;
+	if (FrmGetFocus(gFrm) != FrmGetObjectIndex(gFrm, fldConnPass)) return false;
+	if (gPassPlaceholderShown) {		/* "saved but locked": nothing real behind it */
+		gPassPlaceholderShown = false;
+		gPassPlain[0] = '\0';
+	}
+	fld = (FieldType *) GetObj(fldConnPass);
+	LzTPFldSetContent(fld, gPassPlain);
+	SysKeyboardDialog(c == vchrKeyboardNumeric ? kbdNumbersAndPunc :
+		(c == vchrKeyboardAlpha ? kbdAlpha : kbdDefault));
+	t = FldGetTextPtr(fld);
+	StrNCopy(gPassPlain, t ? t : "", lzPassMaxLen);
+	gPassPlain[lzPassMaxLen] = '\0';
+	gPassDirty = true;
+	gRevealPending = false;
+	gRevealUntilTicks = 0;
+	RedrawMaskedPass(false);
+	return true;
 }
 
 /* Save the currently-shown fields back into gPrefs.slots[slot]. */
@@ -494,6 +529,7 @@ SEC001 Boolean ConnectFormRun(FtpConnParams *outParams)
 			btn = btnConnCancel;
 			break;
 		}
+		if (PassKeyboard(&event)) continue;	/* on-screen keyboard: before SysHandleEvent */
 		if (SysHandleEvent(&event)) continue;
 		if (MenuHandleEvent(0, &event, NULL)) continue;
 		if (ConnectFormHandleEvent(&event)) continue;
@@ -580,6 +616,11 @@ SEC001 Boolean ConnectFormRun(FtpConnParams *outParams)
 	/* frmConnect is not full-screen (AT 2 20 156 136) so FrmDrawForm above
 	 * auto-saved the bits behind it - FrmEraseForm restores them before
 	 * FrmDeleteForm, same as CardPromptPassword's identical situation. */
+	{									/* the password field's text (the password itself while Show is on) is wiped, not just freed */
+		FieldType *pf = (FieldType *) GetObj(fldConnPass);
+		MemHandle ph = pf ? FldGetTextHandle(pf) : NULL;
+		if (ph) { MemSet(MemHandleLock(ph), (Int32) MemHandleSize(ph), 0); MemHandleUnlock(ph); }
+	}
 	FrmEraseForm(frm);
 	FrmDeleteForm(frm);
 	gFrm = NULL;

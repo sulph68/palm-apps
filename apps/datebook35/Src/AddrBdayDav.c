@@ -40,7 +40,7 @@ static void DavAlias(UInt8 slot, char *out)
 	if (id == 0 || (db = DmOpenDatabase(0, id, dmModeReadOnly)) == NULL)
 		return;
 	if (DmDatabaseInfo(0, id, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &ai, NULL, NULL, NULL) == errNone &&
-		ai != 0 && EncGetKey(key, 1000000000UL)) {
+		ai != 0 && EncGetStoreKeyDb(key, ENC_STORE_DAVCON + slot, db)) {
 		const UInt8 *a = (const UInt8 *) MemLocalIDToLockedPtr(ai, 0);
 		if (a != NULL) {
 			n = a[kAppInfoStd + 3];

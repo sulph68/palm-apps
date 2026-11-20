@@ -138,14 +138,6 @@ Err CardDeleteFile(UInt16 volRef, const char *path)
 	return VFSFileDelete(volRef, path);
 }
 
-Err CardRename(UInt16 volRef, const char *oldPath, const char *newPath)
-{
-	/* VFSFileRename takes the NEW leaf name, not a full path; but many drivers
-	 * accept a path. Callers in CryptoNote rename within the same dir, passing
-	 * the new leaf name as newPath. */
-	return VFSFileRename(volRef, oldPath, newPath);
-}
-
 Boolean CardExists(UInt16 volRef, const char *path)
 {
 	FileRef f;

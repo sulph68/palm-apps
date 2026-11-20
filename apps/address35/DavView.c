@@ -95,7 +95,7 @@ Int16 DavSlotLabel(UInt8 slot, char *out)
 	LocalID id, ai;
 	MemPtr p;
 	const UInt8 *x;
-	UInt16 al;
+	UInt16 al, ver = 0;
 	Int16 res = davSlotOk;
 	UInt8 key[ENC_KEY_BYTES];
 	char alias[26];
@@ -103,7 +103,7 @@ Int16 DavSlotLabel(UInt8 slot, char *out)
 	DavName(slot, name);
 	id = DmFindDatabase(0, name);
 	if (!id) return davSlotNone;
-	if (DmDatabaseInfo(0, id, NULL, NULL, NULL, NULL, NULL, NULL, NULL, &ai, NULL, NULL, NULL) != errNone || !ai)
+	if (DmDatabaseInfo(0, id, NULL, NULL, &ver, NULL, NULL, NULL, NULL, &ai, NULL, NULL, NULL) != errNone || !ai)
 		return davSlotNone;
 	p = MemLocalIDToLockedPtr(ai, 0);
 	if (!p) return davSlotNone;
@@ -116,7 +116,7 @@ Int16 DavSlotLabel(UInt8 slot, char *out)
 	al = x[3];
 	if (al > 24) al = 24;
 	alias[0] = '\0';
-	if (al && EncGetKey(key, davEncTtl)) {
+	if (al && (ver & ENC_DBVER_STOREKEYS) && EncGetStoreKey(key, ENC_STORE_DAVCON + slot)) {
 		MemMove(alias, x + 4, al);
 		EncCrypt(key, (UInt8 *) alias, al, davNonceAlias, slot);
 		alias[al] = '\0';
@@ -206,7 +206,7 @@ Boolean DavRow(UInt8 slot, UInt16 idx, char *last, char *first, char *company,
 			UInt8 key[ENC_KEY_BYTES];
 			UInt32 uid = 0;
 			DmRecordInfo(db, idx, NULL, &uid, NULL);
-			if (EncGetKey(key, davEncTtl)) {
+			if (EncGetStoreKeyDb(key, ENC_STORE_DAVCON + slot, db)) {
 				MemMove(side, r + 3, ln);
 				EncCrypt(key, (UInt8 *) side, ln, davNonceList, uid);
 				side[ln] = '\0';
@@ -257,7 +257,7 @@ Int16 DavLoad(UInt8 slot, UInt16 idx, A35Record *rec, VCardArena *arena)
 				UInt8 key[ENC_KEY_BYTES];
 				UInt32 uid = 0;
 				DmRecordInfo(db, idx, NULL, &uid, NULL);
-				if (EncGetKey(key, davEncTtl)) {
+				if (EncGetStoreKeyDb(key, ENC_STORE_DAVCON + slot, db)) {
 					EncCrypt(key, (UInt8 *) buf + sizeof(davHead) - 1, tl, davNonceCard, uid);
 					MemSet(key, sizeof(key), 0);
 				} else {
@@ -445,7 +445,7 @@ Int16 DavItems(UInt8 slot, UInt16 idx, DavItem *out, UInt8 cap, UInt8 *n)
 			UInt8 key[ENC_KEY_BYTES];
 			UInt32 uid = 0;
 			DmRecordInfo(db, idx, NULL, &uid, NULL);
-			if (EncGetKey(key, davEncTtl)) {
+			if (EncGetStoreKeyDb(key, ENC_STORE_DAVCON + slot, db)) {
 				EncCrypt(key, (UInt8 *) t, tl, davNonceCard, uid);
 				MemSet(key, sizeof(key), 0);
 			} else {

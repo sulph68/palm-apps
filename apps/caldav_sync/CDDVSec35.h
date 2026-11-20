@@ -87,6 +87,12 @@ Boolean CDDVEncryptSlotFieldsIfNeeded(CDDVSlot *slot, UInt8 slotIndex) SEC002;
  * already established (nonce = (uniqueID, fieldIndex)). Same call both
  * directions (AES-CTR is its own inverse) - true on success, false (buf
  * left untouched) if Sec35 is locked. A no-op success for len==0. */
-Boolean CDDVCryptBytes(UInt32 nonceHi, UInt32 nonceLo, UInt8 *buf, UInt16 len) SEC002;
+Boolean CDDVCryptBytes(UInt32 storeId, UInt32 nonceHi, UInt32 nonceLo, UInt8 *buf, UInt16 len) SEC002;
+
+/* CDDVRekey.c: Sec35's kSecLaunchRekey handler, and the launch gate's check
+ * that every CalDAV database is already in key scheme 2. */
+struct EncRekeyParamTag;
+void CDDVRekey(struct EncRekeyParamTag *p) SEC004;
+Boolean CDDVStoresConverted(void) SEC004;
 
 #endif

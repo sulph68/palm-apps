@@ -303,7 +303,7 @@ SEC001 static MemHandle DaySetRowCopy (Int16 row, MemHandle h)
 	if (row < 0 || row >= kDayMaxRows)
 		return h;								/* out of range: won't happen (11-row table) */
 	if (gDayRowH[row])
-		MemHandleFree (gDayRowH[row]);
+		DbFreeWiped (gDayRowH[row]);
 	gDayRowH[row] = h;
 	return h;
 }
@@ -314,11 +314,11 @@ SEC001 static void DayViewFreeRowCopies (void)
 	Int16 i;
 	for (i = 0; i < kDayMaxRows; i++)
 		{
-		if (gDayRowH[i]) { MemHandleFree (gDayRowH[i]); gDayRowH[i] = NULL; }
+		if (gDayRowH[i]) { DbFreeWiped (gDayRowH[i]); gDayRowH[i] = NULL; }
 		gDayRowHasLoc[i] = false;
 		gDayRowDescHash[i] = 0;
 		}
-	if (gDayEditH) { MemHandleFree (gDayEditH); gDayEditH = NULL; }
+	if (gDayEditH) { DbFreeWiped (gDayEditH); gDayEditH = NULL; }
 	gDayEditRow = -1;
 }
 
@@ -410,8 +410,10 @@ SEC001 static void DaySwitchToSec35IfInstalled (void)
 
 SEC001 static Boolean DayLockedBounce (void)
 {
-	if (! EncKeyPresent () && ApptDbHasEncrypted (ApptDB))
+	if ((! EncKeyPresent () || ! EncDbHasStoreKeys (ApptDB)) && ApptDbHasEncrypted (ApptDB))
 		{
+		if (! EncDbHasStoreKeys (ApptDB))			/* scheme 1: Sec35 converts it */
+			FtrSet (ENC_CREATOR, kSecConvertFtr, 1);
 		DaySwitchToSec35IfInstalled ();
 		return true;
 		}
@@ -3031,9 +3033,6 @@ static Boolean DetailsDeleteAppointment (void)
  ***********************************************************************/
 SEC001 static Boolean DetailsGet (DetailsPtr details)
 {
-	ListPtr lst;
-	FieldPtr fld;
-	ControlPtr ctl;
 
 	// Db35: alarms removed -- no alarm settings to read from the dialog.
 
@@ -3596,7 +3595,7 @@ SEC001 static void DetailsExit(void)
 		if (((DetailsPtr) DetailsP)->descH)
 			{
 			FldSetTextHandle (GetObjectPtr (DetailsTitleField), NULL);
-			MemHandleFree (((DetailsPtr) DetailsP)->descH);
+			DbFreeWiped (((DetailsPtr) DetailsP)->descH);
 			}
 		MemPtrFree (DetailsP);
 		DetailsP = 0;
@@ -3654,14 +3653,9 @@ SEC001 static DetailsPtr DetailsInit (void)
 	UInt16 attr;
 	UInt32 uid;			/* Db35: this appt's uniqueID, for the Location gadget */
 	Char* rscP;
-	Char* label;
-	Char* textP;
-	FormPtr frm;
-	ListPtr lst;
 	FieldPtr fld;
 	ControlPtr ctl;
 	DetailsPtr details;
-	MemHandle textH;
 	MemHandle recordH;
 	ApptDBRecordType	apptRec;
 
@@ -3924,6 +3918,11 @@ SEC001 Boolean DetailsHandleEvent (EventType* event)
 			case DetailsDeleteButton:
 				DetailsExit();
 				FrmReturnToForm (DayView);
+				// Db35: tapping an event opens Details with its Day view row still in
+				// edit mode. Close that edit (saving it, record still present) before
+				// the delete, as the menu delete does -- otherwise the field outlives
+				// its record and the next tap saves a row with no appointment.
+				TblReleaseFocus (GetObjectPtr (DayTable));
 				if ( DetailsDeleteAppointment ()) 
 					updateCode = updateItemDelete;
 				FrmUpdateForm (DayView, updateCode);
@@ -4297,7 +4296,7 @@ SEC001 static void NoteViewLoadRecord (void)
 	// edits (note reads back empty) and eventually crashed "Field.c: Field object
 	// overlocked" once the shared buffer was reused while still attached to this
 	// field.  Same fix/pattern as gDayEditH (DayViewSaveDescription) for the Title.
-	if (gNoteEditH) { MemHandleFree (gNoteEditH); gNoteEditH = NULL; }
+	if (gNoteEditH) { DbFreeWiped (gNoteEditH); gNoteEditH = NULL; }
 	gNoteEditH = DayCopyNotePlain (CurrentRecord);
 	if (gNoteEditH)
 		FldSetTextHandle (fld, gNoteEditH);
@@ -4372,7 +4371,7 @@ SEC002 static void NoteViewSave (void)
 	// Db35: detach done above; now free OUR owned copy (see NoteViewLoadRecord).
 	if (gNoteEditH)
 		{
-		MemHandleFree (gNoteEditH);
+		DbFreeWiped (gNoteEditH);
 		gNoteEditH = NULL;
 		}
 
@@ -4456,7 +4455,7 @@ SEC001 static Boolean NoteViewDeleteNote (void)
 	// scheme had nothing separate to free here).
 	if (gNoteEditH)
 		{
-		MemHandleFree (gNoteEditH);
+		DbFreeWiped (gNoteEditH);
 		gNoteEditH = NULL;
 		}
 
@@ -5860,7 +5859,7 @@ SEC001 static Err DayViewGetDescription (void * table, Int16 row, Int16 column,
 			{
 			if (! (gDayEditH != NULL && gDayEditRow == row))
 				{
-				if (gDayEditH) { MemHandleFree (gDayEditH); gDayEditH = NULL; }
+				if (gDayEditH) { DbFreeWiped (gDayEditH); gDayEditH = NULL; }
 				gDayEditH = DayCopyDescPlain (recordNum);
 				gDayEditRow = row;
 				}
@@ -5895,7 +5894,7 @@ SEC001 static Err DayViewGetDescription (void * table, Int16 row, Int16 column,
 					MemHandleUnlock (h);
 					if (sh != NULL)
 						{
-						MemHandleFree (h);
+						DbFreeWiped (h);
 						h = sh;
 						}
 					}
@@ -6000,7 +5999,10 @@ SEC001 static Boolean DayViewSaveDescription (void * table, Int16 row, Int16 col
 	recordNum = appts[apptIndex].recordNum;
 	MemHandleUnlock (ApptsH);
 
-	ErrFatalDisplayIf ( (recordNum == emptySlot), "Error saving appointment");
+	// Db35: the row's appointment is gone (deleted under an open edit) --
+	// nothing to save. The ROM treated this as impossible (fatal alert).
+	if (recordNum == emptySlot)
+		return (false);
 
 
 	// Db35: if this row was edited through a decrypted COPY (encrypted appt), re-encrypt the
@@ -6023,7 +6025,7 @@ SEC001 static Boolean DayViewSaveDescription (void * table, Int16 row, Int16 col
 			DirtyRecord (ApptDB, recordNum);
 			}
 		FldSetTextHandle (fld, NULL);			/* detach before we free our copy */
-		MemHandleFree (gDayEditH);
+		DbFreeWiped (gDayEditH);
 		gDayEditH = NULL;
 		gDayEditRow = -1;
 		RecordDirty = dirty;
@@ -6727,7 +6729,7 @@ SEC001 static void DayInjectTodos (void)
 				UInt16 noteLen = (UInt16) (((UInt16) b[2] << 8) | b[3]);
 				UInt8 key[ENC_KEY_BYTES];
 				if (descLen > 63) descLen = 63;
-				if (EncGetKey (key, 1000000000UL))
+				if (EncGetStoreKeyDb (key, ENC_STORE_TD35, db))
 					{
 					MemMove (gDayTodoDesc[gDayTodoCount], b + 4, descLen);
 					if (descLen) EncCrypt (key, (UInt8*) gDayTodoDesc[gDayTodoCount], descLen, uid, 0);
@@ -6965,7 +6967,7 @@ SEC002 static Int16 DayApptCalcUnmaskedHeight (UInt16 recordNum, Int16 apptIndex
 			char*	sp = (char*) MemHandleLock (sh);
 			height = FldCalcFieldHeight (sp, width - iconsWidth);
 			MemHandleUnlock (sh);
-			MemHandleFree (sh);
+			DbFreeWiped (sh);
 			}
 		else
 			height = FldCalcFieldHeight (apptRec->description, width - iconsWidth);
@@ -7196,7 +7198,7 @@ static void NoteViewLoadRecordFromDav (FieldPtr fld)
 	DateDAVGetNotesHop (gDavTargetYear, gDavTargetMonth, gDavTargetDay,
 		gDavTargetUidHash, notes, sizeof (notes));
 
-	if (gNoteEditH) { MemHandleFree (gNoteEditH); gNoteEditH = NULL; }
+	if (gNoteEditH) { DbFreeWiped (gNoteEditH); gNoteEditH = NULL; }
 	len = (UInt16) StrLen (notes);
 	gNoteEditH = MemHandleNew ((UInt32) len + 1);
 	if (gNoteEditH)
@@ -7223,7 +7225,7 @@ static Boolean NoteViewDeleteNoteFromDav (void)
 	FldSetTextHandle (fld, 0);
 	if (gNoteEditH)
 		{
-		MemHandleFree (gNoteEditH);
+		DbFreeWiped (gNoteEditH);
 		gNoteEditH = NULL;
 		}
 	return (true);
@@ -9748,7 +9750,6 @@ SEC001 static Boolean DayViewDoCommand (UInt16 command)
  ***********************************************************************/
 SEC001 static void DayViewUpdateDisplay (UInt16 updateCode)
 {
-	Int16 apptIndex;
 	Int16 row, column;
 	DateType next;
 	TablePtr table;
@@ -10537,6 +10538,7 @@ SEC001 Boolean DayViewHandleEvent (EventType* event)
 		// Db35: free the per-row decrypted/masked display copies (and any pending edit copy).
 		// FrmSetFocus(noFocus) above already flushed an active inline edit through the save-proc.
 		DayViewFreeRowCopies ();
+		MemSet (gDayLocText, sizeof (gDayLocText), 0);	/* the day's decrypted location texts */
 
 		MemHandleFree (ApptsH);
 		ApptsH = 0;

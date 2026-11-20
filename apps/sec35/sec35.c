@@ -3,10 +3,10 @@
  *
  * Owns the suite passcode + TTL + the auto-lock alarm, and caches the derived
  * key in shared RAM (via enccore) so the apps can encrypt/decrypt in-process.
- * Set/Change/Clear and the wipe path (Forget Password + 10th-wrong-attempt
- * auto-wipe) all re-encrypt/decrypt/remove each of the 4 era apps' own data
- * directly from here -- see the Recrypt-prefixed functions, WipeEncDb and
- * WipeCryptoNoteDb below (Address35, ToDo35, Datebook35, CryptoNote).
+ * Set/Change/Remove, the wipe path (Forget Password + 10th-wrong-attempt
+ * auto-wipe) and the one-time key scheme 1 -> 2 conversion never touch another
+ * app's database: Sec35 sublaunches each suite app with kSecLaunchRekey and the
+ * app re-encrypts its own stores (see RunRekey, enccore.h, encrekey.h).
  */
 #include <PalmOS.h>
 #include "enccore.h"
@@ -71,9 +71,12 @@
 #define altLowMem		2006
 #define altIncomplete	2007
 #define altResumeDone	2008
+#define altNotFinished	2009
+#define altNewMismatch	2010
+#define altRemoveConfirm	2011
 
 #define kSecPrefId		0
-#define kSecPrefVer		5
+#define kSecPrefVer		6
 #define kAlarmRef		1UL
 
 /* PW_SET when no password yet (New/Confirm); PW_CHANGE when one exists
@@ -119,18 +122,23 @@ typedef struct {
 	 * behavior: rely on the TTL alone, unchanged unless explicitly turned on). */
 	UInt8	lockOnSleep;
 	UInt8	reserved4[3];
+	/* --- v6: key scheme 2 (per-store keys, see enccore.h). Old prefs load with
+	 * these 0: verifier made with the Sec35 key itself, data not yet converted. */
+	UInt8	verScheme;			/* <2: verifier = CTR(SecKey); 2: CTR(S35v store key) */
+	UInt8	convertDone;		/* every app converted its data to scheme 2           */
+	UInt8	pendOp;				/* kRekeyChange / kRekeyConvert not yet finished, 0 = none */
+	UInt8	reserved5;
+	UInt32	pendSerial;			/* opSerial of that operation (apps resume by it)     */
+	UInt16	pendDoneMask;		/* bit i = kRekeyApps[i] finished pendSerial          */
+	UInt16	reserved6;
+	UInt8	pendVerifier[16];	/* scheme-2 check value of the NEW password of a pending
+								 * change (proves the password typed when resuming)   */
 } Sec35Pref;
 
 static Sec35Pref	gPref;
 static UInt16		gPwMode;
 static UInt32		gUnlockReturn;	/* creator to switch back to after an unlock hand-off, 0 = none */
 
-/* Secondary safety net alongside EnoughMemoryForRekey's pre-flight check: set by any
- * RecryptXxx35 call if it had to skip a record because its temp buffer allocation
- * failed mid-pass anyway (heap got more fragmented than the pre-flight check could
- * predict). PwOk/PwDelete check this after the whole sequence and warn if it fired,
- * since that record is now left mismatched against the session's active key. */
-static Boolean		gRekeyIncomplete;
 
 /* Numeric keypad: which password FIELD to fill in when kpdOk is tapped (set right
  * before FrmPopupForm(frmKeypad) by the fldEnterEvent interception below), and the
@@ -149,6 +157,20 @@ static char			gPwCurrent[kPwBufLen];
 static char			gPwNew[kPwBufLen];
 static char			gPwConfirm[kPwBufLen];
 static char			gPwUnlock[kPwBufLen];
+
+/* The typed passwords are plaintext: wipe the whole buffers (not just the
+ * first byte) when a dialog opens or closes, on the hand-back to an app, and
+ * at exit, so a password never lingers in the dynamic heap after use. The
+ * keypad's digit buffer too. */
+static void WipePwBufs (void)
+{
+	MemSet (gPwCurrent, sizeof (gPwCurrent), 0);
+	MemSet (gPwNew, sizeof (gPwNew), 0);
+	MemSet (gPwConfirm, sizeof (gPwConfirm), 0);
+	MemSet (gPwUnlock, sizeof (gPwUnlock), 0);
+	MemSet (gKeypadBuf, sizeof (gKeypadBuf), 0);
+	gKeypadLen = 0;
+}
 
 /* Which field (if any) is currently showing its last character in clear, and when to
  * mask it -- checked from PilotMain's event loop (a bounded EvtGetEvent timeout, not
@@ -211,6 +233,7 @@ static void FldSetContent (FieldType* fld, const char* text)
 }
 
 static UInt32 TtlSeconds (void);
+static void ReturnToUnlockCaller (void);
 
 static void LoadPrefs (void)
 {
@@ -278,6 +301,25 @@ static void CancelAlarm (void)
 
 /* ---- passcode operations ---- */
 
+/* The password check value. Scheme 2 encrypts the constant under the S35v
+ * store key, so it shares no keystream with any app's data; scheme <2 is the
+ * old form (CTR under the Sec35 key itself, nonce 0,0), still accepted so an
+ * existing password keeps working and is upgraded on the first unlock. */
+static void MakeVerifier (const UInt8 key[ENC_KEY_BYTES], UInt8 scheme, UInt8 out[16])
+{
+	UInt8 k[ENC_KEY_BYTES];
+
+	MemMove (out, kVerifyConst, 16);
+	if (scheme >= 2)
+		{
+		EncDeriveStoreKey (key, ENC_STORE_SEC35V, k);
+		EncCrypt (k, out, 16, 0, 0);
+		MemSet (k, ENC_KEY_BYTES, 0);
+		}
+	else
+		EncCrypt (key, out, 16, 0, 0);
+}
+
 static Boolean VerifyPassword (const char* pw)
 {
 	UInt8	key[ENC_KEY_BYTES], ver[16];
@@ -285,10 +327,19 @@ static Boolean VerifyPassword (const char* pw)
 
 	if (! gPref.passwordSet) return false;
 	EncDeriveKey (pw, gPref.salt, gPref.rounds, key);
-	MemMove (ver, kVerifyConst, 16);
-	EncCrypt (key, ver, 16, 0, 0);
+	MakeVerifier (key, gPref.verScheme, ver);
 	ok = (Boolean)(MemCmp (ver, gPref.verifier, 16) == 0);
-	if (ok) { EncCacheKey (key); ArmAlarm (); }		/* a correct entry unlocks */
+	if (ok)
+		{
+		if (gPref.verScheme < 2)			/* upgrade the check value in place */
+			{
+			MakeVerifier (key, 2, ver);
+			MemMove (gPref.verifier, ver, 16);
+			gPref.verScheme = 2;
+			SavePrefs ();
+			}
+		EncCacheKey (key); ArmAlarm ();		/* a correct entry unlocks */
+		}
 	MemSet (key, ENC_KEY_BYTES, 0);
 	MemSet (ver, 16, 0);
 	return ok;
@@ -301,9 +352,10 @@ static void DoSetPassword (const char* pw)
 	EncRandomBytes (gPref.salt, ENC_SALT_BYTES);
 	gPref.rounds = EncCalibrateRounds (800);		/* ~0.8 s of stretching */
 	EncDeriveKey (pw, gPref.salt, gPref.rounds, key);
-	MemMove (ver, kVerifyConst, 16);
-	EncCrypt (key, ver, 16, 0, 0);
+	MakeVerifier (key, 2, ver);
 	MemMove (gPref.verifier, ver, 16);
+	gPref.verScheme = 2;
+	gPref.convertDone = true;		/* nothing was encrypted before: nothing to convert */
 	gPref.passwordSet = true;
 	SavePrefs ();
 	EncSetEncryptionActive (true);	/* encryption is now active suite-wide */
@@ -315,40 +367,37 @@ static void DoSetPassword (const char* pw)
 
 static void DoClearPassword (void)
 {
-	/* Callers (PwDelete) DECRYPT all data first, so removing the passcode leaves
-	 * readable plaintext rather than orphaned ciphertext. */
+	/* Callers (PwDelete) have every app decrypt its data first, so removing the
+	 * passcode leaves readable plaintext rather than orphaned ciphertext. */
 	gPref.passwordSet = false;
 	MemSet (gPref.salt, ENC_SALT_BYTES, 0);
 	MemSet (gPref.verifier, 16, 0);
+	gPref.verScheme = 2;
+	gPref.convertDone = true;
 	SavePrefs ();
 	EncSetEncryptionActive (false);	/* no passcode -> encryption inactive */
 	EncWipeKey ();
 	CancelAlarm ();
 }
 
-/* ---- rekey on password change --------------------------------------- *
- * Changing the passcode derives a NEW key (new salt), so every record already
- * encrypted under the old key must be re-encrypted, else it is orphaned. We do
- * it here in Sec35's foreground (its enccore is in main) rather than sublaunching
- * each app - their crypto lives in a secondary segment a no-globals sublaunch
- * can't load. Format + policy MUST match AddressDB35.c: misc bit 0x01, header 10,
- * A35FieldEncrypted, nonce = (recordUniqueID, fieldIndex). ToDo35, Datebook35 and
- * CryptoNote are wired the same way below (each app's own on-disk format). */
+/* ---- rekey: Sec35 asks each app to re-encrypt its own data ------------- *
+ * The order matters only for the progress display. The CalDAV events and
+ * contacts databases belong to CalDAV Sync (Datebook35 and Address35 only read
+ * them). BitWarden's vault has its own key; only its cached master password
+ * is under a Sec35 store key. */
 #define kBigTtl			1000000000UL
-#define kNoLimit		0xFFFF		/* RecryptXxx35's `limit` param: process every record */
 
-static Boolean A35IsEncField (UInt8 t)
-{
-	switch (t) {
-	case 7:  case 8:  case 9:  case 10: case 11:	/* phone email IM URL address */
-	case 15: case 16:								/* note custom */
-	case 17: case 18: case 19: case 20:				/* city state zip country */
-	case 21: case 22: case 23: case 25:				/* social gender pronouns other */
-		return true;
-	default:
-		return false;
-	}
-}
+typedef struct { UInt32 creator; const char* name; } RekeyApp;
+#define kRekeyAppCount	7
+static const RekeyApp kRekeyApps[kRekeyAppCount] = {
+	{ 'Ad35', "Address35" },
+	{ 'Td35', "ToDo35" },
+	{ 'Db35', "Datebook35" },
+	{ 'CrNt', "CryptoNote" },
+	{ 'CDDV', "CalDAV Sync" },
+	{ 'LzTP', "lazyFTP" },
+	{ 'BWrd', "BitWarden" }
+};
 
 /* ---- progress bar, drawn INTO a real modal form (frmProgress) so the window
  * manager saves the pixels behind it and restores them on erase -> no leftover
@@ -380,8 +429,7 @@ static void ProgressBar (UInt16 done, UInt16 total)
 	 * appStopEvent here first and it was a real regression, reverted after
 	 * comparing against CryptoNote's own equivalent progress callback, which
 	 * doesn't do that either). This function has ZERO interaction with the
-	 * rekey/crash-safe-resume checkpoint logic in RecryptAddress35 and
-	 * friends (DmWrite/gRekeyIncomplete/the salt-checkpoint commit sequence)
+	 * rekey/crash-safe-resume logic (RunRekey and the apps' handlers)
 	 * - it only reads local ticks and drains the event queue without
 	 * dispatching anything, so it can't re-enter any of that code mid-record. */
 	{
@@ -396,10 +444,10 @@ static void ProgressBar (UInt16 done, UInt16 total)
 		while (EvtGetEvent (&ev, 0), ev.eType != nilEvent) { /* drain, don't dispatch */ }
 	}
 
-	bar.topLeft.x = 6; bar.topLeft.y = 30; bar.extent.x = 144; bar.extent.y = 10;
+	bar.topLeft.x = 6; bar.topLeft.y = 34; bar.extent.x = 144; bar.extent.y = 10;
 	WinDrawRectangleFrame (simpleFrame, &bar);
 	if (w > 0) {
-		fill.topLeft.x = 7; fill.topLeft.y = 31; fill.extent.x = w; fill.extent.y = 8;
+		fill.topLeft.x = 7; fill.topLeft.y = 35; fill.extent.x = w; fill.extent.y = 8;
 		WinDrawRectangle (&fill, 0);
 	}
 }
@@ -421,7 +469,7 @@ static FormPtr ProgressBegin (const char* title, const char* body, FormPtr* prev
 		Int16  w   = FntCharsWidth (body, (Int16) StrLen (body));
 		Int16  x   = (Int16) ((156 - w) / 2);
 		if (x < 2) x = 2;
-		WinDrawChars (body, (Int16) StrLen (body), x, 16);
+		WinDrawChars (body, (Int16) StrLen (body), x, 17);	/* 7 px gaps: title, body, bar, bottom */
 		FntSetFont (old);
 	}
 	ProgressBar (0, 1);
@@ -436,40 +484,13 @@ static void ProgressEnd (FormPtr prog, FormPtr prev)
 	FrmDeleteForm (prog);
 }
 
-/* ---- memory-pressure pre-flight check ------------------------------------------
- * Each RecryptXxx35 CHANGE/SET/CLEAR record operation below needs a temporary
- * scratch buffer roughly the record's own size (see their tmp/out MemPtrNew calls).
- * Under memory pressure (many X-Master hacks resident -> less free dynamic heap,
- * more fragmentation) that allocation can fail partway through a rekey pass; the
- * per-record loops already skip a record they can't allocate for rather than
- * corrupting it, but skipping still leaves a MIXED-KEY database (some records under
- * the old key, some under the new) once the session's cached key has moved on to
- * the new one -- exactly the state that produced "hangs"/heap corruption/unreadable
- * data reported earlier. Refuse to even START the pass if there isn't a solid
- * safety margin, so this can never happen in the first place. */
-
-/* Largest single record size across every record in `type`/`creator`'s DB (0 if the
- * DB doesn't exist -- nothing to rekey there, doesn't gate the check). */
-static UInt32 DbMaxRecordBytes (UInt32 type, UInt32 creator)
-{
-	DmOpenRef	db = DmOpenDatabaseByTypeCreator (type, creator, dmModeReadOnly);
-	UInt32		maxSize = 0;
-	UInt16		i, n;
-
-	if (! db) return 0;
-	n = DmNumRecords (db);
-	for (i = 0; i < n; i++)
-		{
-		MemHandle h = DmQueryRecord (db, i);
-		if (h)
-			{
-			UInt32 sz = (UInt32) MemHandleSize (h);
-			if (sz > maxSize) maxSize = sz;
-			}
-		}
-	DmCloseDatabase (db);
-	return maxSize;
-}
+/* ---- memory-pressure pre-flight check ----------------------------------- *
+ * Each app's handler runs as a sublaunch with its own globals (up to ~32 KB
+ * for the larger apps) and one record buffer at a time; it checks its own
+ * records and stops cleanly with kRekeyResultLowMem if an allocation fails.
+ * This only refuses to START when the heap is clearly too small, so a "no"
+ * leaves the password and all data untouched. */
+#define kRekeyHeapNeed	(40UL * 1024UL)
 
 /* The largest single free CONTIGUOUS chunk on the dynamic heap -- what actually
  * bounds whether ONE MemPtrNew(size) call can succeed (total free bytes can be much
@@ -490,1051 +511,174 @@ static UInt32 DynamicHeapLargestFreeChunk (void)
 	return 0;
 }
 
-/* Is there enough headroom to safely rekey every app's data? Compares against the
- * SINGLE LARGEST record across all four apps (records are rekeyed one at a time,
- * each needing its own temp buffer, freed before the next) plus a flat safety
- * margin for everything else competing for the same heap (form loading, key
- * derivation, the password field masking, ...). */
 static Boolean EnoughMemoryForRekey (void)
 {
-	UInt32 need = DbMaxRecordBytes ('DATA', 'Ad35');
-	UInt32 t;
-	t = DbMaxRecordBytes ('DATA', 'Td35'); if (t > need) need = t;
-	t = DbMaxRecordBytes ('DATA', 'Db35'); if (t > need) need = t;
-	t = DbMaxRecordBytes ('Data', 'CrNt'); if (t > need) need = t;
-	return (Boolean) (DynamicHeapLargestFreeChunk () > need + 4096UL);
+	return (Boolean) (DynamicHeapLargestFreeChunk () > kRekeyHeapNeed);
 }
 
-/* Re-crypt every applicable Address35 record. Three modes:
- *   oldK, newK : re-encrypt old->new         (password CHANGE) - acts on encrypted recs
- *   NULL, newK : encrypt plaintext -> new     (password SET)    - acts on plaintext recs
- *   oldK, NULL : decrypt + clear the enc bit   (password CLEAR)  - acts on encrypted recs
- * Nonce per field = (recordUniqueID, fieldIndex). Progress shown in frmProgress. */
-/* `limit` bounds how many records (from index 0) to process -- pass 0xFFFF for "all
- * of them" (the normal forward/backward pass). Returns the index reached: n (all
- * done) if it completed, or the specific record's index if it had to stop there
- * (gRekeyIncomplete) -- callers use that as `limit` for a RANGE-BOUNDED rollback
- * pass, so a rollback only ever touches records the FAILED pass actually reached
- * (touching anything past that would corrupt records that were never converted in
- * the first place -- see the caller in PwOk). */
-static UInt16 RecryptAddress35 (const UInt8* oldK, const UInt8* newK, UInt16 limit)
+/* A fresh, non-zero operation serial. */
+static UInt32 NewOpSerial (void)
 {
-	DmOpenRef	db;
-	UInt16		i, n, changed = 0;
-	FormPtr		prev, prog;
-	const char*	title = ! newK ? "Removing encryption"
-					  : ! oldK ? "Encrypting" : "Re-encrypting";
+	UInt32 v = 0;
+	while (v == 0) EncRandomBytes ((UInt8*) &v, sizeof (v));
+	return v;
+}
 
-	db = DmOpenDatabaseByTypeCreator ('DATA', 'Ad35', dmModeReadWrite);
-	if (! db) return 0;
-	n = DmNumRecords (db);
-	if (limit < n) n = limit;
+/* Sublaunch every installed suite app with kSecLaunchRekey. With trackDone,
+ * apps already finished for this serial (gPref.pendDoneMask) are skipped and
+ * each finished app is recorded at once, so a reset part-way resumes with the
+ * rest (and each app resumes inside its own data by the same serial). Stops at
+ * the first app that does not finish; *failIdx = that app. An installed app
+ * that does not answer is an old version: it must be updated first. */
+static UInt16 RunRekey (UInt16 op, const UInt8* oldK, const UInt8* newK,
+                        UInt32 serial, Boolean trackDone, UInt16* failIdx)
+{
+	static const char* const titles[6] = { "", "Encrypting", "Re-encrypting",
+		"Removing encryption", "Security Wipe", "Updating encryption" };
+	UInt16	i;
 
-	prog = ProgressBegin (title, NULL, &prev);
-
-	for (i = 0; i < n; i++)
+	for (i = 0; i < kRekeyAppCount; i++)
 		{
-		MemHandle	h = DmGetRecord (db, i);
-		UInt8*		rec;
-		Boolean		enc, doit;
+		DmSearchStateType	st;
+		UInt16				card, res;
+		LocalID				db;
+		UInt32				ret = 0;
+		Err					err;
+		FormPtr				prog, prev;
+		EncRekeyParam		prm;
 
-		ProgressBar ((UInt16) (i + 1), n);
-		if (! h) continue;
-		rec = (UInt8*) MemHandleLock (h);
-		enc  = (Boolean) (rec[1] & 0x01);			/* a35MiscEncrypted */
-		/* CHANGE/CLEAR act on encrypted records; SET acts on plaintext ones. */
-		doit = oldK ? enc : (Boolean) (newK && ! enc);
-		if (doit)
+		if (trackDone && (gPref.pendDoneMask & (1 << i))) continue;
+		if (DmGetNextDatabaseByTypeCreator (true, &st, sysFileTApplication,
+				kRekeyApps[i].creator, true, &card, &db) == errNone)
 			{
-			Int32	size = MemHandleSize (h);
-			UInt8*	tmp  = (UInt8*) MemPtrNew (size);
-			if (tmp)
+			MemSet (&prm, sizeof (prm), 0);
+			prm.op = op;
+			prm.opSerial = serial;
+			if (oldK) MemMove (prm.oldKey, oldK, ENC_KEY_BYTES);
+			if (newK) MemMove (prm.newKey, newK, ENC_KEY_BYTES);
+			prm.progress.topLeft.x = 6;  prm.progress.topLeft.y = 30;	/* form-relative, */
+			prm.progress.extent.x = 144; prm.progress.extent.y = 10;	/* as ProgressBar */
+
+			prog = ProgressBegin (titles[op <= 5 ? op : 0], kRekeyApps[i].name, &prev);
+			err = SysAppLaunch (card, db, sysAppLaunchFlagNewGlobals,
+				kSecLaunchRekey, (MemPtr) &prm, &ret);
+			ProgressEnd (prog, prev);
+
+			res = err ? kRekeyResultFailed : prm.result;
+			MemSet (&prm, sizeof (prm), 0);			/* the keys */
+			if (res != kRekeyResultDone && op == kRekeyWipe)
+				{									/* best effort: wipe the others too */
+				if (failIdx) *failIdx = i;
+				continue;
+				}
+			if (res != kRekeyResultDone)
 				{
-				UInt32 uid = 0;
-				UInt16 count, f;
-				Int32  off = 10;					/* a35HdrSize */
-				Boolean valid = true;
-				Int32  chkOff; UInt16 cf;
-				DmRecordInfo (db, i, NULL, &uid, NULL);
-				MemMove (tmp, rec, size);
-				count = (UInt16) (((UInt16) tmp[2] << 8) | tmp[3]);
-				/* Hardening: validate every field's [type][?][len:2] header + payload
-				 * fits within `size` BEFORE touching anything. A garbage/mismatched
-				 * length here (this hand-duplicated format drifting out of sync with
-				 * Address35's own code -- the same class of bug the endDate fix
-				 * addressed for Datebook35) would otherwise silently overflow `tmp`
-				 * and corrupt the heap, potentially trashing OTHER apps' records
-				 * processed later in the same rekey pass (ToDo35/Datebook35/CryptoNote
-				 * run after this). Malformed records are left untouched instead. */
-				chkOff = off;
-				for (cf = 0; cf < count; cf++)
-					{
-					UInt16 ln;
-					if (chkOff + 4 > size) { valid = false; break; }
-					ln = (UInt16) (((UInt16) tmp[chkOff + 2] << 8) | tmp[chkOff + 3]);
-					if (chkOff + 4 + ln > size) { valid = false; break; }
-					chkOff += 4 + ln;
-					}
-				if (valid)
-					{
-					for (f = 0; f < count; f++)
-						{
-						UInt8  t  = tmp[off];
-						UInt16 ln = (UInt16) (((UInt16) tmp[off + 2] << 8) | tmp[off + 3]);
-						if (ln && A35IsEncField (t))
-							{
-							if (oldK) EncCrypt (oldK, tmp + off + 4, ln, uid, f);	/* -> plaintext */
-							if (newK) EncCrypt (newK, tmp + off + 4, ln, uid, f);	/* -> cipher */
-							}
-						off += 4 + ln;
-						}
-					if (newK) tmp[1] |= 0x01;			/* now encrypted */
-					else      tmp[1] &= (UInt8) ~0x01;	/* now plaintext */
-					DmWrite (rec, 0, tmp, size);
-					changed++;
-					}
-				MemPtrFree (tmp);
+				if (failIdx) *failIdx = i;
+				return res;
 				}
-			else
-				gRekeyIncomplete = true;	/* allocation failed despite the pre-flight check */
 			}
-		MemHandleUnlock (h);
-		DmReleaseRecord (db, i, doit);
-		/* Stop at the FIRST failure rather than continuing through the rest of the
-		 * database -- bounds how many records can ever end up mismatched against
-		 * the session's active key to the smallest number possible (ideally none,
-		 * given the pre-flight check, but heap fragmentation is still a heuristic). */
-		if (gRekeyIncomplete) break;
+		if (trackDone)
+			{
+			gPref.pendDoneMask |= (UInt16) (1 << i);
+			SavePrefs ();
+			}
 		}
-	(void) changed;
-
-	ProgressEnd (prog, prev);
-	DmCloseDatabase (db);
-	return i;		/* n if it got through everything, else the record it stopped at */
+	return kRekeyResultDone;
 }
 
-/* Re-crypt every applicable ToDo35 record ('DATA'/'Td35'). Same 3 modes as
- * RecryptAddress35. ToDo's sensitive text = description + note; AES-CTR can emit 0x00
- * (which would break the record's inline NUL-terminated strings), so an ENCRYPTED
- * record stores that text length-prefixed:
- *   plaintext:  [dueDate:4][priority:1] description\0 note\0
- *   encrypted:  [dueDate:4][priority|0x40] [descLen:2][noteLen:2][encDesc][encNote]
- * So SET grows / CLEAR shrinks the record; CHANGE re-keys the payload in place. Marker
- * = priority bit 0x40. Nonce (uid,0)=desc,(uid,1)=note. Offsets MUST match ToDoDB.c
- * (era-wide DateType = 4 bytes -> priority at 4, description at 5). */
-#define TD_PRI_OFF	4
-#define TD_DESC_OFF	5
-#define TD_ENC		0x40
-
-/* `limit`/return value: see RecryptAddress35's comment. */
-static UInt16 RecryptToDo35 (const UInt8* oldK, const UInt8* newK, UInt16 limit)
+/* Tell the user which app did not finish, and why. */
+static void ShowNotFinished (UInt16 res, UInt16 failIdx, const char* next)
 {
-	DmOpenRef	db;
-	UInt16		i, n, changed = 0;
-	FormPtr		prev, prog;
-	const char*	title = ! newK ? "Removing encryption"
-					  : ! oldK ? "Encrypting" : "Re-encrypting";
-
-	db = DmOpenDatabaseByTypeCreator ('DATA', 'Td35', dmModeReadWrite);
-	if (! db) return 0;
-	n = DmNumRecords (db);
-	if (limit < n) n = limit;
-
-	prog = ProgressBegin (title, NULL, &prev);
-
-	for (i = 0; i < n; i++)
-		{
-		MemHandle	h = DmGetRecord (db, i);
-		UInt8*		rec;
-		Boolean		enc, doit;
-		UInt32		uid = 0;
-		Int32		recSize;
-
-		ProgressBar ((UInt16) (i + 1), n);
-		if (! h) continue;
-		rec = (UInt8*) MemHandleLock (h);
-		enc  = (Boolean) (rec[TD_PRI_OFF] & TD_ENC);
-		doit = oldK ? enc : (Boolean) (newK && ! enc);
-		recSize = MemHandleSize (h);
-		DmRecordInfo (db, i, NULL, &uid, NULL);
-
-		if (doit && oldK && newK)		/* CHANGE: re-key payload in place (same size) */
-			{
-			UInt8* tmp = (UInt8*) MemPtrNew (recSize);
-			if (tmp) {
-				UInt16 dLen = (UInt16)(((UInt16) rec[TD_DESC_OFF] << 8) | rec[TD_DESC_OFF+1]);
-				UInt16 nLen = (UInt16)(((UInt16) rec[TD_DESC_OFF+2] << 8) | rec[TD_DESC_OFF+3]);
-				/* Hardening: same class of check as Address35/Datebook35 -- a garbage
-				 * dLen/nLen would otherwise silently overflow `tmp` and corrupt the
-				 * heap for records processed later in the same rekey pass. */
-				if ((Int32) (TD_DESC_OFF + 4 + dLen + nLen) <= recSize) {
-					UInt8* d  = tmp + TD_DESC_OFF + 4;
-					UInt8* nt = d + dLen;
-					MemMove (tmp, rec, recSize);
-					if (dLen) { EncCrypt (oldK, d, dLen, uid, 0); EncCrypt (newK, d, dLen, uid, 0); }
-					if (nLen) { EncCrypt (oldK, nt, nLen, uid, 1); EncCrypt (newK, nt, nLen, uid, 1); }
-					DmWrite (rec, 0, tmp, recSize);
-					changed++;
-				}
-				MemPtrFree (tmp);
-			}
-			else
-				gRekeyIncomplete = true;	/* allocation failed despite the pre-flight check */
-			MemHandleUnlock (h);
-			DmReleaseRecord (db, i, true);
-			}
-		else if (doit && newK)			/* SET: plaintext -> encrypted (grow by ~2) */
-			{
-			UInt16 dLen = (UInt16) StrLen ((char*)(rec + TD_DESC_OFF));
-			UInt16 nOff = (UInt16)(TD_DESC_OFF + dLen + 1);
-			UInt16 nLen = (nOff < recSize) ? (UInt16) StrLen ((char*)(rec + nOff)) : 0;
-			Int32  outSize = TD_DESC_OFF + 4 + dLen + nLen;
-			UInt8* out = (UInt8*) MemPtrNew (outSize);
-			if (out) {
-				MemMove (out, rec, TD_DESC_OFF);
-				out[TD_PRI_OFF] |= TD_ENC;
-				out[TD_DESC_OFF]   = (UInt8)(dLen >> 8); out[TD_DESC_OFF+1] = (UInt8) dLen;
-				out[TD_DESC_OFF+2] = (UInt8)(nLen >> 8); out[TD_DESC_OFF+3] = (UInt8) nLen;
-				MemMove (out + TD_DESC_OFF + 4, rec + TD_DESC_OFF, dLen);
-				MemMove (out + TD_DESC_OFF + 4 + dLen, rec + nOff, nLen);
-				if (dLen) EncCrypt (newK, out + TD_DESC_OFF + 4, dLen, uid, 0);
-				if (nLen) EncCrypt (newK, out + TD_DESC_OFF + 4 + dLen, nLen, uid, 1);
-				MemHandleUnlock (h);
-				h = DmResizeRecord (db, i, outSize);
-				if (h) { rec = MemHandleLock (h); DmWrite (rec, 0, out, outSize); MemHandleUnlock (h); }
-				MemPtrFree (out);
-				changed++;
-				DmReleaseRecord (db, i, true);
-			} else { gRekeyIncomplete = true; MemHandleUnlock (h); DmReleaseRecord (db, i, false); }
-			}
-		else if (doit)					/* CLEAR: encrypted -> plaintext (shrink) */
-			{
-			UInt16 dLen = (UInt16)(((UInt16) rec[TD_DESC_OFF] << 8) | rec[TD_DESC_OFF+1]);
-			UInt16 nLen = (UInt16)(((UInt16) rec[TD_DESC_OFF+2] << 8) | rec[TD_DESC_OFF+3]);
-			/* Hardening: dLen/nLen also bound a READ from `rec` below (not just the
-			 * `out` allocation, which is self-consistently sized from them) -- a
-			 * garbage length would over-read past `rec`'s real end. Same fix as the
-			 * CHANGE branch above. */
-			if ((Int32) (TD_DESC_OFF + 4 + dLen + nLen) <= recSize) {
-			Int32  outSize = TD_DESC_OFF + dLen + 1 + nLen + 1;
-			UInt8* out = (UInt8*) MemPtrNew (outSize);
-			if (out) {
-				MemMove (out, rec, TD_DESC_OFF);
-				out[TD_PRI_OFF] &= (UInt8) ~TD_ENC;
-				MemMove (out + TD_DESC_OFF, rec + TD_DESC_OFF + 4, dLen);
-				out[TD_DESC_OFF + dLen] = 0;
-				MemMove (out + TD_DESC_OFF + dLen + 1, rec + TD_DESC_OFF + 4 + dLen, nLen);
-				out[TD_DESC_OFF + dLen + 1 + nLen] = 0;
-				if (dLen) EncCrypt (oldK, out + TD_DESC_OFF, dLen, uid, 0);
-				if (nLen) EncCrypt (oldK, out + TD_DESC_OFF + dLen + 1, nLen, uid, 1);
-				MemHandleUnlock (h);
-				h = DmResizeRecord (db, i, outSize);
-				if (h) { rec = MemHandleLock (h); DmWrite (rec, 0, out, outSize); MemHandleUnlock (h); }
-				MemPtrFree (out);
-				changed++;
-				DmReleaseRecord (db, i, true);
-			} else { gRekeyIncomplete = true; MemHandleUnlock (h); DmReleaseRecord (db, i, false); }
-			} else { MemHandleUnlock (h); DmReleaseRecord (db, i, false); }
-			}
-		else							/* record not in scope */
-			{
-			MemHandleUnlock (h);
-			DmReleaseRecord (db, i, false);
-			}
-		/* Stop at the FIRST failure -- see RecryptAddress35's identical check. */
-		if (gRekeyIncomplete) break;
-		}
-	(void) changed;
-
-	ProgressEnd (prog, prev);
-	DmCloseDatabase (db);
-	return i;
+	const char* why = (res == kRekeyResultLowMem) ? "not enough memory"
+					: (res == kRekeyResultNone)   ? "it needs to be updated"
+					: "an error";
+	FrmCustomAlert (altNotFinished, kRekeyApps[failIdx < kRekeyAppCount ? failIdx : 0].name,
+		why, next);
 }
 
-/* Re-crypt every applicable Datebook35 record ('DATA'/'Db35').  Same 3 modes as the others.  A
- * packed appt is [ApptDateTimeType when : 8][ApptDBRecordFlags flags : 2][endDate?][alarm?]
- * [repeat?][exceptions?] followed by the sensitive text (description + note):
- *   plaintext:  ...prefix... [description\0 if flags.desc][note\0 if flags.note]
- *   encrypted:  ...prefix, flags.enc set... [descLen:2 BE][noteLen:2 BE][encDesc][encNote]
- * so SET grows / CLEAR shrinks / CHANGE re-keys in place.  Unlike ToDo the prefix is VARIABLE, so it
- * is computed (ApptPrefix) from the flag bits.  Struct sizes are m68k-verified (when 8, flags 2,
- * endDateOffset 2 (1 value byte + 1 pad byte), AlarmInfoType 2, RepeatInfoType 10, DateType 4).
- * flags byte 0 (offset 8) bits: when 0x80, alarm 0x40, repeat 0x20, note 0x10, exceptions 0x08,
- * description 0x04, ENCRYPTED 0x02, endDate 0x01 (added for the multi-day span feature -- the
- * 8th/last-declared bit in ApptDBRecordFlags, DateDB.h).  Nonce (uid,0)=desc, (uid,1)=note.  MUST
- * match apps/datebook35/Src/DateDB.c (ApptPrefixSize/ApptRecrypt) -- endDate checked FIRST, same
- * order as there, though only the total byte count actually matters here. */
-#define DB_FLAGS_OFF	8
-#define DB_F_ENDDATE	0x01
-#define DB_F_ALARM		0x40
-#define DB_F_REPEAT		0x20
-#define DB_F_NOTE		0x10
-#define DB_F_EXCEPT		0x08
-#define DB_F_DESC		0x04
-#define DB_ENC			0x02
-#define DB_SZ_ENDDATE	2
-#define DB_SZ_ALARM		2
-#define DB_SZ_REPEAT	10
-#define DB_SZ_DATE		4
-
-static UInt32 ApptPrefix (const UInt8* rec)
+/* Scheme 1 -> 2: every app converts its data under the CURRENT key (cached).
+ * Runs after the first unlock with this version, again whenever an app asks
+ * for it (kSecConvertFtr: e.g. a database restored from an old backup), and
+ * resumes by serial after a reset. Returns true when everything is done. */
+static Boolean RunConvert (void)
 {
-	UInt32	o = 10;						/* when(8) + flags(2) */
-	UInt8	f = rec[DB_FLAGS_OFF];
-	if (f & DB_F_ENDDATE) o += DB_SZ_ENDDATE;
-	if (f & DB_F_ALARM)  o += DB_SZ_ALARM;
-	if (f & DB_F_REPEAT) o += DB_SZ_REPEAT;
-	if (f & DB_F_EXCEPT)
+	UInt8	key[ENC_KEY_BYTES];
+	UInt16	res, failIdx = 0;
+
+	if (! EncGetKey (key, kBigTtl)) return false;
+	if (gPref.pendOp != kRekeyConvert)
 		{
-		UInt16 nExc = (UInt16)(((UInt16) rec[o] << 8) | rec[o + 1]);
-		o += 2 + (UInt32) nExc * DB_SZ_DATE;
+		gPref.pendOp = kRekeyConvert;
+		gPref.pendSerial = NewOpSerial ();
+		gPref.pendDoneMask = 0;
+		SavePrefs ();
 		}
-	return o;
-}
-
-/* `limit`/return value: see RecryptAddress35's comment. */
-static UInt16 RecryptDatebook35 (const UInt8* oldK, const UInt8* newK, UInt16 limit)
-{
-	DmOpenRef	db;
-	UInt16		i, n, changed = 0;
-	FormPtr		prev, prog;
-	const char*	title = ! newK ? "Removing encryption"
-					  : ! oldK ? "Encrypting" : "Re-encrypting";
-
-	db = DmOpenDatabaseByTypeCreator ('DATA', 'Db35', dmModeReadWrite);
-	if (! db) return 0;
-	n = DmNumRecords (db);
-	if (limit < n) n = limit;
-
-	prog = ProgressBegin (title, NULL, &prev);
-
-	for (i = 0; i < n; i++)
+	res = RunRekey (kRekeyConvert, key, key, gPref.pendSerial, true, &failIdx);
+	MemSet (key, ENC_KEY_BYTES, 0);
+	if (res != kRekeyResultDone)
 		{
-		MemHandle	h = DmGetRecord (db, i);
-		UInt8*		rec;
-		Boolean		enc, doit, hasD, hasN;
-		UInt32		uid = 0, prefix;
-		Int32		recSize;
-		UInt8		flags;
-
-		ProgressBar ((UInt16) (i + 1), n);
-		if (! h) continue;
-		rec = (UInt8*) MemHandleLock (h);
-		enc  = (Boolean) (rec[DB_FLAGS_OFF] & DB_ENC);
-		doit = oldK ? enc : (Boolean) (newK && ! enc);
-		recSize = MemHandleSize (h);
-		DmRecordInfo (db, i, NULL, &uid, NULL);
-		prefix = ApptPrefix (rec);
-		flags  = rec[DB_FLAGS_OFF];
-		hasD   = (Boolean) (flags & DB_F_DESC);
-		hasN   = (Boolean) (flags & DB_F_NOTE);
-
-		if (doit && oldK && newK)		/* CHANGE: re-key payload in place (same size) */
-			{
-			UInt8* tmp = (UInt8*) MemPtrNew (recSize);
-			if (tmp) {
-				UInt16 dLen = (UInt16)(((UInt16) rec[prefix] << 8) | rec[prefix + 1]);
-				UInt16 nLen = (UInt16)(((UInt16) rec[prefix + 2] << 8) | rec[prefix + 3]);
-				/* Hardening: same class of check as Address35/ToDo35 -- a garbage
-				 * dLen/nLen (e.g. from a future format field this hand-duplicated
-				 * prefix calc hasn't been updated for, same as the endDate gap this
-				 * fixed) would otherwise silently overflow `tmp` and corrupt the
-				 * heap for CryptoNote's records, processed right after this. */
-				if ((Int32) (prefix + 4 + dLen + nLen) <= recSize) {
-					UInt8* d  = tmp + prefix + 4;
-					UInt8* nt = d + dLen;
-					MemMove (tmp, rec, recSize);
-					if (dLen) { EncCrypt (oldK, d, dLen, uid, 0); EncCrypt (newK, d, dLen, uid, 0); }
-					if (nLen) { EncCrypt (oldK, nt, nLen, uid, 1); EncCrypt (newK, nt, nLen, uid, 1); }
-					DmWrite (rec, 0, tmp, recSize);
-					changed++;
-				}
-				MemPtrFree (tmp);
-			}
-			else
-				gRekeyIncomplete = true;	/* allocation failed despite the pre-flight check */
-			MemHandleUnlock (h);
-			DmReleaseRecord (db, i, true);
-			}
-		else if (doit && newK)			/* SET: plaintext -> encrypted (grow) */
-			{
-			const char* desc = hasD ? (const char*)(rec + prefix) : "";
-			UInt16 dLen = (UInt16) StrLen (desc);
-			const char* note = hasN ? (const char*)(rec + prefix + (hasD ? dLen + 1 : 0)) : "";
-			UInt16 nLen = (UInt16) StrLen (note);
-			Int32  outSize = (Int32) prefix + 4 + dLen + nLen;
-			UInt8* out = (UInt8*) MemPtrNew (outSize);
-			if (out) {
-				MemMove (out, rec, prefix);
-				out[DB_FLAGS_OFF] |= DB_ENC;
-				out[prefix]     = (UInt8)(dLen >> 8); out[prefix + 1] = (UInt8) dLen;
-				out[prefix + 2] = (UInt8)(nLen >> 8); out[prefix + 3] = (UInt8) nLen;
-				MemMove (out + prefix + 4, desc, dLen);
-				MemMove (out + prefix + 4 + dLen, note, nLen);
-				if (dLen) EncCrypt (newK, out + prefix + 4, dLen, uid, 0);
-				if (nLen) EncCrypt (newK, out + prefix + 4 + dLen, nLen, uid, 1);
-				MemHandleUnlock (h);
-				h = DmResizeRecord (db, i, outSize);
-				if (h) { rec = MemHandleLock (h); DmWrite (rec, 0, out, outSize); MemHandleUnlock (h); }
-				MemPtrFree (out);
-				changed++;
-				DmReleaseRecord (db, i, true);
-			} else { gRekeyIncomplete = true; MemHandleUnlock (h); DmReleaseRecord (db, i, false); }
-			}
-		else if (doit)					/* CLEAR: encrypted -> plaintext (shrink) */
-			{
-			UInt16 dLen = (UInt16)(((UInt16) rec[prefix] << 8) | rec[prefix + 1]);
-			UInt16 nLen = (UInt16)(((UInt16) rec[prefix + 2] << 8) | rec[prefix + 3]);
-			/* Hardening: dLen/nLen also bound a READ from `rec` below (not just the
-			 * `out` allocation, which is self-consistently sized from them) -- a
-			 * garbage length would over-read past `rec`'s real end. Same fix as the
-			 * CHANGE branch above. */
-			if ((Int32) (prefix + 4 + dLen + nLen) <= recSize) {
-			Int32  outSize = (Int32) prefix + (hasD ? dLen + 1 : 0) + (hasN ? nLen + 1 : 0);
-			UInt8* out = (UInt8*) MemPtrNew (outSize);
-			if (out) {
-				UInt32 o = prefix;
-				MemMove (out, rec, prefix);
-				out[DB_FLAGS_OFF] &= (UInt8) ~DB_ENC;
-				if (hasD) {
-					MemMove (out + o, rec + prefix + 4, dLen);
-					if (dLen) EncCrypt (oldK, out + o, dLen, uid, 0);
-					out[o + dLen] = 0; o += dLen + 1;
-				}
-				if (hasN) {
-					MemMove (out + o, rec + prefix + 4 + dLen, nLen);
-					if (nLen) EncCrypt (oldK, out + o, nLen, uid, 1);
-					out[o + nLen] = 0; o += nLen + 1;
-				}
-				MemHandleUnlock (h);
-				h = DmResizeRecord (db, i, outSize);
-				if (h) { rec = MemHandleLock (h); DmWrite (rec, 0, out, outSize); MemHandleUnlock (h); }
-				MemPtrFree (out);
-				changed++;
-				DmReleaseRecord (db, i, true);
-			} else { gRekeyIncomplete = true; MemHandleUnlock (h); DmReleaseRecord (db, i, false); }
-			} else { MemHandleUnlock (h); DmReleaseRecord (db, i, false); }
-			}
-		else							/* record not in scope */
-			{
-			MemHandleUnlock (h);
-			DmReleaseRecord (db, i, false);
-			}
-		/* Stop at the FIRST failure -- see RecryptAddress35's identical check. */
-		if (gRekeyIncomplete) break;
+		ShowNotFinished (res, failIdx, "It will continue the next time you unlock.");
+		return false;
 		}
-	(void) changed;
-
-	ProgressEnd (prog, prev);
-	DmCloseDatabase (db);
-	return i;
-}
-
-/* Re-crypt every applicable CryptoNote record ('Data'/'CrNt' -- CryptoNote's
- * own DB type is mixed-case 'Data', NOT 'DATA' like the other 3 apps; FourCC
- * types are case-sensitive, so using 'DATA' here made DmOpenDatabaseByTypeCreator
- * silently find nothing -- RecryptCryptoNote/WipeCryptoNoteDb were both no-ops
- * the whole time, only ever "working" because CryptoNote's OWN launch-time
- * CryptoLaunchMaintenance independently re-seals things when the app is next
- * opened, masking the failure in earlier testing. Confirmed against
- * apps/cryptonote/Database.h's `#define cryptoPadType 'Data'`.). Same 3 modes as
- * RecryptAddress35/ToDo35/Datebook35 above. CryptoNote's own on-disk format
- * (apps/cryptonote/CryptoSec35.h) is much simpler than those three: one leading
- * marker byte -- 0x80 = kCryptoFmtMarker (record has been migrated to this
- * format at all), +0x01 = kCryptoFmtWrappedBit (the rest of the record is
- * EncCrypt ciphertext of the original record blob rather than the plain blob
- * itself) -- followed by either the plain blob or its ciphertext. So this
- * re-crypts the whole post-marker blob as ONE field (nonce field index 0),
- * not per-field like the other three. A record with NO marker byte at all is
- * CryptoNote's own pre-Sec35-retrofit legacy format; SET upgrades those too
- * (adds the marker + wraps) -- same outcome CryptoNote's own CryptoSealRecord
- * produces at its own next launch, just done here immediately instead of
- * waiting for the user to reopen CryptoNote. Deliberately does NOT touch
- * CryptoNote's SD-card file encryption (a completely separate VFS-based
- * feature, opt-in per file, never routed through this device DB at all --
- * out of scope for suite-wide rekey/wipe by design). */
-/* `limit`/return value: see RecryptAddress35's comment. */
-static UInt16 RecryptCryptoNote (const UInt8* oldK, const UInt8* newK, UInt16 limit)
-{
-	DmOpenRef	db;
-	UInt16		i, n, changed = 0;
-	FormPtr		prev, prog;
-	const char*	title = ! newK ? "Removing encryption"
-					  : ! oldK ? "Encrypting" : "Re-encrypting";
-
-	db = DmOpenDatabaseByTypeCreator ('Data', 'CrNt', dmModeReadWrite);
-	if (! db) return 0;
-	n = DmNumRecords (db);
-	if (limit < n) n = limit;
-
-	prog = ProgressBegin (title, NULL, &prev);
-
-	for (i = 0; i < n; i++)
-		{
-		MemHandle	h = DmGetRecord (db, i);
-		UInt8*		rec;
-		Boolean		hasMarker, wrapped, doit;
-		UInt32		uid = 0;
-
-		ProgressBar ((UInt16) (i + 1), n);
-		if (! h) continue;
-		rec = (UInt8*) MemHandleLock (h);
-		hasMarker = (Boolean) ((rec[0] & 0x80) != 0);
-		wrapped   = (Boolean) (hasMarker && (rec[0] & 0x01));
-		/* CHANGE/CLEAR act on wrapped records; SET acts on everything NOT
-		 * already wrapped (marked-but-plain, or pre-migration legacy). */
-		doit = oldK ? wrapped : (Boolean) (newK && ! wrapped);
-		DmRecordInfo (db, i, NULL, &uid, NULL);
-
-		if (doit && oldK && newK)		/* CHANGE: re-key in place (same size) */
-			{
-			UInt32	size = (UInt32) MemHandleSize (h) - 1;
-			UInt8*	tmp  = (UInt8*) MemPtrNew (size);
-			if (tmp) {
-				MemMove (tmp, rec + 1, size);
-				EncCrypt (oldK, tmp, size, uid, 0);
-				EncCrypt (newK, tmp, size, uid, 0);
-				DmWrite (rec, 1, tmp, size);
-				MemPtrFree (tmp);
-				changed++;
-			}
-			else
-				gRekeyIncomplete = true;	/* allocation failed despite the pre-flight check */
-			MemHandleUnlock (h);
-			DmReleaseRecord (db, i, true);
-			}
-		else if (doit && newK)			/* SET: plaintext (marked or legacy) -> wrapped */
-			{
-			/* Same size when already marked (ciphertext length == plaintext
-			 * length); grows by 1 byte when adding the marker for the first
-			 * time -- DmResizeRecord to the SAME size is a safe no-op, so no
-			 * separate case is needed for the two. */
-			UInt32	plainSize = hasMarker ? (UInt32) MemHandleSize (h) - 1
-										  : (UInt32) MemHandleSize (h);
-			UInt8*	out = (UInt8*) MemPtrNew (plainSize + 1);
-			if (out) {
-				out[0] = 0x81;		/* kCryptoFmtMarker | kCryptoFmtWrappedBit */
-				MemMove (out + 1, hasMarker ? rec + 1 : rec, plainSize);
-				EncCrypt (newK, out + 1, plainSize, uid, 0);
-				MemHandleUnlock (h);
-				h = DmResizeRecord (db, i, plainSize + 1);
-				if (h) { rec = (UInt8*) MemHandleLock (h); DmWrite (rec, 0, out, plainSize + 1); MemHandleUnlock (h); }
-				MemPtrFree (out);
-				changed++;
-				DmReleaseRecord (db, i, true);
-			} else { gRekeyIncomplete = true; MemHandleUnlock (h); DmReleaseRecord (db, i, false); }
-			}
-		else if (doit)					/* CLEAR: wrapped -> plaintext (marker stays, same size) */
-			{
-			UInt32	size = (UInt32) MemHandleSize (h) - 1;
-			UInt8*	tmp  = (UInt8*) MemPtrNew (size);
-			if (tmp) {
-				UInt8 plainMarker = 0x80;	/* kCryptoFmtMarker, wrapped bit cleared */
-				MemMove (tmp, rec + 1, size);
-				EncCrypt (oldK, tmp, size, uid, 0);
-				DmWrite (rec, 1, tmp, size);
-				DmWrite (rec, 0, &plainMarker, 1);
-				MemPtrFree (tmp);
-				changed++;
-			}
-			else
-				gRekeyIncomplete = true;	/* allocation failed despite the pre-flight check */
-			MemHandleUnlock (h);
-			DmReleaseRecord (db, i, true);
-			}
-		else							/* record not in scope */
-			{
-			MemHandleUnlock (h);
-			DmReleaseRecord (db, i, false);
-			}
-		/* Stop at the FIRST failure -- see RecryptAddress35's identical check. */
-		if (gRekeyIncomplete) break;
-		}
-	(void) changed;
-
-	ProgressEnd (prog, prev);
-	DmCloseDatabase (db);
-	return i;
-}
-
-/* ---- resume-after-interrupted-CHANGE repair pass --------------------------------
- * Unlike RecryptXxx35 above (which blindly trusts the enc bit + assumes the WHOLE
- * db is on one key generation), these can't assume that -- a CHANGE cut off by a
- * reset/power-loss can leave some records under oldK and some already under newK,
- * all still just flagged "encrypted", with no bit that says which. Each Recrypt*
- * CHANGE branch above already builds a record into a scratch buffer and commits it
- * with exactly ONE DmWrite, so a given record is entirely under oldK or entirely
- * under newK, never a mix -- these decide by TRIAL: decrypt a scratch copy of the
- * record's sensitive bytes under newK first; if every checked field/blob looks like
- * plausible text (PlausibleText), the record is already on the new key, done. Else
- * try oldK the same way; if THAT looks plausible, the record was still on the old
- * key when the pass was cut off -- finish converting it now and write back. If
- * NEITHER key produces plausible content, the record is left completely untouched
- * and counted as unrecoverable: guessing would risk destroying intact ciphertext
- * under a key that just hasn't been identified yet (see the caller, ResumeOk). */
-
-/* Wrong-key AES-CTR output is uniformly random bytes -- requiring 90% of the
- * checked prefix (up to the first NUL, or the whole field if none) to be
- * printable/common-whitespace has a negligible false-accept rate: real text
- * clears it easily, random bytes essentially never do. */
-static Boolean PlausibleText (const UInt8* buf, UInt16 len)
-{
-	UInt16 i, printable = 0;
-
-	if (len == 0) return true;
-	for (i = 0; i < len; i++)
-		{
-		UInt8 c = buf[i];
-		if (c == 0) break;
-		if ((c >= 0x20 && c <= 0x7E) || c == '\t' || c == '\n' || c == '\r') printable++;
-		}
-	return (Boolean) (i == 0 || (printable * 10 >= i * 9));
-}
-
-/* Trial-decrypt Address35's encrypted fields under `key` into scratch copies (never
- * touching `tmp`) and report whether ALL of them look plausible. `count`/`tmp` as
- * already validated (structurally sound) by the caller. */
-static Boolean A35TryKey (const UInt8* tmp, Int32 size, UInt16 count, const UInt8* key, UInt32 uid)
-{
-	Int32	off = 10;
-	UInt16	f;
-
-	for (f = 0; f < count; f++)
-		{
-		UInt8	t  = tmp[off];
-		UInt16	ln = (UInt16) (((UInt16) tmp[off + 2] << 8) | tmp[off + 3]);
-		if (ln && A35IsEncField (t))
-			{
-			UInt8* scratch = (UInt8*) MemPtrNew (ln);
-			Boolean ok;
-			if (! scratch) return false;		/* treat an allocation failure as "not proven" */
-			MemMove (scratch, tmp + off + 4, ln);
-			EncCrypt (key, scratch, ln, uid, f);
-			ok = PlausibleText (scratch, ln);
-			MemPtrFree (scratch);
-			if (! ok) return false;
-			}
-		off += 4 + ln;
-		}
-	(void) size;
+	gPref.pendOp = 0;
+	gPref.pendSerial = 0;
+	gPref.pendDoneMask = 0;
+	gPref.convertDone = true;
+	SavePrefs ();
+	FtrUnregister (ENC_CREATOR, kSecConvertFtr);
 	return true;
 }
 
-static UInt16 RepairAddress35 (const UInt8* oldK, const UInt8* newK)
+/* Run the conversion if it is still owed or an app asked for it. False when
+ * one was needed and did not finish (it has said why): a caller that handed
+ * off from an app then stays here instead of returning to an app that would
+ * only bounce back. */
+static Boolean ConvertIfNeeded (void)
 {
-	DmOpenRef	db;
-	UInt16		i, n, unrecoverable = 0;
-	FormPtr		prev, prog;
+	UInt32 v;
+	Boolean asked = (Boolean) (FtrGet (ENC_CREATOR, kSecConvertFtr, &v) == errNone);
 
-	db = DmOpenDatabaseByTypeCreator ('DATA', 'Ad35', dmModeReadWrite);
-	if (! db) return 0;
-	n = DmNumRecords (db);
-	prog = ProgressBegin ("Resuming re-key", NULL, &prev);
-
-	for (i = 0; i < n; i++)
+	if (! gPref.passwordSet || gPref.rekeyPending) return true;
+	if (! gPref.convertDone || asked || gPref.pendOp == kRekeyConvert)
 		{
-		MemHandle	h = DmGetRecord (db, i);
-		UInt8*		rec;
-		Boolean		enc;
-
-		ProgressBar ((UInt16) (i + 1), n);
-		if (! h) continue;
-		rec = (UInt8*) MemHandleLock (h);
-		enc = (Boolean) (rec[1] & 0x01);
-
-		if (enc)
-			{
-			Int32	size = MemHandleSize (h);
-			UInt8*	tmp  = (UInt8*) MemPtrNew (size);
-			if (tmp)
-				{
-				UInt32	uid = 0;
-				UInt16	count;
-				Int32	chkOff; UInt16 cf;
-				Boolean structValid = true;
-
-				DmRecordInfo (db, i, NULL, &uid, NULL);
-				MemMove (tmp, rec, size);
-				count = (UInt16) (((UInt16) tmp[2] << 8) | tmp[3]);
-
-				/* Same structural bound-check as RecryptAddress35 before trusting any
-				 * field offset -- headers (type/length) are never encrypted, so this
-				 * passes regardless of which key is right; it only rules out garbage. */
-				chkOff = 10;
-				for (cf = 0; cf < count; cf++)
-					{
-					UInt16 ln;
-					if (chkOff + 4 > size) { structValid = false; break; }
-					ln = (UInt16) (((UInt16) tmp[chkOff + 2] << 8) | tmp[chkOff + 3]);
-					if (chkOff + 4 + ln > size) { structValid = false; break; }
-					chkOff += 4 + ln;
-					}
-
-				if (structValid)
-					{
-					if (! A35TryKey (tmp, size, count, newK, uid))
-						{
-						if (A35TryKey (tmp, size, count, oldK, uid))
-							{
-							/* still on the old key -- finish converting it */
-							Int32	off = 10;
-							UInt16	f;
-							for (f = 0; f < count; f++)
-								{
-								UInt8	t  = tmp[off];
-								UInt16	ln = (UInt16) (((UInt16) tmp[off + 2] << 8) | tmp[off + 3]);
-								if (ln && A35IsEncField (t))
-									{
-									EncCrypt (oldK, tmp + off + 4, ln, uid, f);
-									EncCrypt (newK, tmp + off + 4, ln, uid, f);
-									}
-								off += 4 + ln;
-								}
-							DmWrite (rec, 0, tmp, size);
-							}
-						else
-							unrecoverable++;	/* neither key produces plausible content */
-						}
-					/* else: already on newK, nothing to do */
-					}
-				MemPtrFree (tmp);
-				}
+		if (! EnoughMemoryForRekey ()) { FrmAlert (altLowMem); return false; }
+		if (asked && gPref.convertDone && gPref.pendOp != kRekeyConvert)
+			{	/* a fresh pass: already-converted databases are skipped by the apps */
+			gPref.pendOp = kRekeyConvert;
+			gPref.pendSerial = NewOpSerial ();
+			gPref.pendDoneMask = 0;
+			SavePrefs ();
 			}
-		MemHandleUnlock (h);
-		DmReleaseRecord (db, i, false);
+		return RunConvert ();
 		}
-
-	ProgressEnd (prog, prev);
-	DmCloseDatabase (db);
-	return unrecoverable;
+	return true;
 }
 
-/* Same trial-then-finish idea for ToDo35's desc+note pair. */
-static UInt16 RepairToDo35 (const UInt8* oldK, const UInt8* newK)
+/* A password change or removal must not start while the conversion is half
+ * done: a database part way through has records under two keys and no marker
+ * yet, and the change would read them all with one. Finish it first. */
+static Boolean ConversionSettled (void)
 {
-	DmOpenRef	db;
-	UInt16		i, n, unrecoverable = 0;
-	FormPtr		prev, prog;
-
-	db = DmOpenDatabaseByTypeCreator ('DATA', 'Td35', dmModeReadWrite);
-	if (! db) return 0;
-	n = DmNumRecords (db);
-	prog = ProgressBegin ("Resuming re-key", NULL, &prev);
-
-	for (i = 0; i < n; i++)
-		{
-		MemHandle	h = DmGetRecord (db, i);
-		UInt8*		rec;
-		Boolean		enc;
-		Int32		recSize;
-
-		ProgressBar ((UInt16) (i + 1), n);
-		if (! h) continue;
-		rec = (UInt8*) MemHandleLock (h);
-		enc = (Boolean) (rec[TD_PRI_OFF] & TD_ENC);
-		recSize = MemHandleSize (h);
-
-		if (enc)
-			{
-			UInt16	dLen = (UInt16)(((UInt16) rec[TD_DESC_OFF] << 8) | rec[TD_DESC_OFF+1]);
-			UInt16	nLen = (UInt16)(((UInt16) rec[TD_DESC_OFF+2] << 8) | rec[TD_DESC_OFF+3]);
-			if ((Int32) (TD_DESC_OFF + 4 + dLen + nLen) <= recSize)
-				{
-				UInt32	uid = 0;
-				UInt8*	d  = rec + TD_DESC_OFF + 4;
-				UInt8*	nt = d + dLen;
-				UInt8*	scratch;
-				Boolean	okNew, okOld;
-
-				DmRecordInfo (db, i, NULL, &uid, NULL);
-
-				scratch = (UInt8*) MemPtrNew ((UInt32) dLen + nLen);
-				if (scratch)
-					{
-					MemMove (scratch, d, dLen);
-					MemMove (scratch + dLen, nt, nLen);
-					if (dLen) EncCrypt (newK, scratch, dLen, uid, 0);
-					if (nLen) EncCrypt (newK, scratch + dLen, nLen, uid, 1);
-					okNew = (Boolean) (PlausibleText (scratch, dLen) && PlausibleText (scratch + dLen, nLen));
-					if (! okNew)
-						{
-						MemMove (scratch, d, dLen);
-						MemMove (scratch + dLen, nt, nLen);
-						if (dLen) EncCrypt (oldK, scratch, dLen, uid, 0);
-						if (nLen) EncCrypt (oldK, scratch + dLen, nLen, uid, 1);
-						okOld = (Boolean) (PlausibleText (scratch, dLen) && PlausibleText (scratch + dLen, nLen));
-						if (okOld)
-							{
-							UInt8* tmp = (UInt8*) MemPtrNew (recSize);
-							if (tmp)
-								{
-								UInt8* td  = tmp + TD_DESC_OFF + 4;
-								UInt8* tnt = td + dLen;
-								MemMove (tmp, rec, recSize);
-								if (dLen) { EncCrypt (oldK, td, dLen, uid, 0); EncCrypt (newK, td, dLen, uid, 0); }
-								if (nLen) { EncCrypt (oldK, tnt, nLen, uid, 1); EncCrypt (newK, tnt, nLen, uid, 1); }
-								DmWrite (rec, 0, tmp, recSize);
-								MemPtrFree (tmp);
-								}
-							}
-						else
-							unrecoverable++;
-						}
-					MemPtrFree (scratch);
-					}
-				}
-			}
-		MemHandleUnlock (h);
-		DmReleaseRecord (db, i, false);
-		}
-
-	ProgressEnd (prog, prev);
-	DmCloseDatabase (db);
-	return unrecoverable;
+	if (gPref.convertDone && gPref.pendOp != kRekeyConvert) return true;
+	ConvertIfNeeded ();
+	return (Boolean) (gPref.convertDone && gPref.pendOp != kRekeyConvert);
 }
 
-/* Same trial-then-finish idea for Datebook35's desc+note pair (variable prefix). */
-static UInt16 RepairDatebook35 (const UInt8* oldK, const UInt8* newK)
-{
-	DmOpenRef	db;
-	UInt16		i, n, unrecoverable = 0;
-	FormPtr		prev, prog;
-
-	db = DmOpenDatabaseByTypeCreator ('DATA', 'Db35', dmModeReadWrite);
-	if (! db) return 0;
-	n = DmNumRecords (db);
-	prog = ProgressBegin ("Resuming re-key", NULL, &prev);
-
-	for (i = 0; i < n; i++)
-		{
-		MemHandle	h = DmGetRecord (db, i);
-		UInt8*		rec;
-		Boolean		enc;
-		Int32		recSize;
-		UInt32		prefix;
-
-		ProgressBar ((UInt16) (i + 1), n);
-		if (! h) continue;
-		rec = (UInt8*) MemHandleLock (h);
-		enc = (Boolean) (rec[DB_FLAGS_OFF] & DB_ENC);
-		recSize = MemHandleSize (h);
-		prefix = ApptPrefix (rec);
-
-		if (enc)
-			{
-			UInt16	dLen = (UInt16)(((UInt16) rec[prefix] << 8) | rec[prefix + 1]);
-			UInt16	nLen = (UInt16)(((UInt16) rec[prefix + 2] << 8) | rec[prefix + 3]);
-			if ((Int32) (prefix + 4 + dLen + nLen) <= recSize)
-				{
-				UInt32	uid = 0;
-				UInt8*	d  = rec + prefix + 4;
-				UInt8*	nt = d + dLen;
-				UInt8*	scratch;
-				Boolean	okNew, okOld;
-
-				DmRecordInfo (db, i, NULL, &uid, NULL);
-
-				scratch = (UInt8*) MemPtrNew ((UInt32) dLen + nLen);
-				if (scratch)
-					{
-					MemMove (scratch, d, dLen);
-					MemMove (scratch + dLen, nt, nLen);
-					if (dLen) EncCrypt (newK, scratch, dLen, uid, 0);
-					if (nLen) EncCrypt (newK, scratch + dLen, nLen, uid, 1);
-					okNew = (Boolean) (PlausibleText (scratch, dLen) && PlausibleText (scratch + dLen, nLen));
-					if (! okNew)
-						{
-						MemMove (scratch, d, dLen);
-						MemMove (scratch + dLen, nt, nLen);
-						if (dLen) EncCrypt (oldK, scratch, dLen, uid, 0);
-						if (nLen) EncCrypt (oldK, scratch + dLen, nLen, uid, 1);
-						okOld = (Boolean) (PlausibleText (scratch, dLen) && PlausibleText (scratch + dLen, nLen));
-						if (okOld)
-							{
-							UInt8* tmp = (UInt8*) MemPtrNew (recSize);
-							if (tmp)
-								{
-								UInt8* td  = tmp + prefix + 4;
-								UInt8* tnt = td + dLen;
-								MemMove (tmp, rec, recSize);
-								if (dLen) { EncCrypt (oldK, td, dLen, uid, 0); EncCrypt (newK, td, dLen, uid, 0); }
-								if (nLen) { EncCrypt (oldK, tnt, nLen, uid, 1); EncCrypt (newK, tnt, nLen, uid, 1); }
-								DmWrite (rec, 0, tmp, recSize);
-								MemPtrFree (tmp);
-								}
-							}
-						else
-							unrecoverable++;
-						}
-					MemPtrFree (scratch);
-					}
-				}
-			}
-		MemHandleUnlock (h);
-		DmReleaseRecord (db, i, false);
-		}
-
-	ProgressEnd (prog, prev);
-	DmCloseDatabase (db);
-	return unrecoverable;
-}
-
-/* Same trial-then-finish idea for CryptoNote's single whole-blob field. */
-static UInt16 RepairCryptoNote (const UInt8* oldK, const UInt8* newK)
-{
-	DmOpenRef	db;
-	UInt16		i, n, unrecoverable = 0;
-	FormPtr		prev, prog;
-
-	db = DmOpenDatabaseByTypeCreator ('Data', 'CrNt', dmModeReadWrite);
-	if (! db) return 0;
-	n = DmNumRecords (db);
-	prog = ProgressBegin ("Resuming re-key", NULL, &prev);
-
-	for (i = 0; i < n; i++)
-		{
-		MemHandle	h = DmGetRecord (db, i);
-		UInt8*		rec;
-		Boolean		wrapped;
-		UInt32		uid = 0;
-
-		ProgressBar ((UInt16) (i + 1), n);
-		if (! h) continue;
-		rec = (UInt8*) MemHandleLock (h);
-		wrapped = (Boolean) (((rec[0] & 0x80) != 0) && (rec[0] & 0x01));
-
-		if (wrapped)
-			{
-			UInt32	size = (UInt32) MemHandleSize (h) - 1;
-			UInt8*	scratch = (UInt8*) MemPtrNew (size);
-			DmRecordInfo (db, i, NULL, &uid, NULL);
-			if (scratch)
-				{
-				Boolean okNew, okOld;
-				MemMove (scratch, rec + 1, size);
-				EncCrypt (newK, scratch, size, uid, 0);
-				okNew = PlausibleText (scratch, (UInt16) size);
-				if (! okNew)
-					{
-					MemMove (scratch, rec + 1, size);
-					EncCrypt (oldK, scratch, size, uid, 0);
-					okOld = PlausibleText (scratch, (UInt16) size);
-					if (okOld)
-						{
-						UInt8* tmp = (UInt8*) MemPtrNew (size);
-						if (tmp)
-							{
-							MemMove (tmp, rec + 1, size);
-							EncCrypt (oldK, tmp, size, uid, 0);
-							EncCrypt (newK, tmp, size, uid, 0);
-							DmWrite (rec, 1, tmp, size);
-							MemPtrFree (tmp);
-							}
-						}
-					else
-						unrecoverable++;
-					}
-				MemPtrFree (scratch);
-				}
-			}
-		MemHandleUnlock (h);
-		DmReleaseRecord (db, i, false);
-		}
-
-	ProgressEnd (prog, prev);
-	DmCloseDatabase (db);
-	return unrecoverable;
-}
-
-/* ---- security wipe: delete every ENCRYPTED record across the era apps, then
- * revert to no-password. Used by "Forget Password" and the 10th-wrong-attempt
- * auto-wipe. Covers all three era apps that store encrypted records: Address35
- * ('DATA'/'Ad35'), ToDo35 ('DATA'/'Td35') and Datebook35 ('DATA'/'Db35').
- * Records are removed (not decrypted) because without the passcode they can't be
- * read. Shows the "Security Wipe" progress, which auto-dismisses when done. ---- */
-/* Delete every record whose marker byte (off & mask) is set from one DB. */
-static void WipeEncDb (UInt32 type, UInt32 creator, UInt16 off, UInt8 mask)
-{
-	DmOpenRef	db = DmOpenDatabaseByTypeCreator (type, creator, dmModeReadWrite);
-	FormPtr		prev, prog;
-	UInt16		i, n;
-
-	if (! db) return;
-	n = DmNumRecords (db);
-	prog = ProgressBegin ("Security Wipe", "Removing all encrypted records", &prev);
-	for (i = n; i > 0; ) {				/* top-down so removals don't shift lower i */
-		MemHandle	h;
-		Boolean		enc = false;
-
-		i--;
-		ProgressBar ((UInt16) (n - i), n ? n : 1);
-		h = DmQueryRecord (db, i);
-		if (h) {
-			const UInt8* rec = (const UInt8*) MemHandleLock (h);
-			enc = (Boolean) (rec[off] & mask);
-			MemHandleUnlock (h);
-		}
-		if (enc) DmRemoveRecord (db, i);
-	}
-	ProgressEnd (prog, prev);
-	DmCloseDatabase (db);
-}
-
-/* CryptoNote-specific: unlike the other 3 apps' single-bit "encrypted" flag,
- * CryptoNote's marker byte packs TWO bits -- 0x80 (migrated at all) and 0x01
- * (actually wrapped). A marked-but-plain record (0x80 set, 0x01 clear) must
- * NOT be wiped, but WipeEncDb's plain bitmask-truthy check (rec[off] & mask)
- * can't tell that apart from a wrapped one (0x81) -- 0x80 alone is already
- * truthy against either an 0x01 or an 0x81 mask. Needs its own exact-match
- * check instead of reusing WipeEncDb. Only ever opens the CryptoPad DEVICE
- * database by type+creator ('Data'/'CrNt' -- mixed-case type, see
- * RecryptCryptoNote's comment) -- never touches CryptoNote's SD-card
- * file encryption (a separate VFS feature, not a DmOpenDatabaseByTypeCreator
- * database at all), so a connected card's encrypted files are structurally
- * untouched by this, same as by WipeEncDb for the other 3 apps. */
-static void WipeCryptoNoteDb (void)
-{
-	DmOpenRef	db = DmOpenDatabaseByTypeCreator ('Data', 'CrNt', dmModeReadWrite);
-	FormPtr		prev, prog;
-	UInt16		i, n;
-
-	if (! db) return;
-	n = DmNumRecords (db);
-	prog = ProgressBegin ("Security Wipe", "Removing all encrypted records", &prev);
-	for (i = n; i > 0; ) {				/* top-down so removals don't shift lower i */
-		MemHandle	h;
-		Boolean		wrapped = false;
-
-		i--;
-		ProgressBar ((UInt16) (n - i), n ? n : 1);
-		h = DmQueryRecord (db, i);
-		if (h) {
-			const UInt8* rec = (const UInt8*) MemHandleLock (h);
-			wrapped = (Boolean) ((rec[0] & 0x81) == 0x81);
-			MemHandleUnlock (h);
-		}
-		if (wrapped) DmRemoveRecord (db, i);
-	}
-	ProgressEnd (prog, prev);
-	DmCloseDatabase (db);
-}
-
-static void WipeEncryptedRecords (void)
-{
-	WipeEncDb ('DATA', 'Ad35', 1, 0x01);				/* Address35: misc bit 0x01 */
-	WipeEncDb ('DATA', 'Td35', TD_PRI_OFF, TD_ENC);		/* ToDo35: priority bit 0x40  */
-	WipeEncDb ('DATA', 'Db35', DB_FLAGS_OFF, DB_ENC);	/* Datebook35: flags.encrypted 0x02 */
-	WipeCryptoNoteDb ();								/* CrNt: own function, see comment above */
-}
-
-/* Full "forget password" / lockout wipe: delete encrypted data + revert to
- * unassigned + clear the lockout counters. */
+/* Full "forget password" / lockout wipe: every app deletes its encrypted data
+ * (no key needed), then revert to unassigned + clear the lockout counters.
+ * Best effort across apps: one that fails does not stop the others. */
 static void SecurityWipe (void)
 {
-	WipeEncryptedRecords ();
+	UInt16 failIdx = kRekeyAppCount;
+
+	RunRekey (kRekeyWipe, NULL, NULL, NewOpSerial (), false, &failIdx);
 	gPref.passwordSet = false;
 	MemSet (gPref.salt, ENC_SALT_BYTES, 0);
 	MemSet (gPref.verifier, 16, 0);
+	gPref.verScheme = 2;
+	gPref.convertDone = true;
+	gPref.pendOp = 0; gPref.pendSerial = 0; gPref.pendDoneMask = 0;
+	gPref.rekeyPending = false;
 	gPref.failCount  = 0;
 	gPref.delayUntil = 0;
 	SavePrefs ();
@@ -1588,7 +732,7 @@ static void ShowDelayDialog (const char* title, const char* line1,
 	FrmSetTitle (frm, (Char*) title);
 	FrmDrawForm (frm);
 	old = FntSetFont (boldFont);			/* headline (e.g. "Incorrect password.") bold */
-	WinDrawChars (line1, (Int16) StrLen (line1), 8, 16);
+	WinDrawChars (line1, (Int16) StrLen (line1), 8, 20);	/* first row y=20, like the other dialogs */
 	FntSetFont (old);
 
 	for (;;) {
@@ -1608,10 +752,10 @@ static void ShowDelayDialog (const char* title, const char* line1,
 		} else {
 			StrCopy (line2, hms);
 		}
-		r.topLeft.x = 6; r.topLeft.y = 28; r.extent.x = 148; r.extent.y = 12;
+		r.topLeft.x = 6; r.topLeft.y = 30; r.extent.x = 148; r.extent.y = 12;
 		WinEraseRectangle (&r, 0);
 		old = FntSetFont (stdFont);
-		WinDrawChars (line2, (Int16) StrLen (line2), 8, 30);
+		WinDrawChars (line2, (Int16) StrLen (line2), 8, 32);
 		FntSetFont (old);
 
 		if (autoDismiss && rem == 0) break;			/* delay elapsed -> dismiss */
@@ -1815,6 +959,13 @@ static Boolean MainFormHandleEvent (EventType* e)
 			/* launched to unlock for another app: go straight to the prompt */
 			else if (gUnlockReturn && gPref.passwordSet && ! EncKeyPresent ())
 				FrmPopupForm (frmUnlock);
+			/* handed off while already unlocked: an app found a database still in
+			 * key scheme 1 (kSecConvertFtr) -- convert, then go straight back */
+			else if (gUnlockReturn && gPref.passwordSet)
+				{ if (ConvertIfNeeded ()) ReturnToUnlockCaller (); else gUnlockReturn = 0; }
+			/* opened directly while unlocked with a conversion still owed */
+			else if (gPref.passwordSet && EncKeyPresent ())
+				ConvertIfNeeded ();
 			handled = true;
 			break;
 
@@ -1953,6 +1104,42 @@ static void RedrawMaskedField (UInt16 id, Boolean revealLast)
 	}
 }
 
+/* The on-screen keyboard ("abc"/"123" in the Graffiti area) edits the focused
+ * field's text directly, without key events, so PwFieldKeyDown never saw it and
+ * the real buffer stayed empty. Called from the event loop before SysHandleEvent:
+ * on a password field, open the keyboard on the real text ourselves (it shows in
+ * clear while the keyboard is up) and take the result back, masked again. */
+static Boolean PwKeyboard (EventType* e)
+{
+	FormType*	frm = FrmGetActiveForm ();
+	FieldType*	fld;
+	UInt16		focus, id;
+	char*		real;
+	Char*		t;
+	WChar		c;
+
+	if (e->eType != keyDownEvent || ! frm) return false;
+	c = e->data.keyDown.chr;
+	if (! (e->data.keyDown.modifiers & commandKeyMask)) return false;
+	if (c != vchrKeyboard && c != vchrKeyboardAlpha && c != vchrKeyboardNumeric) return false;
+	focus = FrmGetFocus (frm);
+	if (focus == noFocus) return false;
+	id = FrmGetObjectId (frm, focus);
+	real = RealPwBuf (id);
+	if (! real) return false;
+	fld = (FieldType*) FrmGetObjectPtr (frm, focus);
+
+	FldSetContent (fld, real);
+	SysKeyboardDialog (c == vchrKeyboardNumeric ? kbdNumbersAndPunc :
+		(c == vchrKeyboardAlpha ? kbdAlpha : kbdDefault));
+	t = FldGetTextPtr (fld);
+	StrNCopy (real, t ? t : "", kPwBufLen - 1);
+	real[kPwBufLen - 1] = 0;
+	gRevealField = 0; gRevealUntilTicks = 0;
+	RedrawMaskedField (id, false);
+	return true;
+}
+
 /* Mask whatever field is currently showing a revealed character -- called from
  * PilotMain's event loop once its reveal window has elapsed. */
 static void MaskPendingReveal (void)
@@ -2008,6 +1195,7 @@ static void PwDone (void)
 	 * that owns the field id it's holding. GetObj/RedrawMaskedField now guard
 	 * against that too, but clearing here stops the dangling timer at the source. */
 	gRevealField = 0; gRevealUntilTicks = 0;
+	WipePwBufs ();
 	FrmReturnToForm (0);
 	RefreshMain ();
 	FrmDrawForm (FrmGetActiveForm ());
@@ -2018,11 +1206,9 @@ static void PwOk (void)
 	Char*		np = FieldText (fldNew);
 	Char*		cp = FieldText (fldConfirm);
 	Boolean		change = (Boolean) (gPwMode == PW_CHANGE);
-	Boolean		haveOld = false;
-	UInt8		kold[ENC_KEY_BYTES], knew[ENC_KEY_BYTES];
+	UInt8		kold[ENC_KEY_BYTES], knew[ENC_KEY_BYTES], ver[16];
 	UInt8		newSalt[ENC_SALT_BYTES];
-	UInt16		newRounds = 0;
-	Sec35Pref	prevPref;	/* snapshot for rollback -- see the gRekeyIncomplete check below */
+	UInt16		newRounds = 0, res, failIdx = 0;
 
 	if (change) {
 		/* verifying the current passcode re-derives the SAME key (stored salt) and
@@ -2032,171 +1218,102 @@ static void PwOk (void)
 			{ OnWrongPassword (); return; }
 		OnCorrectPassword ();
 		if (StrLen (np) == 0)		/* current only, no new -> just unlock (no rekey) */
-			{ PwDone (); return; }
-		haveOld = EncGetKey (kold, kBigTtl);	/* grab OLD key before it's replaced */
+			{ PwDone (); ConvertIfNeeded (); return; }
+		if (! ConversionSettled ()) return;	/* it said why */
 	}
 	if (StrLen (np) == 0)
 		{ FrmCustomAlert (altEmpty, "", "", ""); return; }
 	if (StrCompare (np, cp) != 0)
 		{ FrmCustomAlert (altMismatch, "", "", ""); return; }
-	/* Refuse to even start re-encrypting under memory pressure -- see
-	 * EnoughMemoryForRekey's comment. Checked here, before anything changes, so a
-	 * "no" leaves the password and all data completely untouched. */
+	/* Refuse to even start under memory pressure -- checked before anything
+	 * changes, so a "no" leaves the password and all data untouched. */
 	if (! EnoughMemoryForRekey ())
 		{ FrmAlert (altLowMem); return; }
 
-	prevPref = gPref;		/* keep a copy to restore from if the rekey pass fails
-							 * partway, OR if the device resets mid-pass -- see below */
-
-	if (change && haveOld)
+	if (! change)
 		{
-		/* CHANGE: derive the new key WITHOUT committing it yet. Committing the new
-		 * salt/verifier here (as SET below still does) would destroy the only way
-		 * to ever re-derive kold from the old password the instant this runs --
-		 * if a reset then cuts the re-encrypt pass short, whatever's still under
-		 * kold becomes permanently unrecoverable even with the correct old
-		 * password, because the salt it needs is already gone. Instead: persist
-		 * ONLY the new (non-secret) salt/rounds as a "rekey pending" checkpoint --
-		 * no key material -- so that if a reset does cut this short, Sec35 can
-		 * detect it next launch and prompt to resume (ResumeOk), re-deriving both
-		 * keys from the still-intact old salt + the checkpointed new salt plus the
-		 * two passwords re-entered then. The REAL salt/verifier (what actually
-		 * unlocks going forward) is committed further down, only once every app's
-		 * re-encrypt pass has fully succeeded. */
-		EncRandomBytes (newSalt, ENC_SALT_BYTES);
-		newRounds = EncCalibrateRounds (800);		/* ~0.8 s of stretching */
-		EncDeriveKey (np, newSalt, newRounds, knew);
-
-		gPref.rekeyPending = true;
-		MemMove (gPref.pendingSalt, newSalt, ENC_SALT_BYTES);
-		gPref.pendingRounds = newRounds;
-		SavePrefs ();
-
-		EncCacheKey (knew);		/* work unlocked under the new key during the pass */
-		ArmAlarm ();
+		/* SET: commit at once (nothing was encrypted), then every app encrypts
+		 * its plaintext. An app that does not finish is harmless: its records
+		 * are still plaintext, and the apps seal plaintext themselves while
+		 * unlocked. */
+		DoSetPassword (np);
+		EncGetKey (knew, kBigTtl);
+		res = RunRekey (kRekeySet, NULL, knew, NewOpSerial (), false, &failIdx);
+		MemSet (knew, ENC_KEY_BYTES, 0);
+		if (res != kRekeyResultDone)
+			ShowNotFinished (res, failIdx, "Its records stay unencrypted until it finishes.");
+		PwDone ();
+		return;
 		}
-	else
-		DoSetPassword (np);					/* SET: new salt/key, caches Knew, commits immediately -- see PwOk's comment above for why CHANGE can't do the same */
 
-	gRekeyIncomplete = false;
-	{
-	UInt16 stopA = 0, stopT = 0, stopD = 0, stopC = 0;		/* how far each pass got --
-					 0 = never attempted (an earlier app already failed); exact
-					 range a rollback must cover, see below */
-	if (EncGetKey (knew, kBigTtl)) {
-		/* Stop touching FURTHER apps' data the moment one record anywhere fails --
-		 * each RecryptXxx35 call already stops at its OWN first failure (see their
-		 * "if (gRekeyIncomplete) break"), this just keeps that from cascading into
-		 * the next app's database too. */
-		if (change) { if (haveOld) {
-		                             stopA = RecryptAddress35 (kold, knew, kNoLimit);	/* re-encrypt */
-		                             if (! gRekeyIncomplete) stopT = RecryptToDo35 (kold, knew, kNoLimit);
-		                             if (! gRekeyIncomplete) stopD = RecryptDatebook35 (kold, knew, kNoLimit);
-		                             if (! gRekeyIncomplete) stopC = RecryptCryptoNote (kold, knew, kNoLimit); } }
-		else        {
-		              RecryptAddress35 (NULL, knew, kNoLimit);				/* SET: encrypt all */
-		              if (! gRekeyIncomplete) RecryptToDo35 (NULL, knew, kNoLimit);
-		              if (! gRekeyIncomplete) RecryptDatebook35 (NULL, knew, kNoLimit);
-		              if (! gRekeyIncomplete) RecryptCryptoNote (NULL, knew, kNoLimit); }
-	}
+	/* CHANGE. The old salt/verifier stay committed until EVERY app has finished
+	 * (they are the only way to re-derive the old key from the old password).
+	 * Persist only the new (non-secret) salt/rounds, the new password's check
+	 * value and the operation serial as a "rekey pending" checkpoint, so a reset
+	 * or an app that runs out of memory can be resumed (ResumeOk) with the two
+	 * passwords re-entered. No key material is stored. */
+	EncGetKey (kold, kBigTtl);					/* VerifyPassword just cached it */
+	EncRandomBytes (newSalt, ENC_SALT_BYTES);
+	newRounds = EncCalibrateRounds (800);		/* ~0.8 s of stretching */
+	EncDeriveKey (np, newSalt, newRounds, knew);
 
-	if (gRekeyIncomplete)
+	gPref.rekeyPending = true;
+	MemMove (gPref.pendingSalt, newSalt, ENC_SALT_BYTES);
+	gPref.pendingRounds = newRounds;
+	MakeVerifier (knew, 2, ver);
+	MemMove (gPref.pendVerifier, ver, 16);
+	gPref.pendOp = kRekeyChange;
+	gPref.pendSerial = NewOpSerial ();
+	gPref.pendDoneMask = 0;
+	SavePrefs ();
+
+	res = RunRekey (kRekeyChange, kold, knew, gPref.pendSerial, true, &failIdx);
+	if (res == kRekeyResultDone)
 		{
-		if (change && haveOld)
-			{
-			/* Roll back: convert whatever DID get switched to knew back to kold --
-			 * ONLY the exact range [0, stopX) each pass actually reached (0 for an
-			 * app never even attempted). Touching anything past that would mean
-			 * decrypting-with-the-wrong-key a record the forward pass never
-			 * touched in the first place, silently corrupting it -- the range
-			 * bound is exactly what makes this safe. Then restore the pre-change
-			 * prefs (prevPref, snapshotted before the checkpoint above was written
-			 * -- this also clears rekeyPending, since a rollback that completes
-			 * HERE, synchronously, needs no resume) so the password that ACTUALLY
-			 * unlocks everything again is the one the user already knows. A
-			 * partial CHANGE must never leave some records under a key nothing
-			 * refers to any more (kold/knew are stack locals, gone the moment this
-			 * function returns). */
-			RecryptAddress35 (knew, kold, stopA);
-			RecryptToDo35 (knew, kold, stopT);
-			RecryptDatebook35 (knew, kold, stopD);
-			RecryptCryptoNote (knew, kold, stopC);
-			gPref = prevPref;
-			SavePrefs ();
-			EncCacheKey (kold);		/* stay unlocked under the ORIGINAL password */
-			ArmAlarm ();
-			}
-		/* SET (no old key) can't roll back per-record -- there's nothing to revert
-		 * TO, a skipped record there is simply still plaintext (SET only ever acts
-		 * on plaintext records to begin with, so "untouched" == "not yet encrypted",
-		 * not a mismatch against any key). */
-		FrmAlert (altIncomplete);
-		}
-	else if (change && haveOld)
-		{
-		/* Full success: NOW it's safe to commit the real salt/verifier/rounds --
-		 * every app's data is confirmed re-encrypted under knew, so the old salt
-		 * is no longer needed for anything. Clears the checkpoint too. */
-		UInt8 ver[16];
+		/* Commit the new password. */
 		MemMove (gPref.salt, newSalt, ENC_SALT_BYTES);
 		gPref.rounds = newRounds;
-		MemMove (ver, kVerifyConst, 16);
-		EncCrypt (knew, ver, 16, 0, 0);
 		MemMove (gPref.verifier, ver, 16);
+		gPref.verScheme = 2;
+		gPref.convertDone = true;		/* a change converts scheme 1 data too */
 		gPref.rekeyPending = false;
 		MemSet (gPref.pendingSalt, ENC_SALT_BYTES, 0);
 		gPref.pendingRounds = 0;
+		MemSet (gPref.pendVerifier, 16, 0);
+		gPref.pendOp = 0; gPref.pendSerial = 0; gPref.pendDoneMask = 0;
 		SavePrefs ();
-		MemSet (ver, 16, 0);
 		}
-	}
+	else
+		ShowNotFinished (res, failIdx,
+			"Open Sec35 and enter the old and new password to finish.");
 
 	MemSet (kold, ENC_KEY_BYTES, 0);
 	MemSet (knew, ENC_KEY_BYTES, 0);
+	MemSet (ver, 16, 0);
 	MemSet (newSalt, ENC_SALT_BYTES, 0);
 
-	/* A password CHANGE just re-keyed every app's on-disk data from the old key to
-	 * the new one (DoSetPassword left the session UNLOCKED, caching the new key).
-	 * Force the session back to LOCKED rather than continuing unlocked with it --
-	 * switching straight to another suite app while unlocked right after a change
-	 * crashed (reported: stale in-RAM state in that app, sized/keyed around
-	 * whatever was true before the rekey, is no longer consistent with what's now
-	 * on disk / cached). Locking here means every app has to re-derive its state
-	 * from a clean unlock (re-entering the NEW password), same as any other cold
-	 * start -- no path where a just-changed key is used before everything that
-	 * depends on it has had a chance to catch up. SET (first-time password, no old
-	 * ciphertext to be inconsistent with) is unaffected. A rolled-back CHANGE
-	 * (gRekeyIncomplete above) is ALSO fine to lock here -- EncCacheKey (kold) just
-	 * ran, so re-unlocking uses the (correctly restored) original password. */
-	if (change)
-		{
-		EncWipeKey ();
-		CancelAlarm ();
-		}
-
-	PwDone ();							/* closes dialog + redraws main (clears progress) */
+	/* Come back LOCKED after a change (finished or not): switching straight to
+	 * another suite app while unlocked right after a change crashed (stale
+	 * in-RAM state in that app). Every app re-derives its state from a clean
+	 * unlock with the password that is now valid. */
+	EncWipeKey ();
+	CancelAlarm ();
+	PwDone ();
 }
 
 /* OK on the Resume Re-key dialog (see frmResume / MainFormHandleEvent's
- * gPref.rekeyPending check): finishes a password CHANGE that a reset cut off
- * partway through. The OLD password is checked the normal way -- VerifyPassword
- * against the still-active old verifier, which PwOk never overwrote until full
- * success, so this works exactly like any other unlock. The NEW password can't be
- * verified the same way (no verifier for it was ever committed -- that's the
- * whole point of deferring it); it's proven by the repair pass itself, which
- * trial-decrypts every previously-encrypted record and only accepts a key when
- * PlausibleText recognizes the result. If what's typed here doesn't match what
- * was actually in progress before the reset, records still on the old key get
- * correctly finished under THIS (now authoritative) password, while records that
- * had already reached the old in-progress key fail both trials and are reported
- * unrecoverable -- nothing is silently corrupted either way, see Repair*35. */
+ * gPref.rekeyPending check): finishes a password CHANGE that a reset or an app
+ * that ran out of memory cut short. The old password is checked against the
+ * still-committed old verifier, the new one against the pending change's own
+ * check value; then the apps not yet finished carry on from where they were
+ * (same operation serial). */
 static void ResumeOk (void)
 {
 	Char*	op    = FieldText (fldCurrent);
 	Char*	npass = FieldText (fldNew);
 	UInt8	kold[ENC_KEY_BYTES], knew[ENC_KEY_BYTES], ver[16];
-	UInt16	unrec = 0;
-	Char	msg[64];
+	UInt16	res, failIdx = 0;
+	Boolean	newOk;
 
 	if (! AttemptAllowed ()) return;		/* lockout delay active */
 	if (! VerifyPassword (op))
@@ -2204,29 +1321,43 @@ static void ResumeOk (void)
 	OnCorrectPassword ();
 	if (StrLen (npass) == 0)
 		{ FrmCustomAlert (altEmpty, "", "", ""); return; }
-	if (! EnoughMemoryForRekey ())
-		{ FrmAlert (altLowMem); return; }
 
 	EncGetKey (kold, kBigTtl);		/* VerifyPassword just cached it */
 	EncDeriveKey (npass, gPref.pendingSalt, gPref.pendingRounds, knew);
+	MakeVerifier (knew, 2, ver);
+	newOk = (Boolean) (MemCmp (ver, gPref.pendVerifier, 16) == 0);
+	if (! newOk)
+		{
+		MemSet (kold, ENC_KEY_BYTES, 0); MemSet (knew, ENC_KEY_BYTES, 0); MemSet (ver, 16, 0);
+		EncWipeKey (); CancelAlarm ();
+		FrmAlert (altNewMismatch);
+		return;
+		}
+	if (! EnoughMemoryForRekey ())
+		{
+		MemSet (kold, ENC_KEY_BYTES, 0); MemSet (knew, ENC_KEY_BYTES, 0); MemSet (ver, 16, 0);
+		FrmAlert (altLowMem);
+		return;
+		}
 
-	unrec += RepairAddress35 (kold, knew);
-	unrec += RepairToDo35 (kold, knew);
-	unrec += RepairDatebook35 (kold, knew);
-	unrec += RepairCryptoNote (kold, knew);
-
-	/* Commit: this reaches the same final state PwOk's own success path would
-	 * have, using the checkpointed (non-secret) salt/rounds from before the
-	 * interruption. */
-	MemMove (gPref.salt, gPref.pendingSalt, ENC_SALT_BYTES);
-	gPref.rounds = gPref.pendingRounds;
-	MemMove (ver, kVerifyConst, 16);
-	EncCrypt (knew, ver, 16, 0, 0);
-	MemMove (gPref.verifier, ver, 16);
-	gPref.rekeyPending = false;
-	MemSet (gPref.pendingSalt, ENC_SALT_BYTES, 0);
-	gPref.pendingRounds = 0;
-	SavePrefs ();
+	res = RunRekey (kRekeyChange, kold, knew, gPref.pendSerial, true, &failIdx);
+	if (res == kRekeyResultDone)
+		{
+		MemMove (gPref.salt, gPref.pendingSalt, ENC_SALT_BYTES);
+		gPref.rounds = gPref.pendingRounds;
+		MemMove (gPref.verifier, ver, 16);
+		gPref.verScheme = 2;
+		gPref.convertDone = true;
+		gPref.rekeyPending = false;
+		MemSet (gPref.pendingSalt, ENC_SALT_BYTES, 0);
+		gPref.pendingRounds = 0;
+		MemSet (gPref.pendVerifier, 16, 0);
+		gPref.pendOp = 0; gPref.pendSerial = 0; gPref.pendDoneMask = 0;
+		SavePrefs ();
+		FrmCustomAlert (altResumeDone, "All apps finished.", "", "");
+		}
+	else
+		ShowNotFinished (res, failIdx, "Try again after fixing that.");
 
 	MemSet (kold, ENC_KEY_BYTES, 0);
 	MemSet (knew, ENC_KEY_BYTES, 0);
@@ -2234,55 +1365,39 @@ static void ResumeOk (void)
 
 	EncWipeKey ();			/* same "come back locked" policy as a normal CHANGE */
 	CancelAlarm ();
-
-	if (unrec == 0)
-		FrmCustomAlert (altResumeDone, "All records recovered.", "", "");
-	else
-		{
-		StrPrintF (msg, "%d record(s) could not be recovered and were left untouched.", unrec);
-		FrmCustomAlert (altResumeDone, msg, "", "");
-		}
-
-	PwDone ();							/* closes dialog + redraws main (clears progress) */
+	PwDone ();
 }
 
-/* Delete button (PW_CHANGE only): verify current, DECRYPT all data (so it survives
- * losing the passcode), then clear the password. */
+/* Delete button (PW_CHANGE only): verify current, have every app DECRYPT its
+ * data (so it survives losing the passcode; saved passwords in lazyFTP and
+ * CalDAV Sync are cleared, there is nowhere safe to keep them), then clear the
+ * password. Removal is safe to repeat: records already plaintext are skipped. */
 static void PwDelete (void)
 {
 	UInt8	key[ENC_KEY_BYTES];
-	Boolean	have;
+	UInt16	res, failIdx = 0;
 
 	if (! AttemptAllowed ()) return;		/* lockout delay active */
 	if (! VerifyPassword (FieldText (fldCurrent)))
 		{ OnWrongPassword (); return; }
 	OnCorrectPassword ();
-	/* See PwOk's identical check -- decrypting everything is the same kind of
-	 * per-record rekey pass, same risk under memory pressure. */
+	if (FrmAlert (altRemoveConfirm) != 1)	/* button 1 = Remove */
+		return;
+	if (! ConversionSettled ()) return;		/* it said why */
 	if (! EnoughMemoryForRekey ())
 		{ FrmAlert (altLowMem); return; }
-	have = EncGetKey (key, kBigTtl);		/* VerifyPassword just cached it */
-	gRekeyIncomplete = false;
-	if (have) {
-		RecryptAddress35 (key, NULL, kNoLimit);		/* decrypt -> plaintext, clear enc bit */
-		if (! gRekeyIncomplete) RecryptToDo35 (key, NULL, kNoLimit);
-		if (! gRekeyIncomplete) RecryptDatebook35 (key, NULL, kNoLimit);
-		if (! gRekeyIncomplete) RecryptCryptoNote (key, NULL, kNoLimit);
-		MemSet (key, ENC_KEY_BYTES, 0);
-	}
-	if (gRekeyIncomplete)
+	EncGetKey (key, kBigTtl);				/* VerifyPassword just cached it */
+	res = RunRekey (kRekeyRemove, key, NULL, NewOpSerial (), false, &failIdx);
+	MemSet (key, ENC_KEY_BYTES, 0);
+	if (res != kRekeyResultDone)
 		{
-		/* Some records got decrypted before memory ran out, but not all -- do NOT
-		 * clear the password now. That would leave the still-encrypted remainder
-		 * PERMANENTLY unreadable (nothing would exist any more to derive their key
-		 * from -- unlike PwOk's CHANGE rollback, there's no "old key" to fall back
-		 * to here, this key IS the only one). The session stays unlocked under the
-		 * SAME password, still valid for whatever's left encrypted; retry once
-		 * more memory is free to finish clearing it. */
-		FrmAlert (altIncomplete);
+		/* Some data decrypted, some not: keep the password (the remainder is
+		 * still readable with it); repeating the removal finishes it. */
+		ShowNotFinished (res, failIdx, "The password is kept. Remove it again to finish.");
 		PwDone ();
 		return;
 		}
+	gPref.pendOp = 0; gPref.pendSerial = 0; gPref.pendDoneMask = 0;
 	DoClearPassword ();
 	PwDone ();							/* closes dialog + redraws main (clears progress) */
 }
@@ -2297,7 +1412,7 @@ static Boolean PwDialogHandleEvent (EventType* e)
 			FrmDrawForm (FrmGetActiveForm ());
 			/* Fresh dialog -- don't inherit stale password text from a previous
 			 * session (SET only ever shows New/Confirm; CHANGE also has Current). */
-			gPwCurrent[0] = gPwNew[0] = gPwConfirm[0] = 0;
+			WipePwBufs ();				/* fresh dialog: nothing left from before */
 			gRevealField = 0; gRevealUntilTicks = 0;
 			/* FrmSetFocus sets focus PROGRAMMATICALLY and does not raise fldEnterEvent,
 			 * so it would bypass the keypad interception below -- skip the auto-focus
@@ -2316,6 +1431,7 @@ static Boolean PwDialogHandleEvent (EventType* e)
 			else if (e->data.ctlSelect.controlID == btnPwCancel)
 				{
 				gRevealField = 0; gRevealUntilTicks = 0;	/* see PwDone's comment */
+				WipePwBufs ();
 				FrmReturnToForm (0);
 				handled = true;
 				}
@@ -2369,6 +1485,7 @@ static void ReturnToUnlockCaller (void)
 	UInt32 creator = gUnlockReturn;
 
 	gRevealField = 0; gRevealUntilTicks = 0;	/* see PwDone's comment */
+	WipePwBufs ();
 	gUnlockReturn = 0;
 	if (DmGetNextDatabaseByTypeCreator (true, &st, sysFileTApplication, creator,
 			true, &card, &db) == errNone)
@@ -2388,9 +1505,12 @@ static void UnlockAttempt (void)
 		{
 		OnCorrectPassword ();
 		if (gUnlockReturn)			/* hand-off: return to the launching app */
-			{ ReturnToUnlockCaller (); }
+			{
+			if (ConvertIfNeeded ()) ReturnToUnlockCaller ();
+			else { gUnlockReturn = 0; PwDone (); }
+			}
 		else
-			PwDone ();
+			{ PwDone (); ConvertIfNeeded (); }
 		}
 	else
 		OnWrongPassword ();
@@ -2404,7 +1524,7 @@ static Boolean UnlockDialogHandleEvent (EventType* e)
 		{
 		case frmOpenEvent:
 			FrmDrawForm (FrmGetActiveForm ());
-			gPwUnlock[0] = 0;			/* fresh dialog -- don't inherit stale text */
+			WipePwBufs ();				/* fresh dialog -- don't inherit stale text */
 			gRevealField = 0; gRevealUntilTicks = 0;
 			/* Numeric Keypad mode: go straight to the keypad -- no need to tap the
 			 * field first (that used to take an extra tap: one to bring up the
@@ -2427,6 +1547,7 @@ static Boolean UnlockDialogHandleEvent (EventType* e)
 			else if (e->data.ctlSelect.controlID == btnUnlockCancel)
 				{
 				gRevealField = 0; gRevealUntilTicks = 0;	/* see PwDone's comment */
+				WipePwBufs ();
 				FrmReturnToForm (0);
 				if (gUnlockReturn) ReturnToUnlockCaller ();	/* cancelled: still go back (masked) */
 				handled = true;
@@ -2759,9 +1880,53 @@ static Boolean AppHandleEvent (EventType* e)
 	return false;
 }
 
+/* "Lock on Power-Off" for whichever app is running when the device sleeps.
+ * Sec35 registers for the sleep notification by LAUNCH CODE (no callback), so
+ * the OS launches Sec35 itself (no globals) on every sleep, from any app --
+ * the launcher, the ROM apps, or a suite app that never registered its own
+ * callback (lazyFTP, CalDAV Sync). Registered on every launch, after a soft
+ * reset (the registration does not survive one) and after a HotSync; never
+ * unregistered (the OS drops it when Sec35 is deleted). A duplicate
+ * registration is refused harmlessly. No globals are used on this path. */
+static void RegisterSleepLock (void)
+{
+	UInt16	card;
+	LocalID	db;
+
+	if (GetMyDb (&card, &db))
+		SysNotifyRegister (card, db, sysNotifySleepNotifyEvent, NULL,
+			sysNotifyNormalPriority, NULL);
+}
+
 UInt32 PilotMain (UInt16 cmd, MemPtr cmdPBP, UInt16 launchFlags)
 {
 	EventType e;
+
+	if (cmd == sysAppLaunchCmdNotify)
+		{
+		/* sleep notification (see RegisterSleepLock): drop the key if the user
+		 * turned "Lock on Power-Off" on. The setting is in the unsaved prefs,
+		 * readable without globals. */
+		SysNotifyParamType* np = (SysNotifyParamType*) cmdPBP;
+		if (np && np->notifyType == sysNotifySleepNotifyEvent && EncGetLockOnSleep ())
+			EncWipeKey ();
+		return 0;
+		}
+
+	if (cmd == sysAppLaunchCmdSystemReset || cmd == sysAppLaunchCmdSyncNotify)
+		{
+		/* No globals here: read Sec35's own saved settings into a local and
+		 * re-assert "a passcode is set" (the Feature does not survive a soft
+		 * reset; the unsaved pref does, this re-syncs both with the truth). */
+		Sec35Pref	p;
+		UInt16		sz = sizeof (p);
+		MemSet (&p, sizeof (p), 0);
+		PrefGetAppPreferences (ENC_CREATOR, kSecPrefId, &p, &sz, true);
+		EncSetEncryptionActive ((Boolean) p.passwordSet);
+		MemSet (&p, sizeof (p), 0);
+		RegisterSleepLock ();
+		return 0;
+		}
 
 	if (cmd == sysAppLaunchCmdAlarmTriggered)
 		{
@@ -2773,7 +1938,7 @@ UInt32 PilotMain (UInt16 cmd, MemPtr cmdPBP, UInt16 launchFlags)
 	if (cmd == sysAppLaunchCmdNormalLaunch || cmd == kSecLaunchUnlock)
 		{
 		LoadPrefs ();
-		EncRegisterSleepWipe ();		/* see enccore.h -- only meaningful while resident */
+		RegisterSleepLock ();			/* Lock on Power-Off, any app (see above) */
 		gUnlockReturn = 0;
 		if (cmd == kSecLaunchUnlock)
 			{								/* hand-off: who to return to (via Feature) */
@@ -2808,6 +1973,21 @@ UInt32 PilotMain (UInt16 cmd, MemPtr cmdPBP, UInt16 launchFlags)
 				if (cdTimeout < timeout) timeout = cdTimeout;
 				}
 			EvtGetEvent (&e, timeout);
+			/* Keystroke / tap timing and position in the password dialogs feed
+			 * the randomness pool (salts, serials -- see EncAddEntropy). The
+			 * character itself is not added, only when and where. */
+			if (e.eType == keyDownEvent || e.eType == penDownEvent)
+				{
+				UInt16 f = FrmGetActiveFormID ();
+				if (f == frmPwSet || f == frmPwChange || f == frmUnlock
+						|| f == frmResume || f == frmKeypad)
+					{
+					struct { UInt32 t; Int16 x, y; } ev;
+					ev.t = TimGetTicks ();
+					ev.x = e.screenX; ev.y = e.screenY;
+					EncAddEntropy (&ev, sizeof (ev));
+					}
+				}
 			if (e.eType == nilEvent)
 				{
 				if (gRevealUntilTicks && TimGetTicks () >= gRevealUntilTicks)
@@ -2822,12 +2002,12 @@ UInt32 PilotMain (UInt16 cmd, MemPtr cmdPBP, UInt16 launchFlags)
 						&& FrmGetActiveFormID () == frmMain)
 					RefreshMain ();
 				}
-			if (! SysHandleEvent (&e))
+			if (! PwKeyboard (&e) && ! SysHandleEvent (&e))
 				if (! MenuHandleEvent (0, &e, &err))	/* Options > Forget Password */
 					if (! AppHandleEvent (&e))
 						FrmDispatchEvent (&e);
 		} while (e.eType != appStopEvent);
-		EncUnregisterSleepWipe ();
+		WipePwBufs ();
 		FrmCloseAllForms ();
 		}
 	return 0;

@@ -38,6 +38,7 @@
 #define wctlTypeFactory		0x4B
 #define wctlTypeSys			0x4E	/* system page text, a page at a time: op u8 (unused), offset u32 - same reply as Log */
 #define wctlTypeLog			0x4D	/* session log, a page at a time: op u8 (0 read, 1 clear), offset u32 */
+#define wctlTypeFormatSd	0x4F	/* erase the SD card: "FORMAT", copy u8 -> ok, fat, copied, total, note str */
 #define wctlTypeSpeed		0x4C	/* move WiRSa's menu to a faster rate (firmware with wctlFlagSpeed) */
 #define wctlTypeErr			0x5F
 #define wctlReplyOf(t)		((UInt8) ((t) + 0x20))

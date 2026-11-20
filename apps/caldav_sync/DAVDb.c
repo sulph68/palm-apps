@@ -37,7 +37,7 @@ static void DAVDbEncryptField(UInt32 uid, UInt8 fieldIdx, char *buf, UInt16 bufC
 	 * buffer even in the (should-never-happen, StrLen already guarantees
 	 * this) worst case. */
 	if (len > (UInt16) (bufCap - 1)) len = (UInt16) (bufCap - 1);
-	if (len > 0 && CDDVCryptBytes(uid, (UInt32) fieldIdx, (UInt8 *) buf, len)) {
+	if (len > 0 && CDDVCryptBytes(ENC_STORE_DAVEV, uid, (UInt32) fieldIdx, (UInt8 *) buf, len)) {
 		*lenOut = len;
 	} else {
 		*lenOut = 0;
@@ -156,6 +156,7 @@ SEC003 Err DAVDbBeginSlotRebuild(UInt8 slotIdx)
 
 	gRebuildDB = DmOpenDatabase(0, tmpID, dmModeReadWrite);
 	if (!gRebuildDB) return dmErrMemError;
+	EncDbSetStoreKeys(gRebuildDB);		/* written with the events store key */
 
 	/* The real database is not touched here - see file header. */
 	return errNone;
@@ -289,8 +290,10 @@ SEC003 void DAVDbCommitStaged(void)
 	if (mask) {
 		dbID = DmFindDatabase(0, cddvDavDbName);
 		if (dbID == 0 &&
-			DmCreateDatabase(0, cddvDavDbName, appCreator, cddvDavDbType, false) == errNone)
+			DmCreateDatabase(0, cddvDavDbName, appCreator, cddvDavDbType, false) == errNone) {
 			dbID = DmFindDatabase(0, cddvDavDbName);
+			EncDbIdSetStoreKeys(dbID);	/* new: key scheme 2 from the start */
+		}
 		if (dbID != 0) realDB = DmOpenDatabase(0, dbID, dmModeReadWrite);
 	}
 

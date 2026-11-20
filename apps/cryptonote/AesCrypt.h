@@ -56,6 +56,11 @@ extern "C" {
  * unpredictable to an attacker, only unique). */
 void GenerateRandomIV(UInt8 iv[AES_IV_SIZE]) AES_SECTION;
 
+/* User databases (SecDb.c): derive keys from this secret instead of the device
+ * secret + global password; NULL restores the normal derivation. */
+void AesSetSecret(const UInt8 * sec, UInt16 len) AES_SECTION;
+Boolean AesDeviceID(const UInt8 ** sec, UInt16 * len) AES_SECTION;
+
 /* Returns the number of stretch rounds that take ~1.5 s on this device. The
  * result is measured once (via TimGetTicks) and cached for the session. Store
  * the returned value in the record so the same key can be re-derived later. */

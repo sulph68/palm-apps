@@ -21,7 +21,7 @@ INCS=$(find "$SDK" -type d | sed 's/^/-I/' | tr '\n' ' ')
 # edate.h last (wrapper prototypes, needs DATELIB_SECTION from db35_seg.h).
 # ALLOW_ACCESS_TO_INTERNALS_OF_TABLES: the agenda's To Do table is grown from 3
 # to 5 columns in C (pilrc caps tables at 3) -- see AgendaExpandToDoColumns.
-CFLAGS="-palmos4 -Os -DCATSYNC_MULTISEG -DTODOEXT_SEG_NAME=sec002 -DLOCDB_SEG_NAME=sec002 -DALLOW_ACCESS_TO_INTERNALS_OF_TABLES= -include $LIB/edate_override.h -include $SDK/PalmUtils.h -include Src/db35_seg.h -include $LIB/edate.h $INCS -ISrc -I$LIB"
+CFLAGS="-palmos4 -Os -DCATSYNC_MULTISEG -DTODOEXT_SEG_NAME=sec002 -DLOCDB_SEG_NAME=sec004 -DALLOW_ACCESS_TO_INTERNALS_OF_TABLES= -include $LIB/edate_override.h -include $SDK/PalmUtils.h -include Src/db35_seg.h -include $LIB/edate.h $INCS -ISrc -I$LIB"
 CC=m68k-palmos-gcc
 B=build
 mkdir -p "$B"
@@ -43,8 +43,8 @@ for base in $SOURCES; do
   $CC $CFLAGS -c "Src/$base.c" -o "$B/$base.o"
 done
 # shared apps/lib picker (era-aware SelectDay replacement) -> sec002 via DATELIB_SECTION
-# locdb.c (event Location storage, -DLOCDB_SEG_NAME=sec002 above) mirrors todoext.c's segment idiom.
-for f in "$LIB/datepick.c" "$LIB/datelib.c" "$LIB/hackcheck.c" "$LIB/era.c" "$LIB/edate.c" "$LIB/catsync.c" "$LIB/todoext.c" "$LIB/enccore.c" "$LIB/aes.c" "$LIB/locdb.c" "$LIB/a35lookup.c"; do
+# locdb.c (event Location storage + its Sec35 encryption, -DLOCDB_SEG_NAME=sec004 above) mirrors todoext.c's segment idiom.
+for f in "$LIB/datepick.c" "$LIB/datelib.c" "$LIB/hackcheck.c" "$LIB/era.c" "$LIB/edate.c" "$LIB/catsync.c" "$LIB/todoext.c" "$LIB/enccore.c" "$LIB/encrekey.c" "$LIB/aes.c" "$LIB/locdb.c" "$LIB/a35lookup.c"; do
   $CC $CFLAGS -c "$f" -o "$B/$(basename "${f%.c}").o"
 done
 

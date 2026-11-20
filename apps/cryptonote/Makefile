@@ -8,7 +8,8 @@
       		 EditForm.o Main.o PrefsForm.o PasswordForm.o \
       		 QueryGlobalPasswordForm.o SetAndChangeGlobalPasswordForm.o \
       		 aes.o AesCrypt.o CardIO.o CardCrypt.o catsync.o \
-      		 enccore.o CryptoSec35.o $(EXE)-sections.o
+      		 enccore.o encrekey.o CryptoSec35.o PwMask.o SecDb.o ViewList.o DbForms.o \
+      		 $(EXE)-sections.o
 
 #uncomment this if you want to build a gdb debuggable version
 #   DEFINES = -DDEBUG
@@ -76,6 +77,12 @@ $(EXE)-sections.s $(EXE)-sections.ld: $(EXE).def
 	$(MULTIGEN) $(EXE).def
 
 catsync.o: ../lib/catsync.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+aes.o: ../lib/aes.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+encrekey.o: ../lib/encrekey.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 enccore.o: ../lib/enccore.c

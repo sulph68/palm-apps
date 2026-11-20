@@ -132,7 +132,7 @@ Err backupDo(UInt16 vrn, const char *bkpName, BackupProgressF progressF, BackupF
 		goto out;
 	}
 	
-	numFiles = DmNumDatabases(0) - 1 /* skip self */;
+	numFiles = DmNumDatabases(0) - 1;	//not "skip self" (self is skipped by ID below): the last index is a ROM database, RAM ones come first
 	
 	//tell caller
 	e = progressF(progressD, BackupStarting, 0, 0, 0, 0, NULL);

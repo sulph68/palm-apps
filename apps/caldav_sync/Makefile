@@ -8,9 +8,9 @@
 # not all files exist yet.
       OBJS = CalDAVSync.o MainForm.o SlotEditForm.o DupSlot.o ContactDb.o LongTextDialog.o PrefsForm.o HelpForm.o \
              SyncProgress.o \
-             CDDVPrefs.o CDDVSec35.o DAVDb.o \
+             CDDVPrefs.o CDDVSec35.o CDDVRekey.o DAVDb.o \
              Serial.o relayproto.o relaywire.o relaysec.o wirsactl.o SyncEngine.o OAuthRelay.o \
-             enccore.o aes.o \
+             enccore.o encrekey.o aes.o \
              $(EXE)-sections.o
 
    DEFINES = -DPALMOS4
@@ -54,6 +54,9 @@ $(EXE)-sections.s $(EXE)-sections.ld: $(EXE).def
 	$(MULTIGEN) $(EXE).def
 
 enccore.o: ../lib/enccore.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+encrekey.o: ../lib/encrekey.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 aes.o: ../lib/aes.c

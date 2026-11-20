@@ -243,7 +243,7 @@ static void SetupSave(void)
 		 * Preferred Baud to be asked for again. */
 		if (r == wctlOk && newBaudIdx != gCfg.baudIdx && gWCtlInfo.mode == 'M') {
 			if (gWCtlInfo.flags & wctlFlagSpeed)
-				gPrefs.speedSkip = 0;
+				SpeedRetry();
 			else
 				gWCtlBaud = BaudOf(newBaudIdx);
 		}
@@ -361,6 +361,14 @@ Boolean SetupHandleEvent(EventPtr e)
 
 static char gMaskBackup[65];
 
+/* Leaving frmFtp / frmAp: the field's text and the Cancel copy are wiped (gMasks keeps the password for Setup's OK). */
+static void CredEnd(UInt16 which, FormPtr frm)
+{
+	MaskEnd(&gMasks[which], frm);
+	gMasks[which].show = false;
+	MemSet(gMaskBackup, sizeof(gMaskBackup), 0);
+}
+
 static Boolean CredHandleEvent(EventPtr e, UInt16 which)
 {
 	FormPtr frm;
@@ -368,11 +376,14 @@ static Boolean CredHandleEvent(EventPtr e, UInt16 which)
 	UInt16 textLen = which ? sizeof(gCfg.apSsid) : sizeof(gCfg.ftpUser);
 	UInt16 userFld = which ? fldApSsid : fldFtpUser, passFld = which ? fldApPass : fldFtpPass;
 	UInt16 okBtn = which ? btnApOk : btnFtpOk, cancelBtn = which ? btnApCancel : btnFtpCancel;
+	UInt16 showChk = which ? chkApShow : chkFtpShow;
 
 	switch (e->eType) {
 	case frmOpenEvent:
 		frm = FrmGetActiveForm();
 		gMasks[which].fieldID = passFld;
+		MaskUse(&gMasks[which]);
+		gMasks[which].show = false;
 		StrCopy(gMaskBackup, gMasks[which].real);
 		SetFieldEdit(userFld, text);
 		if (gMasks[which].real[0])
@@ -391,16 +402,26 @@ static Boolean CredHandleEvent(EventPtr e, UInt16 which)
 		return EditMenu(e->data.menu.itemID, &gMasks[which], 1);
 
 	case ctlSelectEvent:
+		if (e->data.ctlSelect.controlID == showChk) {
+			MaskShow(&gMasks[which], (Boolean) (e->data.ctlSelect.on != 0));
+			return true;
+		}
 		if (e->data.ctlSelect.controlID == okBtn) {
 			GetFieldEdit(userFld, text, textLen);
+			CredEnd(which, FrmGetActiveForm());
 			FrmReturnToForm(frmSetup);
 			return true;
 		}
 		if (e->data.ctlSelect.controlID == cancelBtn) {
 			StrCopy(gMasks[which].real, gMaskBackup);
+			CredEnd(which, FrmGetActiveForm());
 			FrmReturnToForm(frmSetup);
 			return true;
 		}
+		break;
+
+	case frmCloseEvent:					/* the app quits with the form open */
+		CredEnd(which, FrmGetFormPtr(e->data.frmClose.formID));
 		break;
 
 	default:

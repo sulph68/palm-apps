@@ -23,9 +23,14 @@
  *    (see A35Defaults precedent in address35/Address35.c) since there's
  *    nothing here worth backing up.
  *
- * Single segment, single form, no menu (the Server field is short enough
- * that Graffiti/typing alone is fine), no locale variants - edit EraNTP.rcp
- * directly to tweak the layout, matching Sec35's build shape.
+ * Time is worked out in 64 bits (datelib) from the NTP reply on: the 32-bit NTP
+ * seconds are placed in the right 136-year NTP era first (EraOf), so nothing
+ * stops at NTP's 2036 wrap or Palm's 2040 limit. Replies are checked before
+ * they are used (ReplyProblem).
+ *
+ * Single segment, single form, menus Network (Connect/Disconnect) and Edit
+ * (for the Server field), no locale variants - edit EraNTP.rcp directly to
+ * tweak the layout, matching Sec35's build shape.
  */
 #include <PalmOS.h>
 #include <NetMgr.h>
@@ -46,6 +51,13 @@
 #define btnSyncNow		1010
 #define mniConnect		1601
 #define mniDisconnect	1602
+#define mniEditUndo		1610
+#define mniEditCut		1611
+#define mniEditCopy		1612
+#define mniEditPaste	1613
+#define mniEditSelectAll	1614
+#define mniEditKeyboard	1615
+#define mniEditGraffiti	1616
 
 #define appCreator		'Entp'
 #define unsavedPrefID	0
@@ -61,6 +73,7 @@
 #define dnsMaxAttempts	3							/* the first lookup right after NetLibOpen can
 													   fail on real hardware while the link is still
 													   settling -- retry before giving up */
+#define sendMaxAttempts	3							/* requests sent before giving up on a reply */
 #define logCapacity		4000						/* matches EraNTP.rcp's fldLog MAXCHARS */
 #define tickTimeout		SysTicksPerSecond()			/* ~1s Device/Era refresh, same idiom as Sec35's countdown label */
 #define syncPollTicks	(SysTicksPerSecond() / 5)	/* ~200ms event-loop cadence while a sync is in
@@ -71,6 +84,7 @@
  * non-leap (1900 is div-100-not-400; 1901-03 aren't div-4), so exactly
  * 1460 days = 126144000 seconds separate the two epochs. */
 #define ntpToPalmEpochDelta	126144000UL
+#define ntpEraSeconds		((dl_i64) 1 << 32)	/* one NTP era: the 32-bit seconds wrap (first in Feb 2036) */
 
 /* ---- unsaved ("last used") prefs: Server text + checkbox state -------- */
 typedef struct {
@@ -113,6 +127,7 @@ static char      gServer[64];
 static Boolean   gSetClockFlag;
 static char      gResolvedIp[16];
 static char      gErrMsg[64];
+static UInt8     gOrigin[8];		/* our request's transmit timestamp: a valid reply echoes it */
 
 /* ---- unsaved prefs -------------------------------------------------- */
 static void LoadDefaults(EraNtpDefaults *d)
@@ -336,6 +351,48 @@ static void SyncCancel(void)
 	LogAppend("Terminated");
 }
 
+/* NULL if the n-byte datagram in gPacket from `from` is a usable answer to our request, else why not. */
+static const char *ReplyProblem(Int16 n, const NetSocketAddrINType *from)
+{
+	UInt8 li, mode, stratum;
+
+	if (n < ntpPacketLen) return "too short";
+	if (from->addr != gRemote.addr) return "not from the server";
+	li = (UInt8) (gPacket[0] >> 6);
+	mode = (UInt8) (gPacket[0] & 7);
+	stratum = gPacket[1];
+	if (mode != 4) return "not a server reply";
+	if (li == 3) return "server clock not synchronized";
+	if (stratum == 0) return "server refused (kiss-o'-death)";
+	if (stratum > 15) return "bad stratum";
+	if (MemCmp(&gPacket[24], gOrigin, 8) != 0) return "not an answer to our request";
+	if (!gPacket[40] && !gPacket[41] && !gPacket[42] && !gPacket[43]) return "no time in it";
+	return NULL;
+}
+
+/* NTP seconds are 32 bits since 1900 and wrap every 136 years (the era is not sent). The era chosen is the one
+ * that puts the time nearest the plugin's real date (good to the plugin's own limit), or without the plugin, any
+ * time before 2026 counts as the next era (good until 2162). Returns seconds since 1900, 64 bits. */
+static dl_i64 EraOf(UInt32 ntp32)
+{
+	dl_i64 t = (dl_i64) ntp32;
+
+	if (HcCheck() == HC_OK) {
+		DlDateTime real;
+		dl_i64 ref, diff;
+
+		Hc_CurrentRealDate(&real);
+		ref = dl_dateToSeconds(real.year, real.month, real.day, real.hour, real.minute, real.second)
+			+ (dl_i64) ntpToPalmEpochDelta;
+		diff = ref - t + (ntpEraSeconds >> 1);
+		if (diff > 0) t += (diff >> 32) << 32;		/* whole eras to the nearest one */
+	} else {
+		dl_i64 pivot = dl_dateToSeconds(2026, 1, 1, 0, 0, 0) + (dl_i64) ntpToPalmEpochDelta;
+		if (t < pivot) t += ntpEraSeconds;
+	}
+	return t;
+}
+
 /* Advances the sync exactly one step. Called once immediately from
  * SyncStart, then once per EventLoop tick (every syncPollTicks, ~200ms)
  * while gSyncPhase != kSyncIdle. */
@@ -442,6 +499,13 @@ static void SyncTick(void)
 	case kSyncSending:
 		MemSet(gPacket, sizeof(gPacket), 0);
 		gPacket[0] = 0x1B;					/* LI=0, VN=3, Mode=3 (client) */
+		{									/* a fresh random transmit timestamp per request: the server echoes it as
+											 * the reply's originate timestamp, which ties a reply to this request */
+			UInt16 i;
+			UInt32 seed = TimGetTicks() ^ TimGetSeconds();
+			for (i = 0; i < 8; i++) gOrigin[i] = (UInt8) ((SysRandom((Int32) (seed + i)) ^ (TimGetTicks() >> i)) & 0xFF);
+			MemMove(&gPacket[40], gOrigin, 8);
+		}
 		/* Deliberately NOT calling NetLibSocketConnect - see the working-
 		 * pattern memory note: a "connected" UDP socket filters incoming
 		 * datagrams by strict peer match, and on some real-hardware/NAT
@@ -461,7 +525,7 @@ static void SyncTick(void)
 	case kSyncWaiting:
 		{
 			/* Non-blocking poll (timeout=0) - this is the phase that used
-			 * to dominate the wait (up to dnsMaxAttempts * ntpTimeoutTicks),
+			 * to dominate the wait (up to sendMaxAttempts * ntpTimeoutTicks),
 			 * so making it pollable rather than one long blocking receive
 			 * is what actually keeps the clock ticking and Stop responsive. */
 			NetFDSetType readSet;
@@ -472,18 +536,27 @@ static void SyncTick(void)
 			selResult = NetLibSelect(gNetRefNum, (UInt16) (gSock + 1), &readSet,
 				NULL, NULL, 0, &selErr);
 			if (selResult > 0 && netFDIsSet(gSock, &readSet)) {
-				Int16 n = NetLibReceive(gNetRefNum, gSock, gPacket, sizeof(gPacket), 0,
-					NULL, NULL, 0, &err);
-				if (n >= 48) {
+				NetSocketAddrINType from;
+				UInt16 fromLen = sizeof(from);
+				const char *why;
+				Int16 n;
+
+				MemSet(&from, sizeof(from), 0);
+				n = NetLibReceive(gNetRefNum, gSock, gPacket, sizeof(gPacket), 0,
+					&from, &fromLen, 0, &err);
+				why = ReplyProblem(n, &from);
+				if (!why) {
 					SyncFinish(true);
 					break;
 				}
-				/* short/garbage read - fall through to the timeout/retry check */
+				StrPrintF(line, "Ignored reply: %s", why);	/* keep waiting for a good one */
+				LogAppend(line);
+				StrPrintF(gErrMsg, "No valid reply (last: %s)", why);
 			}
 			if (TimGetTicks() - gWaitStartTick >= (UInt32) ntpTimeoutTicks) {
 				gSendAttempt++;
-				if (gSendAttempt >= dnsMaxAttempts) {
-					StrPrintF(gErrMsg, "No/short reply from server (err=%ld)", (long) err);
+				if (gSendAttempt >= sendMaxAttempts) {
+					if (!gErrMsg[0]) StrPrintF(gErrMsg, "No reply from server (err=%ld)", (long) err);
 					SyncFinish(false);
 				} else {
 					gSyncPhase = kSyncSending;	/* resend on the next tick */
@@ -519,7 +592,8 @@ static void SyncFinish(Boolean ok)
 
 	{
 		DlDateTime ntp;
-		UInt32 raw, ntpSeconds, palmSeconds, localSeconds;
+		UInt32 raw;
+		dl_i64 ntp64, local64;
 		Int16 tz, dst;
 		HcState hc;
 
@@ -527,31 +601,20 @@ static void SyncFinish(Boolean ok)
 		 * Copy via MemMove (not a pointer cast) to sidestep m68k alignment
 		 * faults. */
 		MemMove(&raw, &gPacket[40], 4);
-		ntpSeconds = NetNToHL(raw);
-		if (ntpSeconds < ntpToPalmEpochDelta) {	/* server clock before 1904? bogus reply */
+		ntp64 = EraOf(NetNToHL(raw));					/* seconds since 1900, in the right NTP era */
+
+		/* NTP is UTC; the device's local time is the time zone plus the daylight saving adjustment (both in
+		 * minutes, the same prefs the Date & Time panel uses: what TimUTCToTimeZone adds), done in 64 bits since
+		 * Palm's own 32-bit calls stop in 2040. */
+		tz  = (Int16) PrefGetPreference(prefTimeZone);
+		dst = (Int16) PrefGetPreference(prefDaylightSavingAdjustment);
+		local64 = ntp64 - (dl_i64) ntpToPalmEpochDelta + ((dl_i64) tz + (dl_i64) dst) * 60;
+		if (local64 < 0) {
 			LogAppend("FAILED: Server returned an implausible time");
 			RefreshComparison();
 			return;
 		}
-		palmSeconds = ntpSeconds - ntpToPalmEpochDelta;
-
-		/* NTP is UTC; convert to the device's own configured local time
-		 * (same prefs the Date & Time panel already uses). */
-		tz  = (Int16) PrefGetPreference(prefTimeZone);
-		dst = (Int16) PrefGetPreference(prefDaylightSavingAdjustment);
-		localSeconds = TimUTCToTimeZone(palmSeconds, tz, dst);
-
-		{
-			DateTimeType dt;
-			TimSecondsToDateTime(localSeconds, &dt);
-			ntp.year    = dt.year;		/* already absolute, see RefreshComparison */
-			ntp.month   = dt.month;
-			ntp.day     = dt.day;
-			ntp.hour    = dt.hour;
-			ntp.minute  = dt.minute;
-			ntp.second  = dt.second;
-			ntp.weekday = dt.weekDay;
-		}
+		dl_secondsToDate(local64, &ntp);
 
 		/* Rebase math (same year-type match the plugin's own control panel
 		 * uses) - computed unconditionally so the delta shown below and any
@@ -600,7 +663,11 @@ static void SyncFinish(Boolean ok)
 				LogAppend(line);
 			}
 
+			/* the hack's TimSetSeconds guard lets our already re-based write
+			 * through only with its bypass flag raised (y2k35.h) */
+			FtrSet(Y2K35_CREATOR, Y2K35_FTR_BYPASS, 1);
 			TimSetSeconds(based32);
+			FtrUnregister(Y2K35_CREATOR, Y2K35_FTR_BYPASS);
 			LogAppend("Setting clock... OK");
 
 			if (hc == HC_OK) {
@@ -752,6 +819,27 @@ static void DoDisconnect(void)
 		(err == errNone ? "Disconnect: OK" : "Disconnect: closed (still finishing)"));
 }
 
+/* Edit menu: acts on the focused field (the Server field; the log is read-only, so Copy works there too). */
+static Boolean EditMenu(UInt16 id)
+{
+	FormPtr frm = FrmGetActiveForm();
+	UInt16 ix = FrmGetFocus(frm);
+	FieldPtr fld = NULL;
+
+	if (ix != noFocus && FrmGetObjectType(frm, ix) == frmFieldObj)
+		fld = (FieldPtr) FrmGetObjectPtr(frm, ix);
+	switch (id) {
+	case mniEditUndo:		if (fld) FldUndo(fld); return true;
+	case mniEditCut:		if (fld) FldCut(fld); return true;
+	case mniEditCopy:		if (fld) FldCopy(fld); return true;
+	case mniEditPaste:		if (fld) FldPaste(fld); return true;
+	case mniEditSelectAll:	if (fld) FldSetSelection(fld, 0, FldGetTextLength(fld)); return true;
+	case mniEditKeyboard:	SysKeyboardDialog(kbdDefault); return true;
+	case mniEditGraffiti:	SysGraffitiReferenceDialog(referenceDefault); return true;
+	}
+	return false;
+}
+
 /* ---- form init / event handling --------------------------------------- */
 static void FormInit(void)
 {
@@ -846,6 +934,9 @@ static Boolean MainFormHandleEvent(EventPtr eventP)
 		case mniDisconnect:
 			DoDisconnect();
 			handled = true;
+			break;
+		default:
+			handled = EditMenu(eventP->data.menu.itemID);
 			break;
 		}
 		break;

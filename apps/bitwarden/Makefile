@@ -12,7 +12,7 @@
 # ENCCORE_SECTION - see its own comment).
       OBJS = BitWarden.o MainForm.o RecordForm.o PrefsForm.o Dialogs.o Sync.o \
              Serial.o Store.o BitwardenSec35.o relayproto.o relaywire.o relaysec.o wirsactl.o Screenless.o \
-             enccore.o aes.o totp.o $(EXE)-sections.o
+             enccore.o encrekey.o aes.o totp.o $(EXE)-sections.o
 
    DEFINES = -DPALMOS4 -DRP_WITH_HUNT
 
@@ -42,6 +42,9 @@ $(PRC): $(EXE).def $(EXE) bin.stamp
 bin.stamp: $(EXE)$(LOC).rcp
 	$(PILRC) $(EXE)$(LOC).rcp
 	touch bin.stamp
+
+encrekey.o: ../lib/encrekey.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
 enccore.o: ../lib/enccore.c
 	$(CC) $(CFLAGS) -c $< -o $@

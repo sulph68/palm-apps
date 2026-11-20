@@ -34,6 +34,13 @@ static Boolean gDevReady = false;
 static UInt8   gDev[32];
 static UInt16  gDevLen = 0;
 
+/* ---- secret override for memos in user databases (AesSetSecret) ----
+ * When set, the key derivation uses this secret instead of gDev and leaves
+ * out the global password. */
+static Boolean gOvr = false;
+static UInt8   gOvrSec[32];
+static UInt16  gOvrLen = 0;
+
 /* ---- session CTR-DRBG state (see DrbgSeed/DrbgBytes) ----
  * Zero-initialised at each process start, so gDrbgReady is false on every
  * launch and the DRBG is reseeded per session. Starting the block counter at
@@ -494,9 +501,13 @@ static void DeriveRecordKey(UInt8 outKey[16], Char * recordPassword,
 
 	MemMove(state, KDF_IV_STR, 16);
 	AbsorbData(state, (UInt8 *) recordPassword, StrLen(recordPassword));
-	if (globalPassword != 0 && *globalPassword != '\0')
-		AbsorbData(state, (UInt8 *) globalPassword, StrLen(globalPassword));
-	AbsorbData(state, gDev, gDevLen);
+	if (gOvr)
+		AbsorbData(state, gOvrSec, gOvrLen);
+	else {
+		if (globalPassword != 0 && *globalPassword != '\0')
+			AbsorbData(state, (UInt8 *) globalPassword, StrLen(globalPassword));
+		AbsorbData(state, gDev, gDevLen);
+	}
 	AbsorbData(state, salt, AES_SALT_SIZE);
 
 	for (i = 0; i < rounds; i++)
@@ -509,7 +520,7 @@ static void DeriveRecordKey(UInt8 outKey[16], Char * recordPassword,
 static void DeriveRecordKeyCached(UInt8 outKey[16], Char * recordPassword,
 	Char * globalPassword, UInt8 * salt, UInt16 rounds)
 {
-	Char * g = (globalPassword != 0) ? globalPassword : "";
+	Char * g = (globalPassword != 0 && !gOvr) ? globalPassword : "";
 
 	if (gKeyCacheValid && gKeyCacheRounds == rounds &&
 		StrCompare(gKeyCacheRecPw, recordPassword) == 0 &&
@@ -543,6 +554,38 @@ static void DeriveRecordKeyCached(UInt8 outKey[16], Char * recordPassword,
  * prediction-resistant DRBG - IVs and salts
  * are non-secret, only unique.
  ******************************************/
+/* Device secret for memos in user databases: sec = the ROM serial (device
+ * ID) or the database's own key; NULL returns to the normal derivation. */
+void AesSetSecret(const UInt8 * sec, UInt16 len)
+{
+	Boolean on = (Boolean) (sec != NULL && len > 0);
+	if (len > sizeof(gOvrSec)) len = sizeof(gOvrSec);
+	if (on == gOvr && (!on || (len == gOvrLen && MemCmp(gOvrSec, sec, len) == 0)))
+		return;
+	gKeyCacheValid = false;
+	gOvr = on;
+	gOvrLen = on ? len : 0;
+	if (on) MemMove(gOvrSec, sec, len);
+	else MemSet(gOvrSec, sizeof(gOvrSec), 0);
+}
+
+/* The ROM serial number, if this Palm has one (same test as GetDeviceSecret). */
+Boolean AesDeviceID(const UInt8 ** sec, UInt16 * len)
+{
+	UInt8 * romP = 0;
+	UInt16  romSz = 0;
+	UInt16  i;
+	if (SysGetROMToken(0, sysROMTokenSnum, &romP, &romSz) != 0 || romP == NULL
+			|| romSz == 0 || romSz == 0xFFFF)
+		return false;
+	for (i = 0; i < romSz; i++)
+		if (romP[i] != 0xFF) break;
+	if (i == romSz) return false;
+	if (sec) *sec = romP;
+	if (len) *len = romSz;
+	return true;
+}
+
 void GenerateRandomIV(UInt8 iv[AES_IV_SIZE])
 {
 	DrbgBytes(iv, AES_IV_SIZE);

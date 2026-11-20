@@ -452,7 +452,7 @@ Err A35CardExport(DmOpenRef db, UInt16 volRef, UInt16 scope,
 
 	A35BusyEnd();
 
-	MemPtrFree(buf);
+	A35FreeWiped(buf);
 	*countP = count;
 	return errNone;
 }
@@ -642,52 +642,6 @@ UInt16 A35CardSplitFile(UInt16 volRef, DmOpenRef db, const char *dir, const char
 	if (written == total16)
 		CardDeleteFile(volRef, path);		/* drop the original multi-person file */
 	return written;
-}
-
-Err A35CardBrowseList(UInt16 volRef, DmOpenRef db, A35CardItem *items,
-	UInt16 max, UInt16 *countP)
-{
-	CardEntry *entries;
-	MemHandle eh;
-	VCardArena *arena;
-	UInt16 n = 0, i, out = 0;
-	Err err;
-
-	*countP = 0;
-	eh = MemHandleNew((UInt32) sizeof(CardEntry) * a35MaxImportFiles);
-	if (eh == NULL) return memErrNotEnoughSpace;
-	entries = (CardEntry *) MemHandleLock(eh);
-
-	err = CardListDir(volRef, a35CardRoot, entries, a35MaxImportFiles, &n, NULL);
-	if (err != errNone) { MemHandleUnlock(eh); MemHandleFree(eh); return err; }
-
-	arena = (VCardArena *) MemPtrNew(sizeof(VCardArena));
-	if (arena == NULL) { MemHandleUnlock(eh); MemHandleFree(eh); return memErrNotEnoughSpace; }
-
-	for (i = 0; i < n && out < max; i++) {
-		char path[cardMaxPath];
-		VCardStream stream;
-
-		if (entries[i].isDir || !EndsWithVcf(entries[i].name))
-			continue;						/* Import/ & Export/ are dirs -> skipped */
-		CardJoinPath(path, a35CardRoot, entries[i].name);
-		if (A35VCardOpenStream(&stream, volRef, path) == errNone) {
-			A35Record r;
-			if (A35VCardStreamNext(db, &stream, &r, arena)) {
-				A35VCardNameFromRecord(&r, items[out].name, sizeof(items[out].name));
-				StrNCopy(items[out].file, entries[i].name, cardMaxName - 1);
-				items[out].file[cardMaxName - 1] = '\0';
-				out++;
-			}
-			A35VCardCloseStream(&stream);
-		}
-	}
-
-	MemPtrFree(arena);
-	MemHandleUnlock(eh);
-	MemHandleFree(eh);
-	*countP = out;
-	return errNone;
 }
 
 /* Caller owns the "Reading..." indicator (MainCardTap shows it continuously

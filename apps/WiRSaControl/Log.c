@@ -77,13 +77,13 @@ static Boolean LogFetch(UInt8 op)
 		StrCopy(buf, gShowSys ? "(no system data)" : "(the log is empty)");
 		MemHandleUnlock(h);
 	}
-	LogFree();
 	gLogH = h;
 	return true;
 }
 
 Boolean SysOpenFromMain(void)
 {
+	gLogH = 0;		/* whatever the last form held was freed with it (by us on frmCloseEvent, or by the field): never free it again */
 	gShowSys = true;
 	if (! LogFetch(0))
 		return false;
@@ -93,6 +93,7 @@ Boolean SysOpenFromMain(void)
 
 Boolean LogOpenFromMain(void)
 {
+	gLogH = 0;		/* whatever the last form held was freed with it (by us on frmCloseEvent, or by the field): never free it again */
 	gShowSys = false;
 	if (! LogFetch(0))
 		return false;
@@ -191,7 +192,8 @@ Boolean LogHandleEvent(EventPtr e)
 			LogReload(0);
 			return true;
 		case btnLogClear:
-			LogReload(1);
+			if (FrmAlert(altLogClear) == 0)
+				LogReload(1);
 			return true;
 		}
 		break;

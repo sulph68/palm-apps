@@ -22,9 +22,10 @@ typedef struct {
 	char       user[64];
 	UInt8      encPass[lzPassMaxLen];	/* ciphertext, or zeroed if none saved */
 	UInt16     passLen;					/* 0 = no saved password */
-	FtpSecMode secMode;					/* reserved, unused in v1 - see
-										   the FTPS-extensibility plan in
-										   project memory lazyftp-project.md */
+	UInt16     passGen;					/* save counter: the nonce is (passGen, slot), so a new
+										   password never reuses the old one's keystream. Was the
+										   unused, always-0 secMode (same size): 0 = the nonce
+										   older builds used, so their passwords still read */
 } LzTPSlot;
 
 typedef struct {
@@ -37,8 +38,11 @@ void    LzTPLoadPrefs(LzTPConnPrefs *p) SEC002;
 void    LzTPSavePrefs(const LzTPConnPrefs *p) SEC002;
 
 Boolean LzTPSec35Installed(void) SEC002;
-Boolean LzTPSec35Unlocked(void) SEC002;
 void    LzTPSwitchToSec35(void) SEC002;
+
+/* kSecLaunchRekey handler (Sec35 re-key / removal / forget / conversion). */
+struct EncRekeyParamTag;
+void    LzTPRekey(struct EncRekeyParamTag *p) SEC002;
 
 /* Encrypts plainPass into slot->encPass/passLen using the per-slot index as
  * the AES-CTR nonce (stable and unique per slot, same idea as Address35

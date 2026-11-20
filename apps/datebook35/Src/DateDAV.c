@@ -206,7 +206,7 @@ SEC003 UInt16 DateDAVGet(UInt16 year, UInt8 month, UInt8 day,
 	 * needs for THAT (day-window matching, times, allDay, isRepeating,
 	 * hasNotes) is plaintext, unaffected by lock state - only uid/alias/
 	 * title/location need the key, guarded individually below. */
-	locked = !EncGetKey(key, kDavEncTtl);
+	locked = !EncGetStoreKeyDb(key, ENC_STORE_DAVEV, db);
 
 	MemSet(&dtBoundary, sizeof(dtBoundary), 0);
 	dtBoundary.year = (Int16) year;
@@ -428,7 +428,7 @@ SEC003 Boolean DateDAVGetOne(UInt16 year, UInt8 month, UInt8 day, UInt32 uidHash
 
 	/* Same "nothing here can be shown while locked" reasoning as
 	 * DateDAVGet's own identical check. */
-	if (!EncGetKey(key, kDavEncTtl)) {
+	if (!EncGetStoreKeyDb(key, ENC_STORE_DAVEV, db)) {
 		DmCloseDatabase(db);
 		return false;
 	}

@@ -58,8 +58,13 @@ static void StopApplication(void)
 UInt32 PilotMain(UInt16 cmd, void *cmdPBP, UInt16 launchFlags)
 {
 	Err err;
-	(void) cmdPBP;
-	(void) launchFlags;
+
+	if (cmd == kSecLaunchRekey) {
+		/* Sec35: re-encrypt our own data (CDDVRekey.c). Needs globals. */
+		if (launchFlags & sysAppLaunchFlagNewGlobals)
+			CDDVRekey((struct EncRekeyParamTag *) cmdPBP);
+		return 0;
+	}
 
 	if (cmd == sysAppLaunchCmdNormalLaunch) {
 		if (!CDDVSec35Installed()) {
@@ -72,6 +77,14 @@ UInt32 PilotMain(UInt16 cmd, void *cmdPBP, UInt16 launchFlags)
 			/* Bounce straight to Sec35's unlock UI before showing any of our
 			 * own UI - Sec35 switches back here via a normal re-launch on
 			 * success, which re-runs this same check and falls through. */
+			CDDVSwitchToSec35();
+			return 0;
+		}
+		if (!CDDVStoresConverted()) {
+			/* A database still in key scheme 1 (first run after the update,
+			 * or restored from an old backup): Sec35 converts, then sends us
+			 * back. Nothing here may read or sync it before that. */
+			FtrSet(ENC_CREATOR, kSecConvertFtr, 1);
 			CDDVSwitchToSec35();
 			return 0;
 		}

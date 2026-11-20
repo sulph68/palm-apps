@@ -37,7 +37,10 @@
  * nothing stays locked for that case) -- title (the body's first line) is
  * masked too, since it lives inside the wrap. Returns false only on a
  * genuine read failure (bad index). */
+struct EncRekeyParamTag;
+void CryptoRekey (struct EncRekeyParamTag* p) AES_SECTION;	/* kSecLaunchRekey */
 Boolean CryptoGetRecord (DmOpenRef dbRef, UInt16 index, RecordPtr recordP) AES_SECTION;
+void CryptoReleaseLast (void) AES_SECTION;
 
 /* Cheap list-row peek: title (first line only, truncated into outTitle/
  * outTitleSize) + the layer-2 "Encrypt Memo" flag, WITHOUT decrypting a
@@ -268,5 +271,20 @@ void CryptoImportFromEncryptedCardFile (UInt16 volRef, const char* path, const c
  * feedback preferred the calmer card style everywhere). Do NOT wrap the
  * EXISTING bulk EncryptCategory/DecryptCategory loops with it -- those
  * already show their own frmProgressForm gauge. */
+
+/* Bulk "Encrypt Category" for the records CryptoNote itself creates: puts the
+ * layer-2 ("Encrypt Memo") password on record `index` of `dbRef` in place.
+ * The record is read through the Sec35 chokepoint, written back as plain
+ * bytes, run through EncryptRecord and re-sealed -- the same steps as a
+ * single "Encrypt Memo", without the editor. Returns false (record left
+ * untouched) if it already has a layer-2 password, has only one line (the
+ * first line is the title and stays readable; there must be a body to
+ * encrypt), or cannot be read (Sec35 locked). */
+Boolean CryptoEncryptLayer2 (DmOpenRef dbRef, UInt16 index, Char* password) AES_SECTION;
+
+/* Bulk "Decrypt Category": removes the layer-2 password from record `index`
+ * in place if it has one and `password` is it. Returns false (record left
+ * untouched) otherwise. */
+Boolean CryptoDecryptLayer2 (DmOpenRef dbRef, UInt16 index, Char* password) AES_SECTION;
 
 #endif /* __CRYPTOSEC35_H__ */

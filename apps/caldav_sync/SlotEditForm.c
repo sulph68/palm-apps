@@ -52,7 +52,7 @@ static const UInt16 gICloudFields[] = { lblSlotICloudUser, fldSlotICloudUser, lb
 	lblSlotICloudCal, fldSlotICloudCal, 0 };
 static const UInt16 gGoogleFields[] = { lblSlotGoogleCal, fldSlotGoogleCal,
 	lblSlotGoogleClientId, fldSlotGoogleClientId,
-	lblSlotGoogleClientSecret, fldSlotGoogleClientSecret, btnSlotGoogleSignIn, 0 };
+	lblSlotGoogleClientSecret, fldSlotGoogleClientSecret, chkSlotGoogleSecretShow, btnSlotGoogleSignIn, 0 };
 static const UInt16 gIcsFields[] = { lblSlotIcsUrl, fldSlotIcsUrl, 0 };
 
 static FormPtr gFrm;
@@ -107,13 +107,11 @@ static Boolean gSecretPlaceholderShown = false;
 /* Masked-by-default Passwd entry with a "Show" checkbox to reveal (user
  * request, 2026-09-18) - mirrors lazyFTP's own proven ConnectForm.c
  * pattern (read as reference: gPassPlain/gPassShowPlain/RedrawMaskedPass/
- * PassFieldKeyDown), simplified: this always shows either the full real
- * value or a same-length run of '*', with no per-keystroke reveal-then-
- * hide timer - that fancier behavior wasn't asked for here, and that
- * exact class of dangling-timer bug already cost this suite a real crash
- * once (see the sec35-text-entry-reveal-timer-crash-fix precedent), so
- * skipping it entirely removes that whole risk class rather than
- * reintroducing it carefully. gSecretPlain is the ONE shared shadow
+ * PassFieldKeyDown). Originally without a reveal-then-hide timer (that
+ * class of dangling-timer bug cost Sec35 a real crash once - see the
+ * sec35-text-entry-reveal-timer-crash-fix precedent); the brief reveal was
+ * added in the 2026-11 bug hunt with the timer confined to this dialog's
+ * own event loop (gSecretRevealUntil, below). gSecretPlain is the ONE shared shadow
  * buffer for whichever secret field (CalDAV or iCloud) is currently
  * visible - matches gSecretPlaceholderShown's own existing single-shared-
  * flag convention, correct because the two are mutually exclusive by
@@ -122,6 +120,40 @@ static Boolean gSecretPlaceholderShown = false;
  * it. */
 static char gSecretPlain[cddvSecretPlainLen];
 static Boolean gSecretShowPlain = false;
+
+/* Brief reveal (2026-11 bug hunt, user request, same as Sec35/BitWarden/
+ * CryptoNote): the character just typed stays in clear for a second before
+ * it too masks. The timer only lives inside SlotEditFormRun's own event
+ * loop and is cleared when that loop ends, so it can never fire against
+ * another form (the Sec35 crash this file's comment above warns about). */
+#define cddvRevealSecs	1
+static Boolean gSecretRevealLast = false;
+static UInt32  gSecretRevealUntil = 0;		/* ticks; 0 = none pending */
+static UInt16  gSecretRevealField = 0;
+
+/* The masked fields: the CalDAV and iCloud password (one shared shadow
+ * buffer, gSecretPlain) and the Google client secret (its own buffer, no
+ * saved-value placeholder: it is decrypted when the dialog opens). */
+static Boolean IsSecretField(UInt16 id)
+{
+	return (Boolean) (id == fldSlotSecret || id == fldSlotICloudSecret || id == fldSlotGoogleClientSecret);
+}
+
+static char *SecretBuf(UInt16 fieldID, UInt16 *capP)
+{
+	if (fieldID == fldSlotGoogleClientSecret) {
+		*capP = sizeof(gGoogleClientSecretPlain);
+		return gGoogleClientSecretPlain;
+	}
+	*capP = sizeof(gSecretPlain);
+	return gSecretPlain;
+}
+
+static void SecretRevealStop(void)
+{
+	gSecretRevealLast = false;
+	gSecretRevealUntil = 0;
+}
 
 static void *ObjP(UInt16 id) { return FrmGetObjectPtr(gFrm, FrmGetObjectIndex(gFrm, id)); }
 
@@ -276,14 +308,19 @@ static void SetFieldText(UInt16 fieldID, const char *text)
  * RedrawMaskedPass documents for the identical trick). */
 static void RedrawMaskedSecret(UInt16 fieldID)
 {
+	UInt16 cap;
+	char *buf = SecretBuf(fieldID, &cap);
+
 	if (gSecretShowPlain) {
-		SetFieldText(fieldID, gSecretPlain);
+		SetFieldText(fieldID, buf);
 	} else {
 		char disp[cddvSecretPlainLen];
-		UInt16 len = (UInt16) StrLen(gSecretPlain), i;
-		for (i = 0; i < len; i++) disp[i] = '*';
+		UInt16 len = (UInt16) StrLen(buf), i;
+		Boolean revealLast = (Boolean) (gSecretRevealLast && fieldID == gSecretRevealField);
+		for (i = 0; i < len; i++) disp[i] = (char) ((revealLast && i == len - 1) ? buf[i] : '*');
 		disp[len] = '\0';
 		SetFieldText(fieldID, disp);
+		MemSet(disp, sizeof(disp), 0);
 	}
 }
 
@@ -299,23 +336,28 @@ static void RedrawMaskedSecret(UInt16 fieldID)
  * either masked stars or the plain value either way. */
 static Boolean SecretFieldKeyDown(UInt16 fieldID, EventType *e)
 {
-	UInt16 len;
+	UInt16 len, cap;
 	WChar c = e->data.keyDown.chr;
+	char *buf = SecretBuf(fieldID, &cap);
 
-	if (gSecretPlaceholderShown) {
+	if (gSecretPlaceholderShown && fieldID != fldSlotGoogleClientSecret) {
 		gSecretPlaceholderShown = false;
 		gSecretPlain[0] = '\0';
 	}
-	len = (UInt16) StrLen(gSecretPlain);
+	len = (UInt16) StrLen(buf);
 
 	if (c == chrBackspace) {
-		if (len > 0) gSecretPlain[len - 1] = '\0';
+		if (len > 0) buf[len - 1] = '\0';
+		SecretRevealStop();
 		RedrawMaskedSecret(fieldID);
 		return true;
 	}
-	if (TxtCharIsPrint(c) && len < (UInt16) (cddvSecretPlainLen - 1)) {
-		gSecretPlain[len] = (char) c;
-		gSecretPlain[len + 1] = '\0';
+	if (TxtCharIsPrint(c) && len < (UInt16) (cap - 1)) {
+		buf[len] = (char) c;
+		buf[len + 1] = '\0';
+		gSecretRevealLast = true;
+		gSecretRevealField = fieldID;
+		gSecretRevealUntil = TimGetTicks() + (SysTicksPerSecond() * cddvRevealSecs);
 		RedrawMaskedSecret(fieldID);
 		return true;
 	}
@@ -343,22 +385,25 @@ static void PasteIntoSecretField(UInt16 fieldID)
 	MemHandle h = ClipboardGetItem(clipboardText, &clipLen);
 	char *clip;
 	UInt16 curLen, i;
+	UInt16 cap;
+	char *buf = SecretBuf(fieldID, &cap);
 
 	if (!h || clipLen == 0) return;
 	clip = (char *) MemHandleLock(h);
 
-	if (gSecretPlaceholderShown) {
+	if (gSecretPlaceholderShown && fieldID != fldSlotGoogleClientSecret) {
 		gSecretPlaceholderShown = false;
 		gSecretPlain[0] = '\0';
 	}
-	curLen = (UInt16) StrLen(gSecretPlain);
-	for (i = 0; i < clipLen && curLen < (UInt16) (cddvSecretPlainLen - 1); i++) {
+	curLen = (UInt16) StrLen(buf);
+	for (i = 0; i < clipLen && curLen < (UInt16) (cap - 1); i++) {
 		char c = clip[i];
 		if (c == '\r' || c == '\n') continue;	/* a real password/token shouldn't contain one - guard against a stray trailing newline from wherever the clipboard text came from */
-		gSecretPlain[curLen++] = c;
+		buf[curLen++] = c;
 	}
-	gSecretPlain[curLen] = '\0';
+	buf[curLen] = '\0';
 	MemHandleUnlock(h);
+	SecretRevealStop();
 	RedrawMaskedSecret(fieldID);
 }
 
@@ -378,23 +423,25 @@ static void PasteIntoSecretField(UInt16 fieldID)
 static void CutSecretField(UInt16 fieldID)
 {
 	FieldType *fld = (FieldType *) ObjP(fieldID);
-	UInt16 selStart, selEnd, len, cutLen, i;
+	UInt16 selStart, selEnd, len, cutLen, i, cap;
+	char *buf = SecretBuf(fieldID, &cap);
 
 	FldGetSelection(fld, &selStart, &selEnd);
 	if (selEnd <= selStart) return;	/* nothing selected - matches FldCut's own no-op */
 
-	len = (UInt16) StrLen(gSecretPlain);
+	len = (UInt16) StrLen(buf);
 	if (selStart > len) selStart = len;
 	if (selEnd > len) selEnd = len;
 	if (selEnd <= selStart) return;
 	cutLen = (UInt16) (selEnd - selStart);
 
-	ClipboardAddItem(clipboardText, &gSecretPlain[selStart], cutLen);
+	ClipboardAddItem(clipboardText, &buf[selStart], cutLen);
 
 	for (i = selStart; i + cutLen <= len; i++)
-		gSecretPlain[i] = gSecretPlain[i + cutLen];
-	gSecretPlain[len - cutLen] = '\0';
+		buf[i] = buf[i + cutLen];
+	buf[len - cutLen] = '\0';
 
+	SecretRevealStop();
 	RedrawMaskedSecret(fieldID);
 }
 
@@ -444,7 +491,8 @@ static void LoadTypeFields(CDDVServerType t)
 	case cddvTypeGoogle:
 		SetFieldText(fldSlotGoogleCal, gPathPlain);
 		SetFieldText(fldSlotGoogleClientId, gGoogleClientIdPlain);
-		SetFieldText(fldSlotGoogleClientSecret, gGoogleClientSecretPlain);
+		RedrawMaskedSecret(fldSlotGoogleClientSecret);	/* masked like the password */
+		CtlSetValue((ControlType *) ObjP(chkSlotGoogleSecretShow), gSecretShowPlain);
 		UpdateGoogleSignInButtonLabel(s->secretLen > 0);
 		break;
 	case cddvTypeICSFeed:
@@ -683,10 +731,6 @@ static Boolean SlotEditHandleEvent(EventType *e)
 			if (LongTextEditDialog(gGoogleClientIdPlain, sizeof(gGoogleClientIdPlain)))
 				SetFieldText(fldSlotGoogleClientId, gGoogleClientIdPlain);
 			handled = true;
-		} else if (fid == fldSlotGoogleClientSecret) {
-			if (LongTextEditDialog(gGoogleClientSecretPlain, sizeof(gGoogleClientSecretPlain)))
-				SetFieldText(fldSlotGoogleClientSecret, gGoogleClientSecretPlain);
-			handled = true;
 		} else if (fid == fldSlotIcsUrl) {
 			if (LongTextEditDialog(gServerPlain, sizeof(gServerPlain)))
 				SetFieldText(fldSlotIcsUrl, gServerPlain);
@@ -715,17 +759,21 @@ static Boolean SlotEditHandleEvent(EventType *e)
 			}
 			handled = true;
 		} else if (e->data.ctlSelect.controlID == chkSlotSecretShow ||
-				   e->data.ctlSelect.controlID == chkSlotICloudSecretShow) {
+				   e->data.ctlSelect.controlID == chkSlotICloudSecretShow ||
+				   e->data.ctlSelect.controlID == chkSlotGoogleSecretShow) {
 			/* Both groups' checkboxes drive the ONE shared gSecretShowPlain
 			 * (see that variable's own comment) - kept in sync with each
 			 * other even though only one is ever visible at a time, so
 			 * switching Type later shows the checkbox in the right state
 			 * without needing its own separate memory. */
 			UInt16 tappedId = e->data.ctlSelect.controlID;
-			UInt16 activeField = (tappedId == chkSlotSecretShow) ? fldSlotSecret : fldSlotICloudSecret;
+			UInt16 activeField = (tappedId == chkSlotSecretShow) ? fldSlotSecret :
+				(tappedId == chkSlotICloudSecretShow) ? fldSlotICloudSecret : fldSlotGoogleClientSecret;
 			gSecretShowPlain = (Boolean) CtlGetValue((ControlType *) ObjP(tappedId));
-			CtlSetValue((ControlType *) ObjP(tappedId == chkSlotSecretShow ? chkSlotICloudSecretShow : chkSlotSecretShow),
-				gSecretShowPlain);
+			CtlSetValue((ControlType *) ObjP(chkSlotSecretShow), gSecretShowPlain);
+			CtlSetValue((ControlType *) ObjP(chkSlotICloudSecretShow), gSecretShowPlain);
+			CtlSetValue((ControlType *) ObjP(chkSlotGoogleSecretShow), gSecretShowPlain);
+			SecretRevealStop();
 			/* Real gap found 2026-09-18 (user report: "Show" checkbox did
 			 * nothing for an ALREADY-SAVED secret, only worked while
 			 * actively typing a new one): still showing
@@ -738,7 +786,7 @@ static Boolean SlotEditHandleEvent(EventType *e)
 			 * session. Sec35-locked or nothing-saved-yet both correctly
 			 * leave gSecretPlain empty and the checkbox reverted - nothing
 			 * to show either way. */
-			if (gSecretPlaceholderShown) {
+			if (gSecretPlaceholderShown && activeField != fldSlotGoogleClientSecret) {
 				if (gSecretShowPlain) {
 					if (CDDVDecryptSlotSecret(&gWorking, gSlotIdx, gSecretPlain, sizeof(gSecretPlain))) {
 						gSecretPlaceholderShown = false;
@@ -747,6 +795,7 @@ static Boolean SlotEditHandleEvent(EventType *e)
 						gSecretShowPlain = false;
 						CtlSetValue((ControlType *) ObjP(chkSlotSecretShow), false);
 						CtlSetValue((ControlType *) ObjP(chkSlotICloudSecretShow), false);
+						CtlSetValue((ControlType *) ObjP(chkSlotGoogleSecretShow), false);
 						FrmCustomAlert(altErr, "Could not decrypt the saved password/token - Sec35 may be locked.", NULL, NULL);
 					}
 				}
@@ -766,7 +815,7 @@ static Boolean SlotEditHandleEvent(EventType *e)
 	case keyDownEvent: {
 		UInt16 focusIdx = FrmGetFocus(gFrm);
 		UInt16 focusId = (focusIdx != noFocus) ? FrmGetObjectId(gFrm, focusIdx) : 0;
-		if (focusId == fldSlotSecret || focusId == fldSlotICloudSecret) {
+		if (IsSecretField(focusId)) {
 			handled = SecretFieldKeyDown(focusId, e);
 		}
 		break;
@@ -776,6 +825,29 @@ static Boolean SlotEditHandleEvent(EventType *e)
 		break;
 	}
 	return handled;
+}
+
+/* Empty every text field of frm and zero its text buffer, so the decrypted
+ * settings (server, user, path, IDs, a revealed password) don't stay in
+ * free memory once the form is deleted (2026-11 bug hunt). */
+void ZeroFormFields(FormPtr frm)
+{
+	UInt16 i, n = FrmGetNumberOfObjects(frm);
+
+	for (i = 0; i < n; i++) {
+		FieldType *fld;
+		MemHandle h;
+		UInt16 len;
+		if (FrmGetObjectType(frm, i) != frmFieldObj) continue;
+		fld = (FieldType *) FrmGetObjectPtr(frm, i);
+		len = FldGetTextLength(fld);
+		if (len > 0) FldDelete(fld, 0, len);
+		h = FldGetTextHandle(fld);
+		if (h) {
+			MemSet(MemHandleLock(h), (Int32) MemHandleSize(h), 0);
+			MemHandleUnlock(h);
+		}
+	}
 }
 
 SEC001 Boolean SlotEditFormRun(CDDVSlot *s, UInt8 slotIdx)
@@ -797,8 +869,19 @@ SEC001 Boolean SlotEditFormRun(CDDVSlot *s, UInt8 slotIdx)
 	LoadIntoForm();
 	FrmSetFocus(gFrm, FrmGetObjectIndex(gFrm, fldSlotAlias));
 
+	SecretRevealStop();
 	while (!done) {
-		EvtGetEvent(&event, evtWaitForever);
+		Int32 timeout = evtWaitForever;
+		if (gSecretRevealUntil) {			/* mask the just-typed character on time */
+			UInt32 now = TimGetTicks();
+			timeout = (gSecretRevealUntil > now) ? (Int32) (gSecretRevealUntil - now) : 0;
+		}
+		EvtGetEvent(&event, timeout);
+		if (event.eType == nilEvent && gSecretRevealUntil && TimGetTicks() >= gSecretRevealUntil) {
+			UInt16 f = gSecretRevealField;
+			SecretRevealStop();
+			if (FrmGetActiveForm() == gFrm) RedrawMaskedSecret(f);
+		}
 		if (event.eType == appStopEvent) {
 			EvtAddEventToQueue(&event);
 			break;
@@ -816,7 +899,7 @@ SEC001 Boolean SlotEditFormRun(CDDVSlot *s, UInt8 slotIdx)
 		if (event.eType == menuEvent && (event.data.menu.itemID == 10003 || event.data.menu.itemID == 10001)) {
 			UInt16 focusIdx = FrmGetFocus(gFrm);
 			UInt16 focusId = (focusIdx != noFocus) ? FrmGetObjectId(gFrm, focusIdx) : 0;
-			if (focusId == fldSlotSecret || focusId == fldSlotICloudSecret) {
+			if (IsSecretField(focusId)) {
 				if (event.data.menu.itemID == 10003) PasteIntoSecretField(focusId);
 				else CutSecretField(focusId);
 				continue;
@@ -861,6 +944,8 @@ SEC001 Boolean SlotEditFormRun(CDDVSlot *s, UInt8 slotIdx)
 		FrmHandleEvent(gFrm, &event);
 	}
 
+	SecretRevealStop();				/* the timer never outlives this dialog */
+	ZeroFormFields(gFrm);			/* decrypted values shown in the fields */
 	FrmEraseForm(gFrm);
 	FrmDeleteForm(gFrm);
 	gFrm = NULL;

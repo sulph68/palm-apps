@@ -394,8 +394,6 @@ SEC002 static void WeekViewNewAppointment (TimePtr startTime, TimePtr endTime)
 	when.date = Date;
 	newAppt.when = &when;
 	newAppt.description = "";
-	if (AlarmPreset.advance != apptNoAlarm)
-		newAppt.alarm = &AlarmPreset;		
 
 	error = ApptNewRecord (ApptDB, &newAppt, &recordNum);
 	
@@ -3322,38 +3320,6 @@ SEC002 static void WeekViewGotoDate (void)
 		FntSetFont (origFont);
 	MemHandleUnlock (titleH);
 	}
-
-
-/***********************************************************************
- *
- * FUNCTION:    WeekViewGotoToday
- *
- * DESCRIPTION: This routine navigates to today in the day view.
- *
- *              This routine is called when a "go to" button is pressed.
- *              
- * PARAMETERS:  nothing
- *
- * RETURNED:    nothing
- *
- * REVISION HISTORY:
- *			Name	Date		Description
- *			----	----		-----------
- *			art	9/15/95	Initial Revision
- *
- ***********************************************************************/
-SEC002 static void WeekViewGotoToday (void)
-{
-	DateTimeType dateTime;
-	
-	// Get today's date.
-	TimSecondsToDateTime (TimGetSeconds (), &dateTime);
-	Date.year = dateTime.year - firstYear;
-	Date.month = dateTime.month;
-	Date.day = dateTime.day;
-
-	FrmGotoForm (DayView);
-}
 
 
 /***********************************************************************

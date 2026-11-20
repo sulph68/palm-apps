@@ -136,6 +136,30 @@ static Boolean PwKeyDown(FieldType *fld, EventType *e)
 	return false;
 }
 
+/* The on-screen keyboard ("abc"/"123" in the Graffiti area) edits the field's
+ * text directly, without key events, so PwKeyDown never saw it and gPwReal
+ * stayed empty. Called before SysHandleEvent while the password field has the
+ * focus: open the keyboard on the real text ourselves (shown in clear while
+ * the keyboard is up) and take the result back, masked again. */
+static Boolean PwKeyboard(FieldType *fld, EventType *e)
+{
+	WChar c;
+	Char *t;
+
+	if (e->eType != keyDownEvent || !(e->data.keyDown.modifiers & commandKeyMask)) return false;
+	c = e->data.keyDown.chr;
+	if (c != vchrKeyboard && c != vchrKeyboardAlpha && c != vchrKeyboardNumeric) return false;
+	SetFieldContent(fld, gPwReal);
+	SysKeyboardDialog(c == vchrKeyboardNumeric ? kbdNumbersAndPunc :
+		(c == vchrKeyboardAlpha ? kbdAlpha : kbdDefault));
+	t = FldGetTextPtr(fld);
+	StrNCopy(gPwReal, t ? t : "", bwPwBufLen - 1);
+	gPwReal[bwPwBufLen - 1] = 0;
+	gPwRevealActive = false;
+	PwRedraw(fld);
+	return true;
+}
+
 Boolean BwUnlockPromptRun(char *outPassword, UInt16 outLen)
 {
 	FormPtr frm, prevFrm;
@@ -185,6 +209,7 @@ Boolean BwUnlockPromptRun(char *outPassword, UInt16 outLen)
 			continue;
 		}
 		if (event.eType == appStopEvent) { EvtAddEventToQueue(&event); btn = btnUnlockCancel; break; }
+		if (FrmGetFocus(frm) == fieldIndex && PwKeyboard(fld, &event)) continue;
 		if (SysHandleEvent(&event)) continue;
 		if (MenuHandleEvent(0, &event, NULL)) continue;
 

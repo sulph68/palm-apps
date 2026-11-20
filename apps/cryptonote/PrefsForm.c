@@ -12,7 +12,6 @@ static Boolean newUseSingleFont;
 static void PrefsSortMemos(void);
 static void PrefsFormInit(void);
 static void PrefsSetGlobalPasswordStatus(void);
-static void PrefsFormSortOrderSelect(void);
 static void PrefsShowLines(void);
 static void PrefsShowHidden(void);
 static void PrefsUseSingleFont(void);
@@ -138,7 +137,10 @@ static void PrefsSortMemos(void)
 			(DmComparF*) &CompareMemoPadRecords, (Int16) currentSortOrder);
 	
 		updateCode = updateTable;
-		} else currentSortOrder = soManual;
+		} else {
+			currentSortOrder = soManual;
+			updateCode = updateTable;	/* the list order changes too */
+		}
 
 	SetMemoPadSortOrder(dbMemoPadRef, currentSortOrder);
 

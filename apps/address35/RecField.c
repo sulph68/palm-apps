@@ -141,7 +141,7 @@ void RecContactCopy(const RecLine *lines, UInt16 count)
 		StrNCat(b, L->value, cap + 1);
 	}
 	if (b[0]) ClipboardAddItem(clipboardText, b, StrLen(b));
-	MemPtrFree(b);
+	A35FreeWiped(b);
 }
 
 void RecSetMe(void)
@@ -170,7 +170,7 @@ void RecFieldCopy(void)
 
 	if (t == NULL) return;
 	if (len) ClipboardAddItem(clipboardText, t, len);
-	MemPtrFree(t);
+	A35FreeWiped(t);
 }
 
 void RecFieldShow(const RecLine *lines, UInt16 line)
@@ -245,5 +245,5 @@ void RecFieldShow(const RecLine *lines, UInt16 line)
 	FrmEraseForm(frm);
 	FrmDeleteForm(frm);
 	if (prev) FrmSetActiveForm(prev);
-	MemPtrFree(t);
+	A35FreeWiped(t);
 }

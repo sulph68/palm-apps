@@ -7,6 +7,9 @@
 #include "MainForm.h"		/* MainInvalidateCardDir */
 #include "Beam.h"
 #include "CryptoSec35.h"
+#include "SecDb.h"
+#include "ViewList.h"
+#include "DbForms.h"
 
 #include <System/Graffiti.h>
 
@@ -76,16 +79,6 @@ static void EditSaveData(FieldPtr);
 static void EditSaveCryptoPadData(Char *);
 static void EditSaveMemoPadDataInCryptoPad(Char *);
 
-/* Diagnostic (temporary -- root-causing an intermittent "Encrypt Memo
- * silently does nothing" report, 2026-08-14): set true the moment "Encrypt
- * Memo" is chosen and the password prompt pops; if EditSaveCryptoPadData is
- * later reached with this still true but currentPasswordP already back to
- * 0, that proves the password got lost somewhere between PasswordForm's OK
- * and the save -- neither of the two encrypt-time diagnostics already added
- * (EncryptRecord's own format-check alert, and the CryptoRecordWrapped
- * still-sealed check) can catch that, since both live INSIDE the
- * `currentPasswordP != 0` block that would never be entered. */
-static Boolean gEncryptMemoRequested = false;
 
 static void EditFormDisplayMaxSizeLabel(void);
 static Err EditSortMemo(DmOpenRef, UInt16*);
@@ -564,6 +557,10 @@ static void EditRetrieveData(FieldPtr fieldP)
 			 * any read-only lock left over from a too-large record
 			 * previously loaded into this same field. */
 			CryptoEditClearGuard (fieldP);
+		} else if (EditViewOnlyRetrieve (fieldP)) {
+			/* read-only memo, or one in ROM: a view, nothing is written back */
+			gEditRecordTooLargeToEdit = false;
+			gEditTooLargeWarned = false;
 		} else {
 			EditRetrieveCryptoPadData (fieldP);
 
@@ -630,6 +627,9 @@ static void EditSaveCryptoPadData(Char * textP)
 	 * rebuilds + re-seals storage and returns true. Otherwise (unwrapped,
 	 * or no passcode active) fall through to the existing in-place
 	 * length-fixup, unchanged. */
+	/* keep the read-only flag and dates across the rewrite (SecDb.c) */
+	MetaCapture (dbCryptoPadRef, currentRecord);
+
 	if (! CryptoEditSaveWrapped (dbCryptoPadRef, currentRecord, textP)) {
 		handle = DmGetRecord(dbCryptoPadRef, currentRecord);
 		packedP = MemHandleLock(handle);
@@ -664,18 +664,12 @@ static void EditSaveCryptoPadData(Char * textP)
 			CardBusyHide(busy);
 			RemoveCurrentPassword();
 		}
-		gEncryptMemoRequested = false;
 	}
-	/* Diagnostic (see gEncryptMemoRequested's declaration): reaching here
-	 * with the request flag still set means "Encrypt Memo" was chosen and
-	 * the password prompt was answered, yet currentPasswordP was ALREADY 0
-	 * by the time this save ran -- the password/request was lost somewhere
-	 * between PasswordForm's OK and here, before either of the two checks
-	 * above ever got a chance to run. */
-	else if (gEncryptMemoRequested) {
-		FrmAlert (altInvalidFormatAlert);
-		gEncryptMemoRequested = false;
-	}
+	/* (A temporary diagnostic alert used to fire here when "Encrypt Memo" had
+	 * been chosen but no password came back. It also fired when the user
+	 * simply cancelled the password box, and as a dialog inside the edit
+	 * form's close it corrupted the return to the list -- an address error
+	 * on the next app switch. Removed in the 2026-11 bug hunt.) */
 
 	/* Db35-suite-style Sec35 wrap: re-seal after whichever plain write just
 	 * happened above -- also covers a brand-new record being saved for the
@@ -697,12 +691,10 @@ static void EditSaveMemoPadDataInCryptoPad(Char * textPtr)
 	RecordType newRecord;
 
 	UInt16 recMemoAttributes;	
-	UInt16 recCryptoAttributes;
 	UInt16 index;
 	UInt32 memoRecordID;
 
-	PackedRecordPtr packedP;
-	UInt16 nOffset, textLength, passwordLength;
+	UInt16 textLength, passwordLength;
 
 	/* Creates a new record at the end of the database */
 	index = currentRecord;
@@ -784,6 +776,10 @@ static void EditSaveData(FieldPtr fieldP)
 	Boolean dirty;
 	Boolean empty;
 
+	/* a read-only view writes nothing back */
+	if (EditViewOnlyRelease (fieldP)) return;
+	ViewInvalidate ();
+
 	textP = FldGetTextPtr(fieldP);
 
 	// Find out if the field has been modified.
@@ -829,7 +825,10 @@ static void EditSaveData(FieldPtr fieldP)
 				EditSaveMemoPadDataInCryptoPad(textP);
 				dirty = true;
 		}
-		if (currentDB == cryptoPadDB) EditSaveCryptoPadData(textP);
+		if (currentDB != memoPadDB) {
+			if (dirty) MetaTouch ();		/* the Modified date */
+			EditSaveCryptoPadData(textP);
+		}
 
 		// Move the current record to the correct sort position.
 		if (dirty)
@@ -838,6 +837,7 @@ static void EditSaveData(FieldPtr fieldP)
 		if (moveRecordOnTop) {
 			DmMoveRecord (currentDBRef, currentRecord, 0);
 			currentRecord = 0;
+			ViewOrderToTop ((UInt8) currentDB, currentRecord);
 		}
 	}
 
@@ -846,7 +846,7 @@ static void EditSaveData(FieldPtr fieldP)
 		{
 		// Delete the record in the Font database.
 		if ((useSingleFont == separateFont) 
-				&& (currentDB == cryptoPadDB))
+				&& (currentDB != memoPadDB))
 			DeleteFontRecord(currentDBRef, recordID);
 
 		if (dirty)
@@ -877,7 +877,6 @@ Err EditSortMemo(DmOpenRef dbP, UInt16* indexP)
 {
 
 	Err err;
-	Int16 sortOrder;
 	UInt16 index;
 	UInt16 attributes;
 	UInt32 uniqueID;
@@ -987,6 +986,9 @@ void EncryptRecord(UInt16 recordNum, Char * passwordP)
 	RecordType record;
 	UInt16 nOffset;
 	Boolean handleLocked;
+
+	/* user databases: their own keying, no global password (SecDb.c) */
+	SrcKeyForWrite (SrcOfRef (dbCryptoPadRef));
 
 	handle = DmGetRecord(dbCryptoPadRef, recordNum);
 	packedP = MemHandleLock(handle);
@@ -1205,7 +1207,7 @@ static void EditFormScrollPage(WinDirectionType direction)
 		return;
 	} 
 
-	if (currentDB == cryptoPadDB) return;
+	if (currentDB != memoPadDB) return;
 
 	// Move to the next or previous memo.
 	if (direction == winUp)	{
@@ -1389,10 +1391,9 @@ static void EditFormSetTitle (void)
 	else 
 		category = currentCategory;
 
-	if (currentDB == memoPadDB) 
-		pos = DmPositionInCategory (dbMemoPadRef, currentRecord, category);
-	else pos = DmNumRecordsInCategory (dbMemoPadRef, category) +
-		DmPositionInCategory (dbCryptoPadRef, currentRecord, category);
+	/* place in the combined list (ViewList.c) */
+	(void) category;
+	pos = EditTitlePosition ();
 	StrIToA (posStr, pos+1);
 
 	StrIToA (totalStr, memosInCategory);
@@ -1468,8 +1469,6 @@ static Boolean EditFormHandleMenuEvent(UInt16 itemID)
 	FieldPtr fieldP;
 	EventType event;
 	FormPtr formP;
-	UInt32 uniqueID;
-	Char * textP;
 
 	/* A card file is not a DB record. Handle the Record-menu items for it here;
 	 * editing/font/goto/About and the system edit items fall through below. */
@@ -1543,6 +1542,7 @@ static Boolean EditFormHandleMenuEvent(UInt16 itemID)
 			 * the format of the record is
 			 * valid for encryption.
 			 */
+			if (EditViewOnlyRefuse ()) break;
 			ErrFatalDisplayIf(currentPasswordP != 0, "Password should be NULL");
 
 			if (EditValidateFormat()) {
@@ -1560,7 +1560,6 @@ static Boolean EditFormHandleMenuEvent(UInt16 itemID)
 				event.eType = memoStatusEvent;
 				event.data.generic.datum[1] = recDecrypted;
 
-				gEncryptMemoRequested = true;	/* diagnostic, see declaration comment */
 				FrmPopupForm(frmPasswordForm);
 				EvtAddEventToQueue(&event);
 
@@ -1574,6 +1573,7 @@ static Boolean EditFormHandleMenuEvent(UInt16 itemID)
 			 */
 
 //			ErrFatalDisplayIf(currentPasswordP == 0, "Password should not be NULL");
+			if (EditViewOnlyRefuse ()) break;
 			RemoveCurrentPassword();
 
 			FrmSetMenu(FrmGetActiveForm(), mnuEditMenu);
@@ -1600,21 +1600,28 @@ static Boolean EditFormHandleMenuEvent(UInt16 itemID)
 			break;
 
 		case itemRecordBeamMemo:
-			if ((currentDB == memoPadDB) ||
-				((currentDB == cryptoPadDB) && (currentPasswordP == 0))) {
-				formP = FrmGetActiveForm();
-				fieldP = FrmGetObjectPtr(formP, FrmGetObjectIndex(formP, fldEditText));
-				if (FldGetTextLength(fieldP) > 0) {
-					EditSaveData(fieldP);
-					MemoSendRecord(currentDBRef, currentRecord);
-				
-				// Redisplay the record.  If the IR loopback mechanism sends the 
-				// record to this app the goto action code closes all forms and 
-				// send a frmGotoEvent.  Load the record again only if the form 
-				// still exits.
-				if (formP) EditRetrieveData(fieldP);
-				} else FrmAlert(NoDataToBeamAlert);
-			} else FrmAlert(altBeamCryptoDataAlert);
+			formP = FrmGetActiveForm();
+			fieldP = FrmGetObjectPtr(formP, FrmGetObjectIndex(formP, fldEditText));
+			if (FldGetTextLength(fieldP) == 0) {
+				FrmAlert(NoDataToBeamAlert);
+				break;
+			}
+			if ((currentDB != memoPadDB) && (currentPasswordP != 0)) {
+				/* A memo with its own password: it is open, so the field
+				 * holds its decrypted text. Beam that text as it is, after
+				 * a warning; the stored (encrypted) memo isn't touched. */
+				if (FrmAlert(altBeamPlainWarn) == 0)	/* 0 = Beam */
+					MemoSendText(FldGetTextPtr(fieldP));
+				break;
+			}
+			EditSaveData(fieldP);
+			MemoSendRecord(currentDBRef, currentRecord);
+
+			// Redisplay the record.  If the IR loopback mechanism sends the 
+			// record to this app the goto action code closes all forms and 
+			// send a frmGotoEvent.  Load the record again only if the form 
+			// still exits.
+			if (formP) EditRetrieveData(fieldP);
 			break;
 
 		case itemOptionsAbout:
@@ -1637,7 +1644,6 @@ Boolean EditFormHandleEvent(EventPtr eventP)
 	FormPtr formP;
 	UInt16 fieldIndex;
 	FieldPtr fieldP;
-	Char * textP;
 	UInt16 startPos, endPos;
 
 	switch (eventP->eType) {
@@ -1650,6 +1656,22 @@ Boolean EditFormHandleEvent(EventPtr eventP)
 			ErrFatalDisplayIf(currentPasswordP == 0, "Password shouldn't be NULL");
 			FrmGotoForm(frmMainForm);
 			handled = true;
+			break;
+
+		/* Memo Details > Database: save the memo, then move it (DbForms.c) */
+		case dbMoveEvent:
+			{
+			Char * pw = 0;
+			formP = FrmGetActiveForm();
+			fieldP = FrmGetObjectPtr(formP, FrmGetObjectIndex(formP, fldEditText));
+			if (currentPasswordP) {
+				pw = MemPtrNew(StrLen(currentPasswordP) + 1);
+				if (pw) StrCopy(pw, currentPasswordP);
+			}
+			if (FldGetTextHandle(fieldP)) EditSaveData(fieldP);
+			EditMoveAfterSave((UInt8) eventP->data.generic.datum[0], pw);
+			handled = true;
+			}
 			break;
 
 		/* Notification was received to update the display */
@@ -1673,7 +1695,8 @@ Boolean EditFormHandleEvent(EventPtr eventP)
 
 				/* Changes the category of the current memo */
 				case popEditCategory:
-					EditSelectCategory();
+					if (SrcIsRom ((UInt8) currentDB)) FrmAlert (altMemoInRom);
+					else EditSelectCategory();
 					handled = true;
 					break;
 
@@ -1722,7 +1745,8 @@ Boolean EditFormHandleEvent(EventPtr eventP)
 			 * read-only so this can't actually modify anything, but give
 			 * explicit feedback once per open rather than silently eating
 			 * every keystroke. */
-			else if (CryptoEditGuardBlockKey(gEditRecordTooLargeToEdit, &gEditTooLargeWarned)) {
+			else if (CryptoEditGuardBlockKey(gEditRecordTooLargeToEdit, &gEditTooLargeWarned)
+					|| EditViewOnlyBlockKey()) {
 				handled = true;
 			}
 
@@ -1796,7 +1820,7 @@ Boolean EditFormHandleEvent(EventPtr eventP)
 			 * EditRetrieveData (called via EditFormInit below) makes the
 			 * field read-only for it, same as any other open path. */
 
-			if (currentDB == cryptoPadDB && CryptoGetRecordFlag(dbCryptoPadRef, currentRecord)) {
+			if (currentDB != memoPadDB && CryptoGetRecordFlag(dbCryptoPadRef, currentRecord)) {
 				/* Encrypted records now require their own password (in addition
 				 * to the device and global secrets), so they can't be decrypted
 				 * inline from a find result. Hand back to the list, where
